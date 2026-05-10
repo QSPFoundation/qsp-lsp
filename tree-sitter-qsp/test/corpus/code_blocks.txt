@@ -1,0 +1,470 @@
+================
+Syntactic code block in expression
+================
+# test
+dynamic {
+  x = 1
+  pl x
+}
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (code_block
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal))
+          (statement
+            name: (statement_name)
+            (variable_ref
+              name: (identifier_text))))))
+    (location_end)))
+
+================
+Code block assigned to variable
+================
+# test
+$code = { pl 'hello' }
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (code_block
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Code block with statement separator
+================
+# test
+dynamic { x = 1 & pl x }
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (code_block
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal))
+          (statement
+            name: (statement_name)
+            (variable_ref
+              name: (identifier_text))))))
+    (location_end)))
+
+================
+Multiline code block
+================
+# test
+$code = {
+  x = 1
+  pl x
+}
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (code_block
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal))
+          (statement
+            name: (statement_name)
+            (variable_ref
+              name: (identifier_text))))))
+    (location_end)))
+
+================
+Multiline code block with continuation statement
+================
+# test
+$s = {
+  x = 1
+  pl x
+} & pl 'done'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (code_block
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal))
+          (statement
+            name: (statement_name)
+            (variable_ref
+              name: (identifier_text)))))
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Nested code block in dynamic
+================
+# test
+dynamic {
+  dynamic {
+    pl 'inner'
+  }
+}
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (code_block
+          (statement
+            name: (statement_name)
+            (code_block
+              (statement
+                name: (statement_name)
+                (string
+                  (single_quoted_string))))))))
+    (location_end)))
+
+================
+Code block assigned inside code block
+================
+# test
+$code = {
+  $inner = {
+    pl 'hello'
+  }
+  dynamic $inner
+}
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (code_block
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                prefix: (type_prefix)
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (code_block
+              (statement
+                name: (statement_name)
+                (string
+                  (single_quoted_string)))))
+          (statement
+            name: (statement_name)
+            (variable_ref
+              prefix: (type_prefix)
+              name: (identifier_text))))))
+    (location_end)))
+
+================
+Three levels deep nested code blocks
+================
+# test
+dynamic {
+  dynamic {
+    dynamic {
+      pl 'deep'
+    }
+  }
+}
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (code_block
+          (statement
+            name: (statement_name)
+            (code_block
+              (statement
+                name: (statement_name)
+                (code_block
+                  (statement
+                    name: (statement_name)
+                    (string
+                      (single_quoted_string))))))))))
+    (location_end)))
+
+================
+Nested code blocks on single line
+================
+# test
+dynamic { dynamic { pl 'inner' } }
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (code_block
+          (statement
+            name: (statement_name)
+            (code_block
+              (statement
+                name: (statement_name)
+                (string
+                  (single_quoted_string))))))))
+    (location_end)))
+
+================
+Code block in if inside code block
+================
+# test
+dynamic {
+  if x > 0: dynamic { pl x }
+}
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (code_block
+          (if_inline
+            keyword: (if_keyword)
+            condition: (ext_binary
+              (variable_ref
+                name: (identifier_text))
+              (op_cmp)
+              (number_literal))
+            then: (statement
+              name: (statement_name)
+              (code_block
+                (statement
+                  name: (statement_name)
+                  (variable_ref
+                    name: (identifier_text)))))))))
+    (location_end)))
+
+================
+Nested block with statement separator
+================
+# test
+dynamic { x = 1 & dynamic { pl x } }
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (code_block
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal))
+          (statement
+            name: (statement_name)
+            (code_block
+              (statement
+                name: (statement_name)
+                (variable_ref
+                  name: (identifier_text))))))))
+    (location_end)))
+
+================
+Nested code block in multiline with mixed content
+================
+# test
+$code = {
+  x = 1
+  dynamic {
+    y = 2
+    pl x + y
+  }
+  pl 'done'
+}
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (code_block
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal))
+          (statement
+            name: (statement_name)
+            (code_block
+              (assignment_statement
+                variables: (variable_list
+                  (variable_ref
+                    name: (identifier_text)))
+                operator: (assignment_operator)
+                value: (number_literal))
+              (statement
+                name: (statement_name)
+                (na_binary
+                  (variable_ref
+                    name: (identifier_text))
+                  (op_arith)
+                  (variable_ref
+                    name: (identifier_text))))))
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Empty code block
+================
+# test
+dynamic { }
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (code_block)))
+    (location_end)))
+
+================
+Code block with bare string parses syntactically
+================
+# test
+dynamic { 'hello' }
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (code_block
+          (implicit_statement
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Code block with string containing braces parses syntactically
+================
+# test
+dynamic { 'text {with} braces' }
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (code_block
+          (implicit_statement
+            (string
+              (single_quoted_string))))))
+    (location_end)))

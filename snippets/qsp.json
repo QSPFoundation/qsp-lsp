@@ -1,0 +1,161 @@
+{
+  "Location": {
+    "prefix": "loc",
+    "body": [
+      "# ${1:location_name}",
+      "$0",
+      "---"
+    ],
+    "description": "QSP location block"
+  },
+  "If Block": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition}:",
+      "\t$0",
+      "end"
+    ],
+    "description": "If/end block"
+  },
+  "If Else Block": {
+    "prefix": "ife",
+    "body": [
+      "if ${1:condition}:",
+      "\t${2:! then}",
+      "else",
+      "\t$0",
+      "end"
+    ],
+    "description": "If/else/end block"
+  },
+  "If Elseif Else Block": {
+    "prefix": "ifee",
+    "body": [
+      "if ${1:condition}:",
+      "\t${2:! then}",
+      "elseif ${3:condition}:",
+      "\t${4:! elseif body}",
+      "else",
+      "\t$0",
+      "end"
+    ],
+    "description": "If/elseif/else/end block"
+  },
+  "If Inline": {
+    "prefix": "ifi",
+    "body": "if ${1:condition}: ${0:statement}",
+    "description": "Single-line if statement"
+  },
+  "Act Block": {
+    "prefix": "act",
+    "body": [
+      "act '${1:action name}':",
+      "\t$0",
+      "end"
+    ],
+    "description": "Act/end block"
+  },
+  "Act Inline": {
+    "prefix": "acti",
+    "body": "act '${1:action name}': ${0:statement}",
+    "description": "Single-line act statement"
+  },
+  "Loop Block": {
+    "prefix": "loop",
+    "body": [
+      "loop ${1:i} = ${2:0} while ${1:i} < ${3:10} step ${1:i} = ${1:i} + 1:",
+      "\t$0",
+      "end"
+    ],
+    "description": "Loop/while/step/end block"
+  },
+  "Loop Simple": {
+    "prefix": "loops",
+    "body": [
+      "loop while ${1:condition}:",
+      "\t$0",
+      "end"
+    ],
+    "description": "Simple loop/while/end block"
+  },
+  "Gosub": {
+    "prefix": "gs",
+    "body": "gosub '${1:location}'${2:, ${3:args}}",
+    "description": "Call a location as subroutine"
+  },
+  "Goto": {
+    "prefix": "gt",
+    "body": "goto '${1:location}'${2:, ${3:args}}",
+    "description": "Go to a location"
+  },
+  "Func": {
+    "prefix": "fn",
+    "body": "func('${1:location}'${2:, ${3:args}})",
+    "description": "Call location as function"
+  },
+  "Print Line": {
+    "prefix": "pl",
+    "body": "pl '${1:text}'",
+    "description": "Print a line to secondary description window"
+  },
+  "Print Line Interpolated": {
+    "prefix": "pli",
+    "body": "pl '${1:text} <<${2:expr}>>'",
+    "description": "Print line with interpolation"
+  },
+  "Message": {
+    "prefix": "msg",
+    "body": "msg '${1:text}'",
+    "description": "Show a message dialog"
+  },
+  "Local Variable": {
+    "prefix": "local",
+    "body": "local ${1:var} = ${0:value}",
+    "description": "Declare a local variable"
+  },
+  "Add Object": {
+    "prefix": "addobj",
+    "body": "addobj '${1:object name}'${2:, '${3:image}'}",
+    "description": "Add object to inventory"
+  },
+  "Dynamic Code": {
+    "prefix": "dyn",
+    "body": "dynamic {${0:code}}",
+    "description": "Execute dynamic code block"
+  },
+  "DynEval": {
+    "prefix": "dyne",
+    "body": "dyneval({${0:code}})",
+    "description": "Execute dynamic code and return result"
+  },
+  "Label": {
+    "prefix": ":",
+    "body": ":${1:label_name}",
+    "description": "Define a label"
+  },
+  "Jump": {
+    "prefix": "jump",
+    "body": "jump '${1:label}'",
+    "description": "Jump to a label"
+  },
+  "Input": {
+    "prefix": "inp",
+    "body": "\\$${1:var} = input('${2:prompt}')",
+    "description": "Get user input"
+  },
+  "Wait": {
+    "prefix": "wait",
+    "body": "wait ${1:500}",
+    "description": "Wait for milliseconds"
+  },
+  "Menu": {
+    "prefix": "menu",
+    "body": "menu '${1:menuvar}'",
+    "description": "Show a popup menu"
+  },
+  "Comment Block": {
+    "prefix": "!",
+    "body": "! ${0:comment}",
+    "description": "Line comment"
+  }
+}

@@ -1,0 +1,1004 @@
+================
+Numeric variable (no prefix)
+================
+# test
+x = 42
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+String variable ($ prefix)
+================
+# test
+$name = 'Alice'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Numeric variable (# prefix)
+================
+# test
+#score = 100
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Tuple variable (% prefix)
+================
+# test
+%data = [1, 2, 3]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple
+            (number_literal)
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+String variable with array index
+================
+# test
+$items[0] = 'sword'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)
+            index: (array_index
+              (number_literal))))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Multiple variable assignment
+================
+# test
+x, y, z = 1, 2, 3
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text))
+          (variable_ref
+            name: (identifier_text))
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)
+        value: (number_literal)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Compound assignment operators
+================
+# test
+x += 1
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Local string variable
+================
+# test
+local $msg = 'hello'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (local_statement
+        keyword: (local_keyword)
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Local without initial value
+================
+# test
+local x
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (local_statement
+        keyword: (local_keyword)
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))))
+    (location_end)))
+
+================
+Let keyword
+================
+# test
+let x = 5
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        keyword: (set_keyword)
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Array index with string key
+================
+# test
+x['key'] = 10
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)
+            index: (array_index
+              (string
+                (single_quoted_string)))))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Empty array index
+================
+# test
+x[] = 5
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)
+            index: (array_index)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Multi-dimensional array index
+================
+# test
+$x[1, 2] = 'val'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)
+            index: (array_index
+              (number_literal)
+              (number_literal))))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Multiple local variables with values
+================
+# test
+local $a, $b = 'x', 'y'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (local_statement
+        keyword: (local_keyword)
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text))
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        value: (string
+          (single_quoted_string))
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Set keyword with string variable
+================
+# test
+set $name = 'Alice'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        keyword: (set_keyword)
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Compound multiply assignment
+================
+# test
+x *= 2
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Compound divide assignment
+================
+# test
+x /= 4
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Hash prefix variable in expression
+================
+# test
+if #score >= 50: pl 'pass'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Percent prefix variable in assignment
+================
+# test
+%pair = (10, 20)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (paren_tuple
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Variable with expression in array index
+================
+# test
+x[i + 1] = 0
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)
+            index: (array_index
+              (ml_binary
+                (ml_variable_ref
+                  name: (identifier_text))
+                (op_arith)
+                (number_literal)))))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Numeric array set by numeric index
+================
+# test
+x[0] = 42
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)
+            index: (array_index
+              (number_literal))))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Numeric array set by string index
+================
+# test
+x['key'] = 10
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)
+            index: (array_index
+              (string
+                (single_quoted_string)))))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Numeric array set by tuple index
+================
+# test
+x[[1, 2]] = 99
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)
+            index: (array_index
+              (tuple
+                (bracket_tuple
+                  (number_literal)
+                  (number_literal))))))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+String array set by string index
+================
+# test
+$arr['key'] = 'value'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)
+            index: (array_index
+              (string
+                (single_quoted_string)))))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+String array set by tuple index
+================
+# test
+$arr[[1, 2]] = 'hello'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)
+            index: (array_index
+              (tuple
+                (bracket_tuple
+                  (number_literal)
+                  (number_literal))))))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Tuple array set by numeric index
+================
+# test
+%arr[0] = [1, 2]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)
+            index: (array_index
+              (number_literal))))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Tuple array set by string index
+================
+# test
+%arr['key'] = [10, 20]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)
+            index: (array_index
+              (string
+                (single_quoted_string)))))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Tuple array set by tuple index
+================
+# test
+%arr[[1, 2]] = [10, 20]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)
+            index: (array_index
+              (tuple
+                (bracket_tuple
+                  (number_literal)
+                  (number_literal))))))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Numeric array get by numeric index
+================
+# test
+y = x[0]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (variable_ref
+          name: (identifier_text)
+          index: (array_index
+            (number_literal)))))
+    (location_end)))
+
+================
+String array get by string index
+================
+# test
+$r = $arr['name']
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (variable_ref
+          prefix: (type_prefix)
+          name: (identifier_text)
+          index: (array_index
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Tuple array get by tuple index
+================
+# test
+%t = %arr[[1, 2]]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (variable_ref
+          prefix: (type_prefix)
+          name: (identifier_text)
+          index: (array_index
+            (tuple
+              (bracket_tuple
+                (number_literal)
+                (number_literal)))))))
+    (location_end)))
+
+================
+Composite index with mixed types (set)
+================
+# test
+a[3, 4, 'dd'] = 3
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)
+            index: (array_index
+              (number_literal)
+              (number_literal)
+              (string
+                (single_quoted_string)))))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Composite index with mixed types (get)
+================
+# test
+y = x[1, 'key']
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (variable_ref
+          name: (identifier_text)
+          index: (array_index
+            (number_literal)
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Three-element numeric composite index
+================
+# test
+x[1, 2, 3] = 99
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)
+            index: (array_index
+              (number_literal)
+              (number_literal)
+              (number_literal))))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+String array get by mixed composite index
+================
+# test
+$s = $arr[1, 'key']
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (variable_ref
+          prefix: (type_prefix)
+          name: (identifier_text)
+          index: (array_index
+            (number_literal)
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Tuple array set by mixed composite index
+================
+# test
+%arr[1, 'key'] = [10, 20]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)
+            index: (array_index
+              (number_literal)
+              (string
+                (single_quoted_string)))))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Multiline array index with closing bracket on next line
+================
+# test
+x = arr[1,
+  2
+]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (variable_ref
+          name: (identifier_text)
+          index: (array_index
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Variable name with @ inside
+================
+# test
+a@b = 1
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Variable name with dot inside
+================
+# test
+foo.bar = 1
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+User func call to location with @ in name
+================
+# test
+@a@b
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (implicit_statement
+        (user_func_call
+          name: (user_name))))
+    (location_end)))
+
+================
+Gosub call to location with @ in name
+================
+# test
+@@a@b
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (user_call_statement
+        name: (user_name)))
+    (location_end)))

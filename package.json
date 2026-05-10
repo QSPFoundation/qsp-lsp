@@ -1,0 +1,578 @@
+{
+  "name": "qsp-lsp",
+  "displayName": "QSP Language Support",
+  "description": "Language server for QSP (Quest Soft Player) game files",
+  "version": "0.1.7",
+  "publisher": "qsp",
+  "license": "MPL-2.0",
+  "icon": "icons/qsp-logo.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/qsp/qsp-lsp"
+  },
+  "homepage": "https://github.com/qsp/qsp-lsp#readme",
+  "bugs": {
+    "url": "https://github.com/qsp/qsp-lsp/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [],
+  "main": "./out/client/nodeMain.js",
+  "browser": "./out/client/browserMain.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "qsp",
+        "aliases": [
+          "QSP",
+          "Quest Soft Player"
+        ],
+        "extensions": [
+          ".qsps",
+          ".qsrc"
+        ],
+        "icon": {
+          "light": "./icons/qsp-logo.png",
+          "dark": "./icons/qsp-logo.png"
+        },
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "qsp",
+        "scopeName": "source.qsp",
+        "path": "./syntaxes/qsp.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "qsp",
+        "path": "./snippets/qsp.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "qsp.goToLocation",
+        "title": "Go to Location…",
+        "category": "QSP",
+        "icon": "$(symbol-namespace)"
+      },
+      {
+        "command": "qsp.newLocation",
+        "title": "New Location",
+        "category": "QSP",
+        "icon": "$(add)"
+      },
+      {
+        "command": "qsp.insertSeparator",
+        "title": "Insert Location Separator (---)",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.sortLocations",
+        "title": "Sort Locations (A → Z)",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.sortLocationsDesc",
+        "title": "Sort Locations (Z → A)",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.duplicateLocation",
+        "title": "Duplicate Location…",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.deleteLocation",
+        "title": "Delete Location",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.renameLocation",
+        "title": "Rename Location…",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.moveLocationUp",
+        "title": "Move Location Up",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.moveLocationDown",
+        "title": "Move Location Down",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.toggleComment",
+        "title": "Toggle Comment",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.formatLocation",
+        "title": "Format Location",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.listLocations",
+        "title": "List All Locations",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.listObjects",
+        "title": "List All Objects",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.listVariables",
+        "title": "List All Variables",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.moveLocationsToFile",
+        "title": "Move Locations to File…",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.splitLocationsToFiles",
+        "title": "Split Locations into Files…",
+        "category": "QSP"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "qsp.goToLocation",
+          "when": "editorLangId == qsp",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "qsp.goToLocation",
+          "when": "editorLangId == qsp",
+          "group": "navigation@1"
+        },
+        {
+          "command": "qsp.newLocation",
+          "when": "editorLangId == qsp",
+          "group": "navigation@2"
+        },
+        {
+          "command": "qsp.duplicateLocation",
+          "when": "editorLangId == qsp",
+          "group": "navigation@3"
+        },
+        {
+          "command": "qsp.deleteLocation",
+          "when": "editorLangId == qsp",
+          "group": "navigation@4"
+        },
+        {
+          "command": "qsp.renameLocation",
+          "when": "editorLangId == qsp",
+          "group": "navigation@5"
+        },
+        {
+          "command": "qsp.formatLocation",
+          "when": "editorLangId == qsp",
+          "group": "1_modification@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "qsp.moveLocationsToFile",
+          "when": "resourceLangId == qsp",
+          "group": "7_modification@1"
+        },
+        {
+          "command": "qsp.splitLocationsToFiles",
+          "when": "resourceLangId == qsp",
+          "group": "7_modification@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "qsp.goToLocation",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.newLocation",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.insertSeparator",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.sortLocations",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.sortLocationsDesc",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.duplicateLocation",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.deleteLocation",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.renameLocation",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.moveLocationUp",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.moveLocationDown",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.toggleComment",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.formatLocation",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.listLocations",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.listObjects",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.listVariables",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.moveLocationsToFile",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.splitLocationsToFiles",
+          "when": "editorLangId == qsp"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "qsp.goToLocation",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l",
+        "when": "editorLangId == qsp"
+      },
+      {
+        "command": "qsp.insertSeparator",
+        "key": "ctrl+shift+-",
+        "mac": "cmd+shift+-",
+        "when": "editorLangId == qsp"
+      },
+      {
+        "command": "qsp.moveLocationUp",
+        "key": "alt+up",
+        "mac": "alt+up",
+        "when": "editorLangId == qsp"
+      },
+      {
+        "command": "qsp.moveLocationDown",
+        "key": "alt+down",
+        "mac": "alt+down",
+        "when": "editorLangId == qsp"
+      },
+      {
+        "command": "qsp.toggleComment",
+        "key": "ctrl+/",
+        "mac": "cmd+/",
+        "when": "editorLangId == qsp"
+      },
+      {
+        "command": "qsp.formatLocation",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "editorLangId == qsp"
+      }
+    ],
+    "configuration": {
+      "title": "QSP",
+      "properties": {
+        "qsp.project.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable project mode: treat all .qsps/.qsrc files in the workspace as parts of one combined game file. Cross-file diagnostics, completions, and navigation will span all project files."
+        },
+        "qsp.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the QSP language server."
+        },
+        "qsp.diagnostics.duplicateLocations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Report duplicate location names as errors. In project mode, detects cross-file duplicates."
+        },
+        "qsp.diagnostics.duplicateLabels": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn about duplicate label definitions within the same location."
+        },
+        "qsp.diagnostics.duplicateActions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Info about duplicate act statements within the same location."
+        },
+        "qsp.diagnostics.unreachableLabels": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn about labels that are not at the start of a line - they are unreachable."
+        },
+        "qsp.diagnostics.unclosedLocations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Error about locations not closed with '--'."
+        },
+        "qsp.diagnostics.uninitializedVariables": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn about variables used but never assigned in any location. In project mode, checks across all project files."
+        },
+        "qsp.diagnostics.unresolvedLocationRefs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn about references to locations not defined in the current file (or project, in project mode)."
+        },
+        "qsp.diagnostics.unresolvedLabelRefs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn about jump statements referencing labels not defined in the same location."
+        },
+        "qsp.diagnostics.unresolvedActionRefs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn about referencing actions not defined anywhere in the file (or project, in project mode)."
+        },
+        "qsp.diagnostics.unresolvedObjectRefs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn about referencing objects not added anywhere in the file (or project, in project mode)."
+        },
+        "qsp.diagnostics.unusedLocations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hint about locations that are defined but never referenced from any other location. In project mode, checks across all project files."
+        },
+        "qsp.diagnostics.unusedLabels": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hint about labels that are defined but never targeted by jump in the same location."
+        },
+        "qsp.diagnostics.unusedVariables": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hint about variables that are assigned but never read anywhere in the file (or project, in project mode)."
+        },
+        "qsp.diagnostics.unusedObjects": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hint about objects added but never referenced. In project mode, checks across all project files."
+        },
+        "qsp.diagnostics.invalidFunctionPrefix": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn when a function is called with an incompatible type prefix ($, #, %)."
+        },
+        "qsp.diagnostics.invalidBuiltinArgCount": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn when a built-in statement or function is called with too few or too many arguments."
+        },
+        "qsp.diagnostics.mixedVariablePrefixes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Info when a variable is accessed with different type prefixes ($, #, %, or none) across the file (or project, in project mode)."
+        },
+        "qsp.diagnostics.typeMismatch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Info when a variable is assigned a value of the wrong type (e.g. assigning a number to a string variable, or a string to a numeric variable)."
+        },
+        "qsp.diagnostics.inconsistentLocalPropagation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warning when a variable in called location is propagated as local by some callers but not others, causing it to behave as local or global depending on the call path."
+        },
+        "qsp.diagnostics.mixedLocationCallTypes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Info when a location is called with mixed call types (func vs gosub vs goto)."
+        },
+        "qsp.diagnostics.untrackedDynamicCalls": {
+          "type": "boolean",
+          "default": true,
+          "description": "Info when a dynamic/dyneval call cannot be statically resolved to a specific code block (e.g. the variable has multiple assignments, or the first argument is a complex expression). Local variables and references inside such blocks are not tracked."
+        },
+        "qsp.diagnostics.missingResultInFunctionCall": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn when a function-style call (`@loc`, `func`, or a `dyneval` block) never assigns `result`, so the call returns no value."
+        },
+        "qsp.diagnostics.extraArgsToTargetWithoutArgs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Info when a call passes extra positional arguments but the target location or inline code block never reads `args`. The extras are silently discarded."
+        },
+        "qsp.diagnostics.shadowsCallFrameBuiltin": {
+          "type": "boolean",
+          "default": true,
+          "description": "Info on `local args` / `local result` declarations. `args` and `result` are already per-call-frame variables, so re-declaring them as `local` is unnecessary — at the top level of a location it has no effect, and inside a nested scope it just hides the outer value."
+        },
+        "qsp.diagnostics.shadowsPropagatedLocal": {
+          "type": "boolean",
+          "default": true,
+          "description": "Info when a `local x` declaration shadows a local variable propagated in from one or more callers."
+        },
+        "qsp.diagnostics.maxErrorsPerLocation": {
+          "type": "integer",
+          "default": 20,
+          "minimum": 1,
+          "description": "Maximum number of syntax errors reported per location. Locations exceeding this limit show a single summary warning instead."
+        },
+        "qsp.diagnostics.maxLocationLines": {
+          "type": "integer",
+          "default": 500,
+          "minimum": 0,
+          "description": "Maximum number of lines per location. Locations exceeding this limit show a warning. Set to 0 to disable."
+        },
+        "qsp.semanticHighlighting.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable semantic highlighting (requires tree-sitter)."
+        },
+        "qsp.hover.possibleValues": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show 'Possible values' section in variable hovers, listing statically-known assignments to the variable across the file (or project, in project mode)."
+        }
+      }
+    },
+    "semanticTokenScopes": [
+      {
+        "language": "qsp",
+        "scopes": {
+          "namespace": [
+            "entity.name.section.location.qsp"
+          ],
+          "variable": [
+            "variable.other.readwrite.qsp"
+          ],
+          "function": [
+            "support.function.builtin.qsp"
+          ],
+          "keyword": [
+            "keyword.control.qsp"
+          ],
+          "string": [
+            "string.quoted.qsp"
+          ],
+          "number": [
+            "constant.numeric.qsp"
+          ],
+          "comment": [
+            "comment.line.qsp"
+          ],
+          "operator": [
+            "keyword.operator.qsp"
+          ],
+          "property": [
+            "entity.name.label.qsp"
+          ],
+          "macro": [
+            "entity.name.function.user.qsp"
+          ],
+          "parameter": [
+            "punctuation.definition.variable.type.qsp"
+          ],
+          "type": [
+            "keyword.other.statement.qsp"
+          ],
+          "method": [
+            "support.function.builtin.qsp"
+          ],
+          "decorator": [
+            "punctuation.definition.location.qsp"
+          ],
+          "enumMember": [
+            "comment.line.location-end.qsp"
+          ]
+        }
+      }
+    ],
+    "configurationDefaults": {
+      "editor.semanticTokenColorCustomizations": {
+        "rules": {
+          "namespace.goto:qsp": {
+            "foreground": "#e06c75"
+          },
+          "type.controlFlow:qsp": {
+            "foreground": "#e06c75"
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build:grammar": "cd tree-sitter-qsp && npx tree-sitter generate && npx tree-sitter build --wasm && cp tree-sitter-qsp.wasm ../out/",
+    "build:server:node": "esbuild src/server/nodeMain.ts --bundle --outfile=out/server/nodeMain.js --platform=node --format=cjs --external:vscode --target=node18",
+    "build:server:browser": "esbuild src/server/browserMain.ts --bundle --outfile=out/server/browserMain.js --platform=browser --format=esm --target=es2020 --external:web-tree-sitter",
+    "build:client:node": "esbuild src/client/nodeMain.ts --bundle --outfile=out/client/nodeMain.js --platform=node --format=cjs --external:vscode --target=node18",
+    "build:client:browser": "esbuild src/client/browserMain.ts --bundle --outfile=out/client/browserMain.js --platform=browser --format=esm --external:vscode --target=es2020",
+    "build:copy-wasm": "cp node_modules/web-tree-sitter/tree-sitter.wasm out/server/tree-sitter.wasm",
+    "build": "npm run build:grammar && npm run build:server:node && npm run build:server:browser && npm run build:client:node && npm run build:client:browser && npm run build:copy-wasm",
+    "watch:server:node": "esbuild src/server/nodeMain.ts --bundle --outfile=out/server/nodeMain.js --platform=node --format=cjs --external:vscode --target=node18 --watch",
+    "watch:server:browser": "esbuild src/server/browserMain.ts --bundle --outfile=out/server/browserMain.js --platform=browser --format=esm --target=es2020 --external:web-tree-sitter --watch",
+    "watch:client:node": "esbuild src/client/nodeMain.ts --bundle --outfile=out/client/nodeMain.js --platform=node --format=cjs --external:vscode --target=node18 --watch",
+    "watch:client:browser": "esbuild src/client/browserMain.ts --bundle --outfile=out/client/browserMain.js --platform=browser --format=esm --external:vscode --target=es2020 --watch",
+    "watch": "npm run watch:server:node & npm run watch:server:browser & npm run watch:client:node & npm run watch:client:browser",
+    "lint": "eslint",
+    "test": "vitest run",
+    "check": "bash scripts/build.sh --check",
+    "release": "bash scripts/build.sh",
+    "package": "npx @vscode/vsce package",
+    "publish": "npx @vscode/vsce publish"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11",
+    "vscode-uri": "^3.1.0",
+    "web-tree-sitter": "^0.24.7"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.0.0",
+    "tree-sitter-cli": "^0.24.7",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
+  }
+}

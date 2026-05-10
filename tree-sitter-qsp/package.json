@@ -1,0 +1,32 @@
+{
+  "name": "tree-sitter-qsp",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for QSP (Quest Soft Player)",
+  "main": "bindings/node",
+  "keywords": [
+    "tree-sitter",
+    "parser",
+    "qsp"
+  ],
+  "license": "MPL-2.0",
+  "dependencies": {
+    "nan": "^2.18.0"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.24.7"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "build-wasm": "tree-sitter build --wasm",
+    "test": "tree-sitter test",
+    "parse": "tree-sitter parse"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.qsp",
+      "file-types": ["qsps", "qsrc"],
+      "highlights": "queries/highlights.scm",
+      "injection-regex": "qsp"
+    }
+  ]
+}

@@ -1,0 +1,456 @@
+================
+Function with $ prefix
+================
+# test
+$s = $mid('hello', 1, 3)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          prefix: (type_prefix)
+          name: (function_name)
+          (paren_args
+            (string
+              (single_quoted_string))
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Function with paren multiple args
+================
+# test
+x = rand(1, 10)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (paren_args
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Function with single bare arg
+================
+# test
+x = arrsize 'myarr'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Function with empty paren args
+================
+# test
+x = rnd()
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name))))
+    (location_end)))
+
+================
+Function with no args
+================
+# test
+x = rnd
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name))))
+    (location_end)))
+
+================
+Function in if condition (ext context)
+================
+# test
+if len('hi') > 0: pl 'ok'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (ext_func_call
+            name: (function_name)
+            (paren_args
+              (string
+                (single_quoted_string))))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+IIF function
+================
+# test
+x = iif(a > 0, 'yes', 'no')
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (paren_args
+            (ml_binary
+              (ml_variable_ref
+                name: (identifier_text))
+              (op_cmp)
+              (number_literal))
+            (string
+              (single_quoted_string))
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Replace function with $ prefix
+================
+# test
+$s = $replace('hello world', 'world', 'QSP')
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          prefix: (type_prefix)
+          name: (function_name)
+          (paren_args
+            (string
+              (single_quoted_string))
+            (string
+              (single_quoted_string))
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Str function
+================
+# test
+$s = $str(42)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          prefix: (type_prefix)
+          name: (function_name)
+          (paren_args
+            (number_literal)))))
+    (location_end)))
+
+================
+Ucase function
+================
+# test
+$s = $ucase('hello')
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          prefix: (type_prefix)
+          name: (function_name)
+          (paren_args
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Dyneval function
+================
+# test
+$s = $dyneval('$result = "ok" & $result')
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          prefix: (type_prefix)
+          name: (function_name)
+          (paren_args
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Val function
+================
+# test
+x = val('42')
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (paren_args
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Instr function
+================
+# test
+x = instr('hello world', 'world')
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (paren_args
+            (string
+              (single_quoted_string))
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Max and min functions
+================
+# test
+x = max(a, b)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (paren_args
+            (ml_variable_ref
+              name: (identifier_text))
+            (ml_variable_ref
+              name: (identifier_text))))))
+    (location_end)))
+
+================
+Arrsize function with bare arg
+================
+# test
+x = arrsize 'myarr'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Multiline function call with closing paren on next line
+================
+# test
+x = mid('abc', 1,
+  2
+)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (paren_args
+            (string
+              (single_quoted_string))
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Multiline function call with newlines around all args
+================
+# test
+x = mid(
+  'abc',
+  1,
+  2
+)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (paren_args
+            (string
+              (single_quoted_string))
+            (number_literal)
+            (number_literal)))))
+    (location_end)))

@@ -1,0 +1,108 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# QSP LSP — Release
+#
+# Triggered by:
+#   • Pushing a version tag with 'v' prefix: v1.2.3
+#   • Manual run via workflow_dispatch (specify version like 1.2.3)
+#
+# Steps:
+#   1. Resolve target version (from tag or manual input)
+#   2. Build & test
+#   3. Package VSIX with the resolved version
+#   4. Create a GitHub Release with the VSIX attached
+#   5. (Optional) Publish to VS Code Marketplace / Open VSX
+# ─────────────────────────────────────────────────────────────────────────────
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 1.2.3 or 1.2.3-rc1 — leading 'v' is stripped)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# Prevent two releases for the same version from racing each other
+# (tag push + manual run, or two manual runs).
+concurrency:
+  group: release-${{ github.event.inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            RAW="$INPUT_VERSION"
+            # Manual runs accept the version with or without a leading 'v';
+            # the tag we create afterwards is the bare version (no 'v').
+            VERSION="${RAW#v}"
+            TAG="$VERSION"
+          else
+            # Tag pushes require the 'v' prefix (matched by `on.push.tags`).
+            RAW="$GITHUB_REF_NAME"
+            VERSION="${RAW#v}"
+            TAG="$RAW"
+          fi
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Empty version"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build, test & package
+        run: bash scripts/build.sh "${{ steps.version.outputs.version }}"
+
+      - name: Create tag (manual run only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "refs/tags/$TAG"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          files: qsp-lsp-${{ steps.version.outputs.version }}.vsix
+          generate_release_notes: true
+
+      # ── Uncomment to auto-publish to VS Code Marketplace ──────────────
+      # - name: Publish to VS Code Marketplace
+      #   run: npx @vscode/vsce publish --packagePath qsp-lsp-${{ steps.version.outputs.version }}.vsix
+      #   env:
+      #     VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      # ── Uncomment to auto-publish to Open VSX ─────────────────────────
+      # - name: Publish to Open VSX
+      #   run: npx ovsx publish qsp-lsp-${{ steps.version.outputs.version }}.vsix
+      #   env:
+      #     OVSX_PAT: ${{ secrets.OVSX_PAT }}

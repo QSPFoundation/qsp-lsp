@@ -1,0 +1,698 @@
+================
+Binary and operator
+================
+# test
+if x and y: pl 'both'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_and)
+          (variable_ref
+            name: (identifier_text)))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Binary or operator
+================
+# test
+if x or y: pl 'either'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_or)
+          (variable_ref
+            name: (identifier_text)))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Mod operator
+================
+# test
+x = 10 mod 3
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_binary
+          (number_literal)
+          (op_mod)
+          (number_literal))))
+    (location_end)))
+
+================
+Unary obj operator
+================
+# test
+if obj 'key': pl 'have it'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_unary
+          (op_obj)
+          (string
+            (single_quoted_string)))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Unary loc operator
+================
+# test
+if loc 'room': pl 'exists'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_unary
+          (op_loc)
+          (string
+            (single_quoted_string)))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Unary negation
+================
+# test
+x = -5
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_unary
+          (op_neg)
+          (number_literal))))
+    (location_end)))
+
+================
+Arithmetic precedence (* before +)
+================
+# test
+x = 2 + 3 * 4
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_binary
+          (number_literal)
+          (op_arith)
+          (na_binary
+            (number_literal)
+            (op_arith)
+            (number_literal)))))
+    (location_end)))
+
+================
+Comparison operators
+================
+# test
+if x <> 0: pl 'non-zero'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Ampersand concatenation in expression
+================
+# test
+if $a & $b = 'AB': pl 'ok'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (ext_binary
+            (variable_ref
+              prefix: (type_prefix)
+              name: (identifier_text))
+            (op_amp)
+            (variable_ref
+              prefix: (type_prefix)
+              name: (identifier_text)))
+          (op_cmp)
+          (string
+            (single_quoted_string)))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Parenthesized expression
+================
+# test
+x = (2 + 3) * 4
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_binary
+          (paren_expr
+            (ml_binary
+              (number_literal)
+              (op_arith)
+              (number_literal)))
+          (op_arith)
+          (number_literal))))
+    (location_end)))
+
+================
+Bang not-equal operator
+================
+# test
+if x ! 0: pl 'ok'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Less-than-or-equal operator
+================
+# test
+if x <= 10: pl 'ok'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Equal-less-than operator
+================
+# test
+if x =< 10: pl 'ok'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Greater-than-or-equal operator
+================
+# test
+if x >= 10: pl 'ok'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Equal-greater-than operator
+================
+# test
+if x => 10: pl 'ok'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Less-than operator
+================
+# test
+if x < 5: pl 'small'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Equality operator
+================
+# test
+if x = 5: pl 'five'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Complex precedence: no and obj
+================
+# test
+x = no obj 'key' and y > 0
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_binary
+          (na_unary
+            (op_no)
+            (na_unary
+              (op_obj)
+              (string
+                (single_quoted_string))))
+          (op_and)
+          (na_binary
+            (variable_ref
+              name: (identifier_text))
+            (op_cmp)
+            (number_literal)))))
+    (location_end)))
+
+================
+Unary precedence: no binds looser than comparison
+================
+# test
+x = no y = 1
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_unary
+          (op_no)
+          (na_binary
+            (variable_ref
+              name: (identifier_text))
+            (op_cmp)
+            (number_literal)))))
+    (location_end)))
+
+================
+Unary precedence: obj binds looser than addition
+================
+# test
+if obj 'a' + 'b': pl 'ok'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_unary
+          (op_obj)
+          (ext_binary
+            (string
+              (single_quoted_string))
+            (op_arith)
+            (string
+              (single_quoted_string))))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Unary precedence: loc binds looser than concatenation
+================
+# test
+if loc 'room' & '1': pl 'ok'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_unary
+          (op_loc)
+          (ext_binary
+            (string
+              (single_quoted_string))
+            (op_amp)
+            (string
+              (single_quoted_string))))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Unary precedence: negation binds tighter than multiplication
+================
+# test
+x = -y * 2
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_binary
+          (na_unary
+            (op_neg)
+            (variable_ref
+              name: (identifier_text)))
+          (op_arith)
+          (number_literal))))
+    (location_end)))
+
+================
+Multiline expression in parentheses
+================
+# test
+x = (1 +
+2)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (paren_expr
+          (ml_binary
+            (number_literal)
+            (op_arith)
+            (number_literal)))))
+    (location_end)))
+
+================
+Division operator
+================
+# test
+x = 10 / 2
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_binary
+          (number_literal)
+          (op_arith)
+          (number_literal))))
+    (location_end)))
+
+================
+Subtraction operator
+================
+# test
+x = 10 - 3
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_binary
+          (number_literal)
+          (op_arith)
+          (number_literal))))
+    (location_end)))
+
+================
+Nested parentheses
+================
+# test
+x = ((1 + 2) * (3 + 4))
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (paren_expr
+          (ml_binary
+            (paren_expr
+              (ml_binary
+                (number_literal)
+                (op_arith)
+                (number_literal)))
+            (op_arith)
+            (paren_expr
+              (ml_binary
+                (number_literal)
+                (op_arith)
+                (number_literal)))))))
+    (location_end)))

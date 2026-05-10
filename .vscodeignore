@@ -1,0 +1,17 @@
+.vscode/**
+.venv/**
+.github/**
+scripts/**
+node_modules/**
+src/**
+tree-sitter-qsp/**
+test/**
+examples/**
+tsconfig.json
+tsconfig.eslint.json
+vitest.config.ts
+eslint.config.mjs
+**/*.ts
+**/*.map
+.gitignore
+*.vsix

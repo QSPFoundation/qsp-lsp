@@ -1,0 +1,477 @@
+================
+Empty location
+================
+# test
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (location_end)))
+
+================
+Location with assignment
+================
+# myLoc
+x = 5
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+If inline
+================
+# test
+if x > 0: pl 'hello'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Comment
+================
+# test
+! this is a comment
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text)))
+    (location_end)))
+
+================
+Multiple locations
+================
+# loc1
+x = 1
+--
+# loc2
+y = 2
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end))
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+String variable with prefix
+================
+# test
+$name = 'hello'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Act block
+================
+# test
+act 'do something':
+  x = 1
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (act_block
+        keyword: (act_keyword)
+        args: (string
+          (single_quoted_string))
+        (single_line_block
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal)))
+        end: (end_keyword)))
+    (location_end)))
+
+================
+Label
+================
+# test
+:myLabel
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (label_statement
+        name: (label_name)))
+    (location_end)))
+
+================
+If block with else
+================
+# test
+if x > 0:
+  pl 'positive'
+else:
+  pl 'not positive'
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        (single_line_block
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        (else_clause
+          keyword: (else_keyword)
+          (single_line_block
+            (statement
+              name: (statement_name)
+              (string
+                (single_quoted_string)))))
+        end: (end_keyword)))
+    (location_end)))
+
+================
+Loop inline
+================
+# test
+loop local i = 0 while i < 5 step i = i + 1: pl i
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (loop_inline
+        keyword: (loop_keyword)
+        init: (local_statement
+          keyword: (local_keyword)
+          variables: (variable_list
+            (variable_ref
+              name: (identifier_text)))
+          value: (number_literal))
+        while: (while_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        step_kw: (step_keyword)
+        step: (assignment_statement
+          variables: (variable_list
+            (variable_ref
+              name: (identifier_text)))
+          operator: (assignment_operator)
+          value: (na_binary
+            (variable_ref
+              name: (identifier_text))
+            (op_arith)
+            (number_literal)))
+        body: (statement
+          name: (statement_name)
+          (variable_ref
+            name: (identifier_text)))))
+    (location_end)))
+
+================
+Statement separator
+================
+# test
+x = 1 & y = 2 & pl 'done'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal))
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal))
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Act inline
+================
+# test
+act 'click me': pl 'clicked!'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (act_inline
+        keyword: (act_keyword)
+        args: (string
+          (single_quoted_string))
+        body: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Gosub statement
+================
+# test
+gosub 'other'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Local variable
+================
+# test
+local x = 5
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (local_statement
+        keyword: (local_keyword)
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        value: (number_literal)))
+    (location_end)))
+
+================
+Function call
+================
+# test
+x = len('hello')
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (paren_args
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Unary no operator
+================
+# test
+if no x: pl 'empty'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_unary
+          (op_no)
+          (variable_ref
+            name: (identifier_text)))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Set keyword
+================
+# test
+set x = 10
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        keyword: (set_keyword)
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Array index
+================
+# test
+$x[0] = 'value'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)
+            index: (array_index
+              (number_literal))))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Double quoted string
+================
+# test
+$s = "hello"
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (double_quoted_string))))
+    (location_end)))

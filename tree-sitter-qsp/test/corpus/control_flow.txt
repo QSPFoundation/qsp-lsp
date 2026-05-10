@@ -1,0 +1,556 @@
+================
+If with elseif inline
+================
+# test
+if x = 1: pl 'one' elseif x = 2: pl 'two'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))
+        (elseif_inline
+          keyword: (elseif_keyword)
+          condition: (ext_binary
+            (variable_ref
+              name: (identifier_text))
+            (op_cmp)
+            (number_literal))
+          body: (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+If with elseif and else inline
+================
+# test
+if x = 1: pl 'one' elseif x = 2: pl 'two' else pl 'other'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))
+        (elseif_inline
+          keyword: (elseif_keyword)
+          condition: (ext_binary
+            (variable_ref
+              name: (identifier_text))
+            (op_cmp)
+            (number_literal))
+          body: (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        (else_inline
+          keyword: (else_keyword)
+          body: (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+If block with elseif and else
+================
+# test
+if x = 1:
+  pl 'one'
+elseif x = 2:
+  pl 'two'
+else:
+  pl 'other'
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        (single_line_block
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        (elseif_clause
+          keyword: (elseif_keyword)
+          condition: (ext_binary
+            (variable_ref
+              name: (identifier_text))
+            (op_cmp)
+            (number_literal))
+          (single_line_block
+            (statement
+              name: (statement_name)
+              (string
+                (single_quoted_string)))))
+        (else_clause
+          keyword: (else_keyword)
+          (single_line_block
+            (statement
+              name: (statement_name)
+              (string
+                (single_quoted_string)))))
+        end: (end_keyword)))
+    (location_end)))
+
+================
+If block with comment after colon
+================
+# test
+if x > 0: ! check
+  pl 'yes'
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        (comment_statement
+          (comment_text))
+        (single_line_block
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        end: (end_keyword)))
+    (location_end)))
+
+================
+Else without colon
+================
+# test
+if x > 0:
+  pl 'positive'
+else
+  pl 'not positive'
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        (single_line_block
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        (else_clause
+          keyword: (else_keyword)
+          (single_line_block
+            (statement
+              name: (statement_name)
+              (string
+                (single_quoted_string)))))
+        end: (end_keyword)))
+    (location_end)))
+
+================
+Loop block
+================
+# test
+loop local i = 0 while i < 3 step i += 1:
+  pl i
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (loop_block
+        keyword: (loop_keyword)
+        init: (local_statement
+          keyword: (local_keyword)
+          variables: (variable_list
+            (variable_ref
+              name: (identifier_text)))
+          value: (number_literal))
+        while: (while_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        step_kw: (step_keyword)
+        step: (assignment_statement
+          variables: (variable_list
+            (variable_ref
+              name: (identifier_text)))
+          operator: (assignment_operator)
+          value: (number_literal))
+        (single_line_block
+          (statement
+            name: (statement_name)
+            (variable_ref
+              name: (identifier_text))))
+        end: (end_keyword)))
+    (location_end)))
+
+================
+Loop without init
+================
+# test
+loop while x < 10 step x += 1: pl x
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (loop_inline
+        keyword: (loop_keyword)
+        while: (while_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        step_kw: (step_keyword)
+        step: (assignment_statement
+          variables: (variable_list
+            (variable_ref
+              name: (identifier_text)))
+          operator: (assignment_operator)
+          value: (number_literal))
+        body: (statement
+          name: (statement_name)
+          (variable_ref
+            name: (identifier_text)))))
+    (location_end)))
+
+================
+Loop without step
+================
+# test
+loop local i = 0 while i < 5: pl i
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (loop_inline
+        keyword: (loop_keyword)
+        init: (local_statement
+          keyword: (local_keyword)
+          variables: (variable_list
+            (variable_ref
+              name: (identifier_text)))
+          value: (number_literal))
+        while: (while_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        body: (statement
+          name: (statement_name)
+          (variable_ref
+            name: (identifier_text)))))
+    (location_end)))
+
+================
+Act block with image arg
+================
+# test
+act 'Look', 'img.png':
+  pl 'You see a room'
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (act_block
+        keyword: (act_keyword)
+        args: (string
+          (single_quoted_string))
+        args: (string
+          (single_quoted_string))
+        (single_line_block
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        end: (end_keyword)))
+    (location_end)))
+
+================
+Else if as two words
+================
+# test
+if x = 1: pl 'one' else if x = 2: pl 'two'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))
+        (elseif_inline
+          keyword: (elseif_keyword)
+          keyword: (elseif_keyword)
+          condition: (ext_binary
+            (variable_ref
+              name: (identifier_text))
+            (op_cmp)
+            (number_literal))
+          body: (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Nested if blocks
+================
+# test
+if x > 0:
+  if y > 0:
+    pl 'both positive'
+  end
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        (multi_line_block
+          (if_block
+            keyword: (if_keyword)
+            condition: (ext_binary
+              (variable_ref
+                name: (identifier_text))
+              (op_cmp)
+              (number_literal))
+            (single_line_block
+              (statement
+                name: (statement_name)
+                (string
+                  (single_quoted_string))))
+            end: (end_keyword)))
+        end: (end_keyword)))
+    (location_end)))
+
+================
+Act block with paren args
+================
+# test
+act('do it', 'icon.png'):
+  pl 'done'
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (act_block
+        keyword: (act_keyword)
+        args: (paren_args
+          (string
+            (single_quoted_string))
+          (string
+            (single_quoted_string)))
+        (single_line_block
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        end: (end_keyword)))
+    (location_end)))
+
+================
+Loop with jump and label
+================
+# test
+loop while 1:
+  if x > 5: jump 'done'
+  x += 1
+end
+:done
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (loop_block
+        keyword: (loop_keyword)
+        while: (while_keyword)
+        condition: (number_literal)
+        (single_line_block
+          (if_inline
+            keyword: (if_keyword)
+            condition: (ext_binary
+              (variable_ref
+                name: (identifier_text))
+              (op_cmp)
+              (number_literal))
+            then: (statement
+              name: (statement_name)
+              (string
+                (single_quoted_string)))))
+        (single_line_block
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal)))
+        end: (end_keyword)))
+    (single_line_block
+      (label_statement
+        name: (label_name)))
+    (location_end)))
+
+================
+Elseif block multiline form
+================
+# test
+if x = 1:
+  pl 'one'
+elseif x = 2:
+  pl 'two'
+elseif x = 3:
+  pl 'three'
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        (single_line_block
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        (elseif_clause
+          keyword: (elseif_keyword)
+          condition: (ext_binary
+            (variable_ref
+              name: (identifier_text))
+            (op_cmp)
+            (number_literal))
+          (single_line_block
+            (statement
+              name: (statement_name)
+              (string
+                (single_quoted_string)))))
+        (elseif_clause
+          keyword: (elseif_keyword)
+          condition: (ext_binary
+            (variable_ref
+              name: (identifier_text))
+            (op_cmp)
+            (number_literal))
+          (single_line_block
+            (statement
+              name: (statement_name)
+              (string
+                (single_quoted_string)))))
+        end: (end_keyword)))
+    (location_end)))

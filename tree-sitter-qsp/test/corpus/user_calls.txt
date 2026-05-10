@@ -1,0 +1,153 @@
+================
+User call no args
+================
+# test
+@@myproc
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (user_call_statement
+        name: (user_name)))
+    (location_end)))
+
+================
+User call with bare args
+================
+# test
+@@myproc 'hello', 42
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (user_call_statement
+        name: (user_name)
+        (string
+          (single_quoted_string))
+        (number_literal)))
+    (location_end)))
+
+================
+User call with paren args
+================
+# test
+@@myproc('hello', 42)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (user_call_statement
+        name: (user_name)
+        (paren_args
+          (string
+            (single_quoted_string))
+          (number_literal))))
+    (location_end)))
+
+================
+User call with empty args
+================
+# test
+@@myproc()
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (user_call_statement
+        name: (user_name)))
+    (location_end)))
+
+================
+User function call in expression
+================
+# test
+x = @myfunc
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (user_func_call
+          name: (user_name))))
+    (location_end)))
+
+================
+User function call with paren args
+================
+# test
+x = @myfunc('arg1', 'arg2')
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (user_func_call
+          name: (user_name)
+          (paren_args
+            (string
+              (single_quoted_string))
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Multiline user function call with closing paren on next line
+================
+# test
+x = (@myfunc('arg1',
+  'arg2'
+))
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (paren_expr
+          (ml_user_func_call
+            name: (user_name)
+            (paren_args
+              (string
+                (single_quoted_string))
+              (string
+                (single_quoted_string)))))))
+    (location_end)))

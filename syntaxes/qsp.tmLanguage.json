@@ -1,0 +1,214 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "QSP",
+  "scopeName": "source.qsp",
+  "patterns": [
+    { "include": "#location-header" },
+    { "include": "#location-end" },
+    { "include": "#comment" },
+    { "include": "#label" },
+    { "include": "#string-double" },
+    { "include": "#string-single" },
+    { "include": "#code-block" },
+    { "include": "#keyword-control" },
+    { "include": "#keyword-statement" },
+    { "include": "#keyword-function" },
+    { "include": "#keyword-operator-word" },
+    { "include": "#user-call" },
+    { "include": "#variable-typed" },
+    { "include": "#number" },
+    { "include": "#operator" },
+    { "include": "#separator" },
+    { "include": "#identifier" }
+  ],
+  "repository": {
+    "location-header": {
+      "match": "^(#)\\s*(.+?)\\s*$",
+      "captures": {
+        "1": { "name": "punctuation.definition.location.qsp" },
+        "2": { "name": "entity.name.section.location.qsp" }
+      },
+      "name": "meta.location.header.qsp"
+    },
+    "location-end": {
+      "match": "^(--.*)$",
+      "captures": {
+        "1": { "name": "punctuation.definition.location.end.qsp" }
+      },
+      "name": "meta.location.end.qsp"
+    },
+    "comment": {
+      "name": "comment.line.bang.qsp",
+      "begin": "(?:^|(?<=&)|(?<=:))\\s*(!)",
+      "end": "$",
+      "beginCaptures": { "1": { "name": "punctuation.definition.comment.qsp" } },
+      "patterns": [
+        {
+          "name": "comment.line.bang.qsp",
+          "begin": "\\{",
+          "end": "\\}",
+          "patterns": [
+            { "include": "#comment-brace" },
+            { "include": "#comment-single-string" },
+            { "include": "#comment-double-string" }
+          ]
+        },
+        { "include": "#comment-single-string" },
+        { "include": "#comment-double-string" }
+      ]
+    },
+    "comment-brace": {
+      "name": "comment.line.bang.qsp",
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        { "include": "#comment-brace" },
+        { "include": "#comment-single-string" },
+        { "include": "#comment-double-string" }
+      ]
+    },
+    "comment-single-string": {
+      "name": "comment.line.bang.qsp",
+      "begin": "'",
+      "end": "'",
+      "patterns": [
+        { "match": "''", "name": "comment.line.bang.qsp" }
+      ]
+    },
+    "comment-double-string": {
+      "name": "comment.line.bang.qsp",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "match": "\"\"", "name": "comment.line.bang.qsp" }
+      ]
+    },
+    "label": {
+      "match": "^\\s*(:)(\\S+)",
+      "captures": {
+        "1": { "name": "punctuation.definition.label.qsp" },
+        "2": { "name": "entity.name.label.qsp" }
+      },
+      "name": "meta.label.qsp"
+    },
+    "string-single": {
+      "name": "string.quoted.single.qsp",
+      "begin": "'",
+      "end": "'",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.qsp" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.qsp" } },
+      "patterns": [
+        { "match": "''", "name": "constant.character.escape.qsp" },
+        { "include": "#string-interpolation" }
+      ]
+    },
+    "string-double": {
+      "name": "string.quoted.double.qsp",
+      "begin": "\"",
+      "end": "\"",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.qsp" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.qsp" } },
+      "patterns": [
+        { "match": "\"\"", "name": "constant.character.escape.qsp" },
+        { "include": "#string-interpolation" }
+      ]
+    },
+    "string-interpolation": {
+      "name": "meta.interpolation.qsp",
+      "begin": "<<",
+      "end": ">>",
+      "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.qsp" } },
+      "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.qsp" } },
+      "contentName": "meta.embedded.line.qsp",
+      "patterns": [
+        { "include": "#keyword-function" },
+        { "include": "#variable-typed" },
+        { "include": "#number" },
+        { "include": "#operator" },
+        { "include": "#identifier" }
+      ]
+    },
+    "code-block": {
+      "name": "meta.code-block.qsp",
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": { "0": { "name": "punctuation.section.block.begin.qsp" } },
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.qsp" } },
+      "patterns": [
+        { "include": "$self" }
+      ]
+    },
+    "keyword-control": {
+      "match": "(?i)\\b(if|elseif|else\\s*if|else|end|act|loop|while|step)\\b",
+      "captures": {
+        "1": { "name": "keyword.control.qsp" }
+      }
+    },
+    "keyword-statement": {
+      "match": "(?i)(\\*(?:clear|clr|nl|pl|p)\\b|\\b(?:close all|add obj|del obj|del act|mod obj|set|let|local|goto|gt|xgoto|xgt|gosub|gs|jump|exit|pl|p|nl|clear|clr|cls|msg|wait|play|close|view|addobj|delobj|modobj|resetobj|killobj|unselect|unsel|killall|cla|delact|cmdclear|cmdclr|menu|settimer|dynamic|setvar|killvar|copyarr|sortarr|scanstr|unpackarr|opengame|savegame|openqst|inclib|addqst|freelib|killqst|refint|showacts|showinput|showobjs|showstat)\\b)",
+      "captures": {
+        "1": { "name": "keyword.other.statement.qsp" }
+      }
+    },
+    "keyword-function": {
+      "match": "(?i)(\\$|#|%)?(\\b(?:desc|max|min|rand|rnd|val|iif|dyneval|func|input|usrtxt|user_text|maintxt|stattxt|getobj|countobj|selobj|curloc|curobjs|selact|curacts|arrsize|arrtype|arritem|arrpack|arrpos|arrcomp|strcomp|strfind|strpos|instr|isnum|trim|ucase|lcase|len|mid|replace|str|isplay|rgb|msecscount|qspver)\\b)",
+      "captures": {
+        "1": { "name": "storage.type.function.qsp" },
+        "2": { "name": "support.function.builtin.qsp" }
+      }
+    },
+    "keyword-operator-word": {
+      "match": "(?i)\\b(and|or|no|mod|obj|loc)\\b",
+      "name": "keyword.operator.word.qsp"
+    },
+    "user-call": {
+      "patterns": [
+        {
+          "match": "(@@)([^\\s&'\"()\\[\\]=!<>+\\-/*:,{}]+)",
+          "captures": {
+            "1": { "name": "punctuation.definition.statement.call.qsp" },
+            "2": { "name": "entity.name.function.user.qsp" }
+          }
+        },
+        {
+          "match": "(@)([^\\s&'\"()\\[\\]=!<>+\\-/*:,{}]+)",
+          "captures": {
+            "1": { "name": "punctuation.definition.function.call.qsp" },
+            "2": { "name": "entity.name.function.user.qsp" }
+          }
+        }
+      ]
+    },
+    "variable-typed": {
+      "match": "([$#%])([\\p{L}_][\\p{L}\\p{N}_.]*)",
+      "captures": {
+        "1": { "name": "storage.type.variable.qsp" },
+        "2": { "name": "variable.other.readwrite.qsp" }
+      }
+    },
+    "number": {
+      "match": "\\b\\d+\\b",
+      "name": "constant.numeric.qsp"
+    },
+    "operator": {
+      "patterns": [
+        {
+          "match": "<=|>=|<>|!|=<|=>|<<|>>|[+\\-*/=<>]",
+          "name": "keyword.operator.qsp"
+        },
+        {
+          "match": ":",
+          "name": "punctuation.separator.colon.qsp"
+        }
+      ]
+    },
+    "separator": {
+      "match": "&",
+      "name": "punctuation.separator.statement.qsp"
+    },
+    "identifier": {
+      "match": "[\\p{L}_][\\p{L}\\p{N}_.]*",
+      "name": "variable.other.readwrite.qsp"
+    }
+  }
+}

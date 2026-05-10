@@ -1,0 +1,459 @@
+================
+Empty bracket tuple
+================
+# test
+%t = []
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple))))
+    (location_end)))
+
+================
+Non-empty bracket tuple
+================
+# test
+%t = [1, 2, 3]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple
+            (number_literal)
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Empty paren tuple
+================
+# test
+%t = ()
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (paren_tuple))))
+    (location_end)))
+
+================
+Non-empty paren tuple (2 elements)
+================
+# test
+%t = (1, 2)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (paren_tuple
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Bracket tuple with strings
+================
+# test
+%t = ['a', 'b', 'c']
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple
+            (string
+              (single_quoted_string))
+            (string
+              (single_quoted_string))
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Single element bracket tuple
+================
+# test
+%t = [42]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple
+            (number_literal)))))
+    (location_end)))
+
+================
+Paren tuple with three elements
+================
+# test
+%t = (1, 2, 3)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (paren_tuple
+            (number_literal)
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Bracket tuple with expressions
+================
+# test
+%t = [1 + 2, 3 * 4]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple
+            (ml_binary
+              (number_literal)
+              (op_arith)
+              (number_literal))
+            (ml_binary
+              (number_literal)
+              (op_arith)
+              (number_literal))))))
+    (location_end)))
+
+================
+Mixed tuple with strings and numbers
+================
+# test
+%t = ['name', 42]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple
+            (string
+              (single_quoted_string))
+            (number_literal)))))
+    (location_end)))
+
+================
+Multiline bracket tuple with closing bracket on next line
+================
+# test
+%t = [1, 2,
+  3
+]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple
+            (number_literal)
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Multiline bracket tuple with newlines around all elements
+================
+# test
+%t = [
+  1,
+  2,
+  3
+]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple
+            (number_literal)
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Multiline paren tuple with closing paren on next line
+================
+# test
+%t = (1, 2,
+  3
+)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (paren_tuple
+            (number_literal)
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Multiline empty bracket tuple
+================
+# test
+%t = [
+]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (bracket_tuple))))
+    (location_end)))
+
+================
+Multiline paren tuple with newlines around all elements
+================
+# test
+%t = (
+  1,
+  2,
+  3
+)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (paren_tuple
+            (number_literal)
+            (number_literal)
+            (number_literal)))))
+    (location_end)))
+
+================
+Multiline empty paren tuple
+================
+# test
+%t = (
+)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (paren_tuple))))
+    (location_end)))
+
+================
+Multiline paren tuple with strings
+================
+# test
+%t = ('hello',
+  'world'
+)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (paren_tuple
+            (string
+              (single_quoted_string))
+            (string
+              (single_quoted_string))))))
+    (location_end)))
+
+================
+Multiline paren tuple with expressions
+================
+# test
+%t = (
+  1 + 2,
+  3 * 4
+)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (tuple
+          (paren_tuple
+            (ml_binary
+              (number_literal)
+              (op_arith)
+              (number_literal))
+            (ml_binary
+              (number_literal)
+              (op_arith)
+              (number_literal))))))
+    (location_end)))

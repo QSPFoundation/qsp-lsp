@@ -1,0 +1,150 @@
+! ─────────────────────────────────────────────────────────────────────
+! QSP LSP — Feature Showcase
+!
+! A tiny playable demo that exercises the language features the
+! extension understands: locations, variables, string interpolation,
+! control flow, actions, subroutines, functions, dynamic blocks,
+! objects, and labels.  Hover any builtin (msg, rnd, addobj, …) to
+! see its signature; right-click any identifier for "Go to
+! Definition" / "Find All References".
+! ─────────────────────────────────────────────────────────────────────
+
+# start
+! Entry point.  QSP runs the first location automatically.
+$player = 'Adventurer'
+hp = 100
+gold = 0
+
+cls
+pl 'Welcome, <<$player>>!'
+pl 'You wake up in a dim cave with <<hp>> HP.'
+pl ''
+act 'Look around':
+    gosub 'cave/look'
+end
+act 'Take the torch':
+    addobj 'torch'
+    pl 'You picked up a <a href="exec:gs ''cave/inspect_torch''">torch</a>.'
+end
+act 'Leave the cave':
+    goto 'forest'
+end
+---
+
+
+# cave/look
+! Subroutine: prints scenery and returns to caller.
+pl 'The cave walls glisten with damp moss.'
+pl 'A faint glow comes from a torch on the ground.'
+---
+
+
+# cave/inspect_torch
+! Inline-if and string-prefix call: $ucase(...) returns a string.
+$torch_desc = 'old wooden torch'
+if len($torch_desc) > 0: pl 'It looks like an <<$ucase($torch_desc)>>.'
+---
+
+
+# forest
+! Demonstrates: loop, rand(), local variables, mixed call types.
+local encounters = rand(1, 3)
+local i = 0
+pl 'You step into the forest.  The path forks <<encounters>> times.'
+
+loop i = 1 while i <= encounters step i = i + 1:
+    gs 'forest/encounter', i
+end
+
+act 'Rest by the river':
+    hp = min(hp + 20, 100)
+    pl 'You rest and recover.  HP: <<hp>>'
+end
+act 'Return to the cave':
+    goto 'start'
+end
+act 'Enter the deep woods':
+    goto 'deep_woods'
+end
+---
+
+
+# forest/encounter
+! Receives the iteration index in args[0].
+local n = args[0]
+local roll = rand(1, 6)
+
+if roll <= 2:
+    pl '<<n>>: A friendly merchant offers you 5 gold.'
+    gold = gold + 5
+elseif roll <= 4:
+    pl '<<n>>: A wolf snarls and bites you for 10 HP.'
+    hp = hp - 10
+else
+    pl '<<n>>: The path is quiet.'
+end
+---
+
+
+# deep_woods
+! Demonstrates: dynamic code blocks, labels, jump, function-style call.
+pl 'The trees close in.  You feel a riddle forming in the air…'
+pl ''
+! Build a dynamic spell from data: dynamic { … } executes the block.
+$spell = {
+    pl 'Lumos!  A pale light drives back the shadows.'
+    hp = hp + 5
+}
+dynamic $spell
+
+! Function-style call: @riddle returns a string via `$result`.
+$answer = @riddle('echo')
+pl 'The forest whispers: <<$answer>>'
+
+act 'Try the riddle again':
+    ! Re-enter the location to re-roll the riddle.
+    gt 'deep_woods'
+end
+act 'Head home':
+    goto 'epilogue'
+end
+---
+
+
+# riddle
+! Function: returns a string by assigning to `$result`.
+! Reads its argument from $args[0] (string version of args[0]).
+$guess = $args[0]
+if $guess = 'echo':
+    $result = 'Correct!  The voice fades.'
+else
+    $result = 'Wrong.  Try again, traveller.'
+end
+---
+
+
+# epilogue
+! Demonstrates: msg dialog, killvar, conditional summary, end of game.
+msg 'Thank you for playing!'
+
+pl '──────────────────────────────'
+pl 'Final stats for <<$player>>:'
+pl '  HP   = <<hp>>'
+pl '  Gold = <<gold>>'
+
+if countobj > 0:
+    pl 'Inventory:'
+    local i = 1
+    loop i = 1 while i <= countobj step i = i + 1:
+        pl '  - <<$getobj(i)>>'
+    end
+end
+
+! Clean up before the next play-through.
+killvar 'hp'
+killvar 'gold'
+
+act 'Play again':
+    goto 'start'
+end
+---

@@ -1,0 +1,555 @@
+================
+String with interpolation
+================
+# test
+$msg = 'Hello <<$name>>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (ml_variable_ref
+                prefix: (type_prefix)
+                name: (identifier_text)))))))
+    (location_end)))
+
+================
+Double quoted string with interpolation
+================
+# test
+$msg = "Value is <<x>>"
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (double_quoted_string
+            (string_interpolation
+              (ml_variable_ref
+                name: (identifier_text)))))))
+    (location_end)))
+
+================
+Escaped single quotes
+================
+# test
+$s = 'it''s fine'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Escaped double quotes
+================
+# test
+$s = "she said ""hello"""
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (double_quoted_string))))
+    (location_end)))
+
+================
+Interpolation with expression
+================
+# test
+$s = 'Sum is <<2 + 3>>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (ml_binary
+                (number_literal)
+                (op_arith)
+                (number_literal)))))))
+    (location_end)))
+
+================
+Empty string
+================
+# test
+$s = ''
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Empty double-quoted string
+================
+# test
+$s = ""
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (double_quoted_string))))
+    (location_end)))
+
+================
+String with multiple interpolations
+================
+# test
+$s = 'a <<x>> b <<y>> c'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (ml_variable_ref
+                name: (identifier_text)))
+            (string_interpolation
+              (ml_variable_ref
+                name: (identifier_text)))))))
+    (location_end)))
+
+================
+Interpolation with function call
+================
+# test
+$s = 'len is <<len($name)>>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (ml_func_call
+                name: (function_name)
+                (paren_args
+                  (ml_variable_ref
+                    prefix: (type_prefix)
+                    name: (identifier_text)))))))))
+    (location_end)))
+
+================
+Multiline single-quoted string
+================
+# test
+$s = 'line one
+line two
+line three'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Multiline double-quoted string
+================
+# test
+$s = "line one
+line two
+line three"
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (double_quoted_string))))
+    (location_end)))
+
+================
+Multiline string with interpolation
+================
+# test
+$s = 'start <<'inner
+multiline'>> end'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (string
+                (single_quoted_string)))))))
+    (location_end)))
+
+================
+Multiline single-quoted string with continuation statement
+================
+# test
+$s = 'line1
+line2' & pl $s
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string)))
+      (statement
+        name: (statement_name)
+        (variable_ref
+          prefix: (type_prefix)
+          name: (identifier_text))))
+    (location_end)))
+
+================
+Multiline double-quoted string with continuation statement
+================
+# test
+$s = "line1
+line2" & pl $s
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (double_quoted_string)))
+      (statement
+        name: (statement_name)
+        (variable_ref
+          prefix: (type_prefix)
+          name: (identifier_text))))
+    (location_end)))
+
+================
+Multiline single-quoted string with interpolation on middle line
+================
+# test
+$s = 'line1
+<<x>>
+line3'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (ml_variable_ref
+                name: (identifier_text)))))))
+    (location_end)))
+
+================
+Multiline double-quoted string with interpolation on middle line
+================
+# test
+$s = "line1
+<<x>>
+line3"
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (double_quoted_string
+            (string_interpolation
+              (ml_variable_ref
+                name: (identifier_text)))))))
+    (location_end)))
+
+================
+Multiline interpolation expression spanning lines
+================
+# test
+$s = 'result: <<mid(
+  $text,
+  1,
+  3
+)>>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (ml_func_call
+                name: (function_name)
+                (paren_args
+                  (ml_variable_ref
+                    prefix: (type_prefix)
+                    name: (identifier_text))
+                  (number_literal)
+                  (number_literal))))))))
+    (location_end)))
+
+================
+Multiline interpolation with simple expression spanning lines
+================
+# test
+$s = 'sum: <<x
+  + y>>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (ml_binary
+                (ml_variable_ref
+                  name: (identifier_text))
+                (op_arith)
+                (ml_variable_ref
+                  name: (identifier_text))))))))
+    (location_end)))
+
+================
+Multiline interpolation with multiline arithmetic on separate lines
+================
+# test
+$v='a<<
+444
+-
+777
+>>z'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (ml_binary
+                (number_literal)
+                (op_arith)
+                (number_literal)))))))
+    (location_end)))
+
+================
+Multiline interpolation with delimiters on own lines
+================
+# test
+$v='a
+<<
+444
+-
+777
+>>
+z'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (ml_binary
+                (number_literal)
+                (op_arith)
+                (number_literal)))))))
+    (location_end)))

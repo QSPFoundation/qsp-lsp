@@ -1,0 +1,1031 @@
+================
+Line continuation
+================
+# test
+x = 1 _
+  + 2
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_binary
+          (number_literal)
+          (line_continuation_ext)
+          (op_arith)
+          (number_literal))))
+    (location_end)))
+
+================
+Line continuation with tab before underscore
+================
+# test
+x = 1	_
+  + 2
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_binary
+          (number_literal)
+          (line_continuation_ext)
+          (op_arith)
+          (number_literal))))
+    (location_end)))
+
+================
+Multiple line continuations
+================
+# test
+x = 1 _
+  + 2 _
+  + 3
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_binary
+          (na_binary
+            (number_literal)
+            (line_continuation_ext)
+            (op_arith)
+            (number_literal))
+          (line_continuation_ext)
+          (op_arith)
+          (number_literal))))
+    (location_end)))
+
+================
+Line continuation in if condition
+================
+# test
+if x _
+  > 0: pl 'yes'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (line_continuation_ext)
+          (op_cmp)
+          (number_literal))
+        then: (statement
+          name: (statement_name)
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Line continuation in statement args
+================
+# test
+pl 'hello' _
+  & pl 'world'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string)))
+      (line_continuation_ext)
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Bare underscore is identifier not continuation
+================
+# test
+_ = 1
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Implicit statement
+================
+# test
+'Hello, World!'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (implicit_statement
+        (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Inter-loc text
+================
+Some text before the location
+# test
+x = 1
+--
+---
+
+(source_file
+  (inter_loc_text
+    (inter_loc_line))
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Note string after end
+================
+# test
+if x > 0:
+  pl 'yes'
+end if
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        (single_line_block
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        end: (end_keyword)
+        note: (note_string)))
+    (location_end)))
+
+================
+Comment with code block
+================
+# test
+! This has a code block { x = 1 }
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_code_block))))
+    (location_end)))
+
+================
+Statement with empty parens
+================
+# test
+cls()
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)))
+    (location_end)))
+
+================
+Statement with paren args
+================
+# test
+msg('Hello!')
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (paren_args
+          (string
+            (single_quoted_string)))))
+    (location_end)))
+
+================
+Multiple statements with separator
+================
+# test
+x = 1 & y = 2 & pl x + y
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal))
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal))
+      (statement
+        name: (statement_name)
+        (na_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_arith)
+          (variable_ref
+            name: (identifier_text)))))
+    (location_end)))
+
+================
+Double ampersand statement separator
+================
+# test
+x = 1 && gs 'foo'
+x = 2 & & gs 'bar'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal))
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal))
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Double ampersand in multiline block
+================
+# test
+if x > 0:
+  y = 1 && gs 'bar'
+  z = 2 & & gs 'baz'
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        (single_line_block
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal))
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        (single_line_block
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal))
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        end: (end_keyword)))
+    (location_end)))
+
+================
+Compound assignments all types
+================
+# test
+x -= 1
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Dynamic statement
+================
+# test
+dynamic 'x = 1'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Star-prefixed statement
+================
+# test
+*pl 'message'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Location name with spaces
+================
+# my location name
+x = 1
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Killvar statement
+================
+# test
+killvar 'arr'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Addobj statement with multiple args
+================
+# test
+addobj 'sword', 'sword.png'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))
+        (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Copyarr statement
+================
+# test
+copyarr 'dest', 'src', 0, 10
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))
+        (string
+          (single_quoted_string))
+        (number_literal)
+        (number_literal)))
+    (location_end)))
+
+================
+Cls and clear statements
+================
+# test
+cls
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)))
+    (location_end)))
+
+================
+Goto statement
+================
+# test
+goto 'other_loc'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Xgoto statement
+================
+# test
+xgoto 'other_loc'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))))
+    (location_end)))
+
+================
+Wait statement
+================
+# test
+wait 500
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (number_literal)))
+    (location_end)))
+
+================
+Showstat and showobjs
+================
+# test
+showstat 1
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (number_literal)))
+    (location_end)))
+
+================
+Inter-loc text between locations
+================
+# loc1
+x = 1
+--
+some text between
+# loc2
+y = 2
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end))
+  (inter_loc_text
+    (inter_loc_line))
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (location_end)))
+
+================
+Multiline code block assigned to variable
+================
+# test
+$code = {
+  x = 1
+  pl x
+}
+dynamic $code
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (code_block
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal))
+          (statement
+            name: (statement_name)
+            (variable_ref
+              name: (identifier_text))))))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (variable_ref
+          prefix: (type_prefix)
+          name: (identifier_text))))
+    (location_end)))
+
+================
+Multiline comment with single-quoted string
+================
+# test
+! comment with 'quoted
+multiline text' inside
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_string))))
+    (location_end)))
+
+================
+Multiline comment with double-quoted string
+================
+# test
+! comment with "double
+multiline text" inside
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_string))))
+    (location_end)))
+
+================
+Multiline comment with braces
+================
+# test
+! comment {with braces
+spanning lines}
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_code_block))))
+    (location_end)))
+
+================
+Multiline comment with single-quoted string and continuation text
+================
+# test
+! text 'multiline
+string' and more text
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_string))))
+    (location_end)))
+
+================
+Multiline comment with double-quoted string and continuation text
+================
+# test
+! text "multiline
+string" and more text
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_string))))
+    (location_end)))
+
+================
+Multiline comment with braces and continuation text
+================
+# test
+! text {multiline
+block} and more text
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_code_block))))
+    (location_end)))
+
+================
+Comment with multiple single-quoted substrings
+================
+# test
+! text 'str1' middle 'str2' end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_string)
+          (raw_string))))
+    (location_end)))
+
+================
+Comment with multiple double-quoted substrings
+================
+# test
+! text "str1" middle "str2" end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_string)
+          (raw_string))))
+    (location_end)))
+
+================
+Comment with multiple brace blocks
+================
+# test
+! text {block1} middle {block2} end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_code_block)
+          (raw_code_block))))
+    (location_end)))
+
+================
+Comment with mixed string and brace block
+================
+# test
+! text 'string' then {code} then more
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_string)
+          (raw_code_block))))
+    (location_end)))
+
+================
+Comment with multiline single-quoted and multiline double-quoted strings
+================
+# test
+! 'multiline
+string' then "another
+multiline" end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_string)
+          (raw_string))))
+    (location_end)))
+
+================
+Note string after end in act block
+================
+# test
+act 'Go':
+  pl 'going'
+end act
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (act_block
+        keyword: (act_keyword)
+        args: (string
+          (single_quoted_string))
+        (single_line_block
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        end: (end_keyword)
+        note: (note_string)))
+    (location_end)))
+
+================
+Note string after end in loop block
+================
+# test
+loop i = 0 while i < 5 step i += 1:
+  pl i
+end loop
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (loop_block
+        keyword: (loop_keyword)
+        init: (assignment_statement
+          variables: (variable_list
+            (variable_ref
+              name: (identifier_text)))
+          operator: (assignment_operator)
+          value: (number_literal))
+        while: (while_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (number_literal))
+        step_kw: (step_keyword)
+        step: (assignment_statement
+          variables: (variable_list
+            (variable_ref
+              name: (identifier_text)))
+          operator: (assignment_operator)
+          value: (number_literal))
+        (single_line_block
+          (statement
+            name: (statement_name)
+            (variable_ref
+              name: (identifier_text))))
+        end: (end_keyword)
+        note: (note_string)))
+    (location_end)))
+
+================
+Note string after end with quoted text
+================
+# test
+if x:
+  pl 'hi'
+end 'test annotation'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (variable_ref
+          name: (identifier_text))
+        (single_line_block
+          (statement
+            name: (statement_name)
+            (string
+              (single_quoted_string))))
+        end: (end_keyword)
+        note: (note_string
+          (raw_string))))
+    (location_end)))
