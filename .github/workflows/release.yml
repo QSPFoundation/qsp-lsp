@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. 1.2.3 or 1.2.3-rc1 — leading 'v' is stripped)"
+        description: "Version (e.g. 1.2.3 or 1.2.3-rc1)"
         required: true
         type: string
 
@@ -36,6 +36,7 @@ concurrency:
 
 jobs:
   release:
+    name: release ${{ inputs.version || github.ref_name }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
