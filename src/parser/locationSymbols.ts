@@ -86,6 +86,21 @@ export class LocationSymbols {
    */
   private readonly localsByScope = new Map<number, Set<string>>();
   /**
+   * Memoization for {@link getLocalsInScope}.  The returned Map is
+   * immutable from callers' perspective (treated as ReadonlyMap and
+   * never mutated — see grep on `localsInScope\.(set|delete|clear)`),
+   * so multiple call sites in the same scope can safely share one
+   * instance.  Cleared by `invalidateLocalsCache` whenever a local
+   * is added to any scope.  Locals are added far less frequently than
+   * call sites query them, so cache hits dominate on large locations
+   * and we save thousands of redundant Map allocations.
+   */
+  private localsInScopeCache: Map<number, ReadonlyMap<string, number>> | undefined;
+
+  private invalidateLocalsCache(): void {
+    if (this.localsInScopeCache !== undefined) this.localsInScopeCache.clear();
+  }
+  /**
    * Tree-sitter node IDs of `code_block` arguments to `dynamic` /
    * `dyneval`, mapped to the set of local base-names in scope at the
    * call site.  The walker uses this set to take a non-isolated
@@ -225,6 +240,7 @@ export class LocationSymbols {
     let scopeSet = this.localsByScope.get(scopeId);
     if (!scopeSet) { scopeSet = new Set(); this.localsByScope.set(scopeId, scopeSet); }
     scopeSet.add(baseName);
+    this.invalidateLocalsCache();
   }
 
   /**
@@ -290,6 +306,7 @@ export class LocationSymbols {
       let scopeSet = this.localsByScope.get(scopeId);
       if (!scopeSet) { scopeSet = new Set(); this.localsByScope.set(scopeId, scopeSet); }
       scopeSet.add(baseName);
+      this.invalidateLocalsCache();
     } else {
       // Non-local use — fast path: skip scope walk if no local exists
       // for this name anywhere in the location.
@@ -537,8 +554,20 @@ export class LocationSymbols {
   /**
    * Collect all local base-names visible at the given scope,
    * walking up the scope chain and stopping at isolation boundaries.
+   *
+   * Result is memoized — see `localsInScopeCache`.  Callers MUST treat
+   * the returned map as read-only.
    */
-  getLocalsInScope(scopeId: number): Map<string, number> {
+  getLocalsInScope(scopeId: number): ReadonlyMap<string, number> {
+    let cache = this.localsInScopeCache;
+    if (cache !== undefined) {
+      const hit = cache.get(scopeId);
+      if (hit !== undefined) return hit;
+    } else {
+      cache = new Map();
+      this.localsInScopeCache = cache;
+    }
+
     const result = new Map<string, number>();
     let s: number | undefined = scopeId;
     while (s !== undefined) {
@@ -554,6 +583,7 @@ export class LocationSymbols {
       if (this.isolatedScopes.has(s)) break;
       s = this.scopeParent.get(s);
     }
+    cache.set(scopeId, result);
     return result;
   }
 
