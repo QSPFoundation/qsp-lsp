@@ -29,8 +29,8 @@
     ["{", "}"]
   ],
   "indentationRules": {
-    "increaseIndentPattern": "(?i)^\\s*(if\\b.*:|act\\b.*:|loop\\b.*:|else\\b.*:?|elseif\\b.*:|\\{)\\s*(!.*)?$",
-    "decreaseIndentPattern": "(?i)^\\s*(end|else|elseif|\\})\\b"
+    "increaseIndentPattern": "(?i)^\\s*(if\\b.*:|act\\b.*:|loop\\b.*:|elseif\\b.*:|else\\b.*:?|\\{)\\s*(!.*)?$",
+    "decreaseIndentPattern": "(?i)^\\s*(end|elseif|else|\\})\\b"
   },
   "onEnterRules": [
     {
@@ -38,7 +38,7 @@
       "action": { "indent": "indent" }
     },
     {
-      "beforeText": "(?i)^\\s*(else\\b.*:?|elseif\\b.*:)\\s*(!.*)?$",
+      "beforeText": "(?i)^\\s*(elseif\\b.*:|else\\b.*:?)\\s*(!.*)?$",
       "action": { "indent": "indent" }
     },
     {
@@ -57,5 +57,5 @@
       "end": "(?i)^\\s*(--|end\\b|\\})"
     }
   },
-  "wordPattern": "[$#%]?[A-Za-z_\\u0400-\\u04FF\\u4E00-\\u9FFF][A-Za-z0-9_\\u0400-\\u04FF\\u4E00-\\u9FFF.]*"
+  "wordPattern": "[$#%]?[^\\s\\d'\"()\\[\\]=!<>+\\-/*:,{}&][^\\s'\"()\\[\\]=!<>+\\-/*:,{}&]*"
 }
