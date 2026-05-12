@@ -442,6 +442,13 @@ export function createQspServer(
       } catch {
         // File may have been deleted — that's fine, the watcher handles it
       }
+    } else {
+      // Clear any diagnostics we previously published for this URI so
+      // they don't linger in the Problems panel after the editor closes
+      // the document.  In project mode the file is still part of the
+      // project and projectRebuildAndReanalyze re-publishes accurate
+      // diagnostics, so we skip the clear there.
+      connection.sendDiagnostics({ uri, diagnostics: [] });
     }
   });
 
@@ -933,7 +940,12 @@ export function createQspServer(
       }
     }
 
-    const cachedSemanticTokens = buildTokensFromCache(locationIndex, newCache);
+    // Semantic tokens are rebuilt lazily on the first SemanticTokens
+    // request (see lspFeatures.ts) — flattening tokens from every
+    // location into a single merged `data` array is expensive memory-wise
+    // for huge files (millions of token tuples) and matches the lazy
+    // behavior of both `analyzeDocumentFullTree` and
+    // `tryIncrementalPerLocationUpdate`.
 
     // Clean up retained trees from the old cache that weren't carried
     // over to the new cache (deleted/renamed locations).
@@ -953,7 +965,7 @@ export function createQspServer(
     documentStates.set(doc.uri, {
       locationIndex,
       symbols,
-      cachedSemanticTokens,
+      cachedSemanticTokens: undefined,   // rebuilt lazily on first request
       perLocationCache: newCache,
       rawText: text,
     });
