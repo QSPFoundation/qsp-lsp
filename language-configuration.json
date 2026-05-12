@@ -29,16 +29,28 @@
     ["{", "}"]
   ],
   "indentationRules": {
-    "increaseIndentPattern": "(?i)^\\s*(if\\b.*:|act\\b.*:|loop\\b.*:|elseif\\b.*:|else\\b.*:?|\\{)\\s*(!.*)?$",
-    "decreaseIndentPattern": "(?i)^\\s*(end|elseif|else|\\})\\b"
+    "increaseIndentPattern": {
+      "pattern": "^\\s*(if\\b.*:|act\\b.*:|loop\\b.*:|elseif\\b.*:|else\\b.*:?|\\{)\\s*(!.*)?$",
+      "flags": "i"
+    },
+    "decreaseIndentPattern": {
+      "pattern": "^\\s*(end|elseif|else|\\})\\b",
+      "flags": "i"
+    }
   },
   "onEnterRules": [
     {
-      "beforeText": "(?i)^\\s*(if\\b.*:|act\\b.*:|loop\\b.*:)\\s*(!.*)?$",
+      "beforeText": {
+        "pattern": "^\\s*(if\\b.*:|act\\b.*:|loop\\b.*:)\\s*(!.*)?$",
+        "flags": "i"
+      },
       "action": { "indent": "indent" }
     },
     {
-      "beforeText": "(?i)^\\s*(elseif\\b.*:|else\\b.*:?)\\s*(!.*)?$",
+      "beforeText": {
+        "pattern": "^\\s*(elseif\\b.*:|else\\b.*:?)\\s*(!.*)?$",
+        "flags": "i"
+      },
       "action": { "indent": "indent" }
     },
     {
@@ -53,8 +65,14 @@
   ],
   "folding": {
     "markers": {
-      "start": "(?i)^\\s*(#|if\\b|act\\b|loop\\b|\\{)",
-      "end": "(?i)^\\s*(--|end\\b|\\})"
+      "start": {
+        "pattern": "^\\s*(#|if\\b|act\\b|loop\\b|\\{)",
+        "flags": "i"
+      },
+      "end": {
+        "pattern": "^\\s*(--|end\\b|\\})",
+        "flags": "i"
+      }
     }
   },
   "wordPattern": "[$#%]?[^\\s\\d'\"()\\[\\]=!<>+\\-/*:,{}&][^\\s'\"()\\[\\]=!<>+\\-/*:,{}&]*"
