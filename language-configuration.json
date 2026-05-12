@@ -38,7 +38,7 @@
       "action": { "indent": "indent" }
     },
     {
-      "beforeText": "(?i)^\\s*(else|elseif\\b.*:)\\s*(!.*)?$",
+      "beforeText": "(?i)^\\s*(else\\b.*:?|elseif\\b.*:)\\s*(!.*)?$",
       "action": { "indent": "indent" }
     },
     {
