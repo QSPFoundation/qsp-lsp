@@ -157,7 +157,7 @@ export function collectVariableBindings(
       if (node.type === 'single_quoted_string' || node.type === 'double_quoted_string') {
         strNode = node;
       } else if (node.type === 'string') {
-        const child = node.namedChildren[0];
+        const child = node.namedChild(0);
         if (child && (child.type === 'single_quoted_string' || child.type === 'double_quoted_string')) strNode = child;
       }
       if (strNode) return '$';
@@ -230,43 +230,58 @@ export function collectVariableBindings(
       return;
     }
 
-    if (
-      (rhs.type === 'na_func_call' || rhs.type === 'ext_func_call' || rhs.type === 'ml_func_call')
-      && !rhs.children.some(c => c.type === 'paren_args')
-      && rhs.namedChildren.every(c => c.type === 'function_name' || c.type === 'type_prefix')
-    ) {
-      const fnNode = rhs.namedChildren.find(c => c.type === 'function_name');
-      const fnPrefixNode = rhs.namedChildren.find(c => c.type === 'type_prefix');
-      const fnPrefix = ((fnPrefixNode?.text || '#') as TypePrefix);
-      if (fnNode && !fnNode.isMissing) {
-        const fnText = fnNode.text.trim();
-        if (fnText) {
-          const fnLower = fnText.toLowerCase();
-          const fixedReturn = lookupFunctionReturnType(fnLower);
-          const argInfo = fixedReturn !== undefined ? lookupArgConstraints(fnLower) : undefined;
-          const isZeroArgOnly = argInfo !== undefined && argInfo.maxArgs === 0;
-          if (isZeroArgOnly) {
-            push({ kind: 'other', text: fnLower }, undefined, fixedReturn);
+    if (rhs.type === 'na_func_call' || rhs.type === 'ext_func_call' || rhs.type === 'ml_func_call') {
+      // Detect the "bare function call without parens and without args"
+      // pattern (`x = func` rather than `x = func(...)`) in a single
+      // pass: scan all children once, looking for paren_args (which
+      // disqualifies) and capturing function_name / type_prefix; reject
+      // if any other named child is present.
+      let hasParen = false;
+      let allMeta = true;
+      let fnNode: Parser.SyntaxNode | undefined;
+      let fnPrefixNode: Parser.SyntaxNode | undefined;
+      const cc = rhs.childCount;
+      for (let i = 0; i < cc; i++) {
+        const c = rhs.child(i);
+        if (!c) continue;
+        if (c.type === 'paren_args') { hasParen = true; break; }
+        if (!c.isNamed) continue;
+        if (c.type === 'function_name') { fnNode = c; continue; }
+        if (c.type === 'type_prefix') { fnPrefixNode = c; continue; }
+        allMeta = false;
+      }
+      if (!hasParen && allMeta) {
+        const fnPrefix = ((fnPrefixNode?.text || '#') as TypePrefix);
+        if (fnNode && !fnNode.isMissing) {
+          const fnText = fnNode.text.trim();
+          if (fnText) {
+            const fnLower = fnText.toLowerCase();
+            const fixedReturn = lookupFunctionReturnType(fnLower);
+            const argInfo = fixedReturn !== undefined ? lookupArgConstraints(fnLower) : undefined;
+            const isZeroArgOnly = argInfo !== undefined && argInfo.maxArgs === 0;
+            if (isZeroArgOnly) {
+              push({ kind: 'other', text: fnLower }, undefined, fixedReturn);
+            } else {
+              push(
+                { kind: 'var-ref', varBaseName: fnLower, readPrefix: fnPrefix },
+                undefined, fixedReturn !== undefined ? fixedReturn : fnPrefix,
+              );
+            }
           } else {
-            push(
-              { kind: 'var-ref', varBaseName: fnLower, readPrefix: fnPrefix },
-              undefined, fixedReturn !== undefined ? fixedReturn : fnPrefix,
-            );
+            push({ kind: 'other', text: rhsSnippet(rhs) });
           }
         } else {
           push({ kind: 'other', text: rhsSnippet(rhs) });
         }
-      } else {
-        push({ kind: 'other', text: rhsSnippet(rhs) });
+        return;
       }
-      return;
     }
 
     let strNode: Parser.SyntaxNode | null = null;
     if (rhs.type === 'single_quoted_string' || rhs.type === 'double_quoted_string') {
       strNode = rhs;
     } else if (rhs.type === 'string') {
-      const child = rhs.namedChildren[0];
+      const child = rhs.namedChild(0);
       if (child && (child.type === 'single_quoted_string' || child.type === 'double_quoted_string')) {
         strNode = child;
       }
@@ -400,20 +415,37 @@ export function collectVariableBindings(
     const n = cursor.currentNode;
     if (n.type === 'assignment_statement' || n.type === 'local_statement') {
       const isLocalStmt = n.type === 'local_statement';
-      const named = n.namedChildren;
-      const varListIdx = named.findIndex(c => c.type === 'variable_list');
+      const total = n.namedChildCount;
+      // Single pass: locate variable_list, collect post-list RHS nodes,
+      // and capture the (at most one) assignment_operator's compound op.
+      // Caches each child wrapper exactly once to avoid the multi-pass
+      // re-wrapping cost of repeated `namedChild(i)` calls.
+      let varListNode: Parser.SyntaxNode | null = null;
       let compoundOp: CompoundOp | undefined;
-      if (!isLocalStmt) {
-        const opNode = named.find(c => c.type === 'assignment_operator');
-        if (opNode && opNode.text !== '=') compoundOp = opNode.text as CompoundOp;
+      const rhsArr: Parser.SyntaxNode[] = [];
+      for (let i = 0; i < total; i++) {
+        const c = n.namedChild(i);
+        if (!c) continue;
+        if (varListNode === null) {
+          if (c.type === 'variable_list') varListNode = c;
+          continue;
+        }
+        if (c.type === 'assignment_operator') {
+          if (!isLocalStmt && c.text !== '=') compoundOp = c.text as CompoundOp;
+          continue;
+        }
+        rhsArr.push(c);
       }
-      if (varListIdx >= 0) {
-        const vars = named[varListIdx].namedChildren.filter(
-          c => c.type === 'variable_ref' || c.type === 'ml_variable_ref',
-        );
-        const rhs = named.slice(varListIdx + 1).filter(c => c.type !== 'assignment_operator');
-        const n2 = Math.min(vars.length, rhs.length);
-        for (let i = 0; i < n2; i++) record(n, vars[i], rhs[i], isLocalStmt, compoundOp);
+      if (varListNode) {
+        // Collect var refs from the variable_list without an intermediate Array.
+        const vlc = varListNode.namedChildCount;
+        const vars: Parser.SyntaxNode[] = [];
+        for (let i = 0; i < vlc; i++) {
+          const v = varListNode.namedChild(i);
+          if (v && (v.type === 'variable_ref' || v.type === 'ml_variable_ref')) vars.push(v);
+        }
+        const n2 = Math.min(vars.length, rhsArr.length);
+        for (let i = 0; i < n2; i++) record(n, vars[i], rhsArr[i], isLocalStmt, compoundOp);
         if (isLocalStmt && vars.length > n2) {
           for (let i = n2; i < vars.length; i++) recordDeclarationOnly(n, vars[i]);
         }

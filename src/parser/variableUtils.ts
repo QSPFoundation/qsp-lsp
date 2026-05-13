@@ -9,6 +9,19 @@
 
 import type Parser from 'web-tree-sitter';
 
+/** Find a child with the given type via index-based access (no array alloc). */
+function findNamedChildOfType(
+  node: Parser.SyntaxNode,
+  type: string,
+): Parser.SyntaxNode | undefined {
+  const n = node.namedChildCount;
+  for (let i = 0; i < n; i++) {
+    const c = node.namedChild(i);
+    if (c && c.type === type) return c;
+  }
+  return undefined;
+}
+
 /** Check if a variable_ref is the LHS of a compound assignment (`+=` / `-=` / `*=` / `/=`). */
 export function isCompoundAssignmentLhs(varNode: Parser.SyntaxNode): boolean {
   const parent = varNode.parent;
@@ -16,7 +29,7 @@ export function isCompoundAssignmentLhs(varNode: Parser.SyntaxNode): boolean {
   if (parent.type === 'variable_list') {
     const grandparent = parent.parent;
     if (grandparent?.type === 'assignment_statement') {
-      const opNode = grandparent.namedChildren.find(c => c.type === 'assignment_operator');
+      const opNode = findNamedChildOfType(grandparent, 'assignment_operator');
       return opNode !== undefined && opNode.text !== '=';
     }
   }
@@ -32,7 +45,7 @@ export function isVariableDefinition(varNode: Parser.SyntaxNode): boolean {
     const grandparent = parent.parent;
     if (grandparent?.type === 'local_statement') return true;
     if (grandparent?.type === 'assignment_statement') {
-      const opNode = grandparent.namedChildren.find(c => c.type === 'assignment_operator');
+      const opNode = findNamedChildOfType(grandparent, 'assignment_operator');
       return !opNode || opNode.text === '=';
     }
   }
@@ -56,15 +69,20 @@ export function variableDefinitionHasValue(varNode: Parser.SyntaxNode): boolean 
   if (!parent) return false;
 
   const countRhsAfter = (stmt: Parser.SyntaxNode): number => {
-    const named = stmt.namedChildren;
-    const varListIdx = named.findIndex(c => c.type === 'variable_list');
-    if (varListIdx < 0) return 0;
+    const total = stmt.namedChildCount;
+    let seenList = false;
     let n = 0;
-    for (let i = varListIdx + 1; i < named.length; i++) {
-      if (named[i].type === 'assignment_operator') continue;
+    for (let i = 0; i < total; i++) {
+      const c = stmt.namedChild(i);
+      if (!c) continue;
+      if (!seenList) {
+        if (c.type === 'variable_list') seenList = true;
+        continue;
+      }
+      if (c.type === 'assignment_operator') continue;
       n++;
     }
-    return n;
+    return seenList ? n : 0;
   };
 
   // Direct child of local_statement (single-var form, no list).
@@ -83,14 +101,23 @@ export function variableDefinitionHasValue(varNode: Parser.SyntaxNode): boolean 
   if (grandparent.type === 'local_statement') {
     const rhsCount = countRhsAfter(grandparent);
     if (rhsCount === 0) return false;
-    const vars = parent.namedChildren.filter(
-      c => c.type === 'variable_ref' || c.type === 'ml_variable_ref',
-    );
+    // Find this varNode's index among same-typed siblings in the
+    // variable_list, without allocating an intermediate array.
     const sr = varNode.startPosition.row;
     const sc = varNode.startPosition.column;
-    const idx = vars.findIndex(v =>
-      v.startPosition.row === sr && v.startPosition.column === sc,
-    );
+    const total = parent.namedChildCount;
+    let idx = -1;
+    let seen = 0;
+    for (let i = 0; i < total; i++) {
+      const v = parent.namedChild(i);
+      if (!v) continue;
+      if (v.type !== 'variable_ref' && v.type !== 'ml_variable_ref') continue;
+      if (v.startPosition.row === sr && v.startPosition.column === sc) {
+        idx = seen;
+        break;
+      }
+      seen++;
+    }
     if (idx < 0) return false;
     return idx < rhsCount;
   }

@@ -527,9 +527,17 @@ export function getPossibleValuesAtCursor(
   // Find the LocationSymbols owning the enclosing location_block.
   // The header holds the `location_name` node (no tree-sitter field;
   // walk the named children instead).  Match case-insensitively.
-  const header = locBlock.namedChildren.find(c => c?.type === 'location_header');
+  const findNamed = (node: Parser.SyntaxNode, type: string): Parser.SyntaxNode | undefined => {
+    const n = node.namedChildCount;
+    for (let i = 0; i < n; i++) {
+      const c = node.namedChild(i);
+      if (c && c.type === type) return c;
+    }
+    return undefined;
+  };
+  const header = findNamed(locBlock, 'location_header');
   if (!header) return [];
-  const nameNode = header.namedChildren.find(c => c?.type === 'location_name');
+  const nameNode = findNamed(header, 'location_name');
   if (!nameNode) return [];
   const locKey = nameNode.text.trim().toLowerCase();
   const ownLocSyms = docSyms.locations.get(locKey);

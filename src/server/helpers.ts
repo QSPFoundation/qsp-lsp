@@ -248,13 +248,6 @@ export function findColonOutsideStrings(text: string): number {
 }
 
 /**
- * Check whether `text` contains a colon outside of quoted strings.
- */
-export function hasColonOutsideStrings(text: string): boolean {
-  return findColonOutsideStrings(text) >= 0;
-}
-
-/**
  * Given an inline statement line like `if x > 0: pl 'hi'`,
  * split it into the header (up to and including the colon) and the body.
  * Returns null if no colon outside strings or body is empty.

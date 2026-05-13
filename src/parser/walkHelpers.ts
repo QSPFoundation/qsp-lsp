@@ -102,26 +102,43 @@ export function readVarRef(node: Parser.SyntaxNode): { prefix: string; name: str
 
 // ── Argument helpers ───────────────────────────────────────────────────
 
+/**
+ * Look for a `paren_args` child via index-based access.  Avoids the
+ * `.children` getter, which allocates an Array and one SyntaxNode
+ * wrapper per child — these helpers are called per statement/call,
+ * so the saving compounds on large files.
+ */
+function findParenArgs(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
+  const n = node.childCount;
+  for (let i = 0; i < n; i++) {
+    const c = node.child(i);
+    if (c && c.type === 'paren_args') return c;
+  }
+  return null;
+}
+
 /** Get the first non-meta argument of a statement or function call. */
 export function getFirstArgNode(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
-  for (const child of node.children) {
-    if (child.type === 'paren_args') return child.namedChildren[0] ?? null;
-  }
-  for (const child of node.namedChildren) {
-    if (!META_CHILD_TYPES.has(child.type)) return child;
+  const paren = findParenArgs(node);
+  if (paren) return paren.namedChild(0);
+  const n = node.namedChildCount;
+  for (let i = 0; i < n; i++) {
+    const c = node.namedChild(i);
+    if (c && !META_CHILD_TYPES.has(c.type)) return c;
   }
   return null;
 }
 
 /** Get the nth (0-indexed) non-meta argument. */
 export function getNthArgNode(node: Parser.SyntaxNode, n: number): Parser.SyntaxNode | null {
-  for (const child of node.children) {
-    if (child.type === 'paren_args') return child.namedChildren[n] ?? null;
-  }
+  const paren = findParenArgs(node);
+  if (paren) return paren.namedChild(n);
+  const count = node.namedChildCount;
   let i = 0;
-  for (const child of node.namedChildren) {
-    if (!META_CHILD_TYPES.has(child.type)) {
-      if (i === n) return child;
+  for (let k = 0; k < count; k++) {
+    const c = node.namedChild(k);
+    if (c && !META_CHILD_TYPES.has(c.type)) {
+      if (i === n) return c;
       i++;
     }
   }
@@ -129,32 +146,38 @@ export function getNthArgNode(node: Parser.SyntaxNode, n: number): Parser.Syntax
 }
 
 export function isSingleArgCall(node: Parser.SyntaxNode): boolean {
-  const parenArgs = node.children.find(c => c.type === 'paren_args');
-  if (parenArgs) return parenArgs.namedChildren.length === 1;
-  let count = 0;
-  for (const c of node.namedChildren) {
+  const paren = findParenArgs(node);
+  if (paren) return paren.namedChildCount === 1;
+  const count = node.namedChildCount;
+  let seen = 0;
+  for (let i = 0; i < count; i++) {
+    const c = node.namedChild(i);
+    if (!c) continue;
     if (c.type !== 'function_name' && c.type !== 'type_prefix') {
-      if (++count > 1) return false;
+      if (++seen > 1) return false;
     }
   }
-  return count === 1;
+  return seen === 1;
 }
 
 export function hasInterpolation(node: Parser.SyntaxNode): boolean {
-  for (const child of node.namedChildren) {
-    if (child.type === 'string_interpolation') return true;
+  const n = node.namedChildCount;
+  for (let i = 0; i < n; i++) {
+    const c = node.namedChild(i);
+    if (c && c.type === 'string_interpolation') return true;
   }
   return false;
 }
 
 /** Count positional args of a statement / function call (excludes meta children). */
 export function countCallArgs(node: Parser.SyntaxNode): number {
-  for (const c of node.children) {
-    if (c.type === 'paren_args') return c.namedChildren.length;
-  }
+  const paren = findParenArgs(node);
+  if (paren) return paren.namedChildCount;
+  const n = node.namedChildCount;
   let count = 0;
-  for (const c of node.namedChildren) {
-    if (!META_CHILD_TYPES.has(c.type)) count++;
+  for (let i = 0; i < n; i++) {
+    const c = node.namedChild(i);
+    if (c && !META_CHILD_TYPES.has(c.type)) count++;
   }
   return count;
 }
@@ -168,12 +191,13 @@ export function countCallArgs(node: Parser.SyntaxNode): number {
  * under a user-call node, so we only need to filter out `user_name`.
  */
 export function countUserCallExtraArgs(node: Parser.SyntaxNode): number {
-  for (const c of node.children) {
-    if (c.type === 'paren_args') return c.namedChildren.length;
-  }
+  const paren = findParenArgs(node);
+  if (paren) return paren.namedChildCount;
+  const n = node.namedChildCount;
   let count = 0;
-  for (const c of node.namedChildren) {
-    if (c.type !== 'user_name') count++;
+  for (let i = 0; i < n; i++) {
+    const c = node.namedChild(i);
+    if (c && c.type !== 'user_name') count++;
   }
   return count;
 }
@@ -208,7 +232,10 @@ export function findDirectString(node: Parser.SyntaxNode): Parser.SyntaxNode | n
   }
   if (node.type === 'code_block') return node;
   if (node.type === 'string') {
-    for (const child of node.namedChildren) {
+    const n = node.namedChildCount;
+    for (let i = 0; i < n; i++) {
+      const child = node.namedChild(i);
+      if (!child) continue;
       if (child.type === 'single_quoted_string' || child.type === 'double_quoted_string') {
         return hasInterpolation(child) ? null : child;
       }

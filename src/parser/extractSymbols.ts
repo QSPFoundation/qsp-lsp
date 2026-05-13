@@ -45,14 +45,28 @@ export function extractSymbols(
   const reusedLocations = new Set<string>();
   const root = tree.rootNode;
 
-  for (const locBlock of root.namedChildren) {
-    if (locBlock.type !== 'location_block') continue;
+  const findNamedChild = (
+    node: Parser.SyntaxNode,
+    type: string,
+  ): Parser.SyntaxNode | undefined => {
+    const n = node.namedChildCount;
+    for (let i = 0; i < n; i++) {
+      const c = node.namedChild(i);
+      if (c && c.type === type) return c;
+    }
+    return undefined;
+  };
+
+  const rootChildCount = root.namedChildCount;
+  for (let i = 0; i < rootChildCount; i++) {
+    const locBlock = root.namedChild(i);
+    if (!locBlock || locBlock.type !== 'location_block') continue;
 
     const header = locBlock.childForFieldName('location_header')
-      ?? locBlock.namedChildren.find(c => c.type === 'location_header');
+      ?? findNamedChild(locBlock, 'location_header');
     if (!header) continue;
 
-    const nameNode = header.namedChildren.find(c => c.type === 'location_name');
+    const nameNode = findNamedChild(header, 'location_name');
     if (!nameNode) continue;
 
     const locName = nameNode.text.trim();

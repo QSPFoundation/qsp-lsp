@@ -91,10 +91,9 @@ function readArgsLiteralIndex(node: Parser.SyntaxNode): number | undefined {
   // `idx` is an `array_index` AST node — `[ expr (, expr)* ]`.  Look
   // for exactly one named expression child; multi-dimension index or
   // empty bracket → opaque.
-  const exprs = idx.namedChildren;
-  if (exprs.length !== 1) return undefined;
-  const inner = exprs[0];
-  if (inner.type !== 'number_literal') return undefined;
+  if (idx.namedChildCount !== 1) return undefined;
+  const inner = idx.namedChild(0);
+  if (!inner || inner.type !== 'number_literal') return undefined;
   const n = Number(inner.text);
   if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return undefined;
   return n;
@@ -156,7 +155,7 @@ export function extractAction(
 
   let targetNode: Parser.SyntaxNode = argsNode;
   if (argsNode.type === 'paren_args') {
-    const firstArg = argsNode.namedChildren[0];
+    const firstArg = argsNode.namedChild(0);
     if (firstArg) targetNode = firstArg;
   }
 
@@ -409,7 +408,7 @@ export function extractObjOperator(
   docUri: string,
   scopeId: number,
 ): void {
-  const first = node.namedChildren[0];
+  const first = node.namedChild(0);
   if (!first) return;
 
   if (first.type === 'op_obj') {

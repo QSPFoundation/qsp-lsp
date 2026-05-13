@@ -39,13 +39,15 @@ const META_CHILD_TYPES = new Set([
 
 /** Get the first non-meta argument of a statement or function call. */
 function getFirstArgNode(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
-  for (const child of node.children) {
-    if (child.type === 'paren_args') {
-      return child.namedChildren[0] ?? null;
-    }
+  const cn = node.childCount;
+  for (let i = 0; i < cn; i++) {
+    const c = node.child(i);
+    if (c && c.type === 'paren_args') return c.namedChild(0);
   }
-  for (const child of node.namedChildren) {
-    if (!META_CHILD_TYPES.has(child.type)) return child;
+  const nn = node.namedChildCount;
+  for (let i = 0; i < nn; i++) {
+    const c = node.namedChild(i);
+    if (c && !META_CHILD_TYPES.has(c.type)) return c;
   }
   return null;
 }
