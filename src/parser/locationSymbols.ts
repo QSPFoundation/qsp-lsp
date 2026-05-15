@@ -60,7 +60,25 @@ export class LocationSymbols {
   // Scope hierarchy for local variable propagation.
   // Maps child scopeId → parent scopeId.
   public readonly scopeParent = new Map<number, number>();
-  // Scopes where parent locals do NOT propagate in (act, code_block).
+  /**
+   * Scopes where lexical lookup STOPS at the boundary — the parent
+   * chain is not consulted past these.
+   *
+   * Members: `act` bodies, non-dynamic `code_block` literals (used as
+   * string args to `gt`/`killvar`/…), and the outer scope of a
+   * *deferred* dynamic/dyneval block (seeded via
+   * {@link injectLocalIntoScope}).
+   *
+   * NOT members: `loop_block` / `if_block` bodies and inline
+   * `dynamic` / `dyneval` blocks — these are lexically anchored, so
+   * plain scope-chain walking already reaches the right caller locals.
+   *
+   * Deferred dynamic blocks are the one structural exception: their
+   * outer scope is isolated *and* pre-populated with caller locals
+   * via {@link injectLocalIntoScope} (the union of locals from every
+   * resolved call site), because they're walked out of lexical
+   * context and no single parent scope describes their callers.
+   */
   public readonly isolatedScopes = new Set<number>();
   /**
    * Base names that have at least one LOCAL declaration (fast-path skip).
@@ -195,6 +213,47 @@ export class LocationSymbols {
     loc: SymbolLocation;
     varName: string;
     varBaseName: string;
+    /** `dynamic` (statement) or `dyneval` (function call). */
+    kind: 'dynamic' | 'dyneval';
+    /** Number of extra positional args after the var argument. */
+    argCount: number;
+  }> = [];
+
+  /**
+   * Var-mediated `dynamic`/`dyneval` call sites whose enclosing code
+   * runs in a *deferred*, click-time frame rather than in the host
+   * location's call frame.  Two QSP constructs produce such sites:
+   *
+   *   • `<a href="exec:…">` link bodies (lifted from string literals
+   *     by the embedded-exec sub-walker and merged into this list);
+   *   • `act 'name': … end` action bodies (routed here directly by
+   *     {@link bindingCollector} when the call's lexical container
+   *     is an `act_block`/`act_inline`).
+   *
+   * Both bodies execute when the player clicks the link/action.  By
+   * that point the host location's frame — and every caller frame
+   * that propagated locals into it — has long returned, so:
+   *
+   *   • caller-propagated locals are NOT visible — they have nothing
+   *     to do with the click-time frame;
+   *   • the host's own globals ARE visible — globals are namespace-
+   *     scoped, not frame-scoped.
+   *
+   * Locals declared *inside* the deferred body (and their resolved
+   * dispatches) are handled in-place; only truly cross-frame, global-
+   * only candidates reach this list.
+   *
+   * The aggregator's cross-location dispatch pass consumes this list
+   * directly with global-namespace lookup rules — never via the
+   * propagated-locals channel, which models frame-mediated dataflow
+   * that cannot reach here.
+   */
+  public readonly deferredDynamicVarCalls: Array<{
+    loc: SymbolLocation;
+    varName: string;
+    varBaseName: string;
+    kind: 'dynamic' | 'dyneval';
+    argCount: number;
   }> = [];
 
   /**
@@ -625,6 +684,7 @@ export class LocationSymbols {
       for (const d of source.dynamicVarCalls) copy.dynamicVarCalls.push(d);
       for (const d of source.untrackedDynamicVarCalls) copy.untrackedDynamicVarCalls.push(d);
       for (const d of source.unresolvedDynamicVarCalls) copy.unresolvedDynamicVarCalls.push(d);
+      for (const d of source.deferredDynamicVarCalls) copy.deferredDynamicVarCalls.push(d);
       for (const d of source.resolvedDynamicBlocks) copy.resolvedDynamicBlocks.push(d);
       for (const [k, v] of source.variableBindings) copy.variableBindings.set(k, v);
       return copy;
@@ -701,6 +761,9 @@ export class LocationSymbols {
     }
     for (const d of source.unresolvedDynamicVarCalls) {
       copy.unresolvedDynamicVarCalls.push({ ...d, loc: shift(d.loc) });
+    }
+    for (const d of source.deferredDynamicVarCalls) {
+      copy.deferredDynamicVarCalls.push({ ...d, loc: shift(d.loc) });
     }
     for (const d of source.resolvedDynamicBlocks) {
       copy.resolvedDynamicBlocks.push({

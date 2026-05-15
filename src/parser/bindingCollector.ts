@@ -29,6 +29,7 @@ import {
   findDirectString,
   hasInterpolation,
   collapseNewlines,
+  countCallArgs,
 } from './walkHelpers';
 import { lookupArgConstraints, lookupFunctionReturnType } from './builtins';
 import { parseVarStringArg } from './variableBindings';
@@ -89,6 +90,14 @@ export function collectVariableBindings(
   docUri: string,
   callSiteTargets: Map<number, Parser.SyntaxNode[]>,
   untrackedByNodeId: Map<number, { varName: string; reason: 'multiple-assignments' | 'complex-expression'; loc: SymbolLocation }>,
+  /**
+   * Seed for the descent-time "in a deferred-execution frame" flag.
+   * `true` when this entire `locBlock` is itself a deferred-frame
+   * body (synthetic exec-body sub-walker); `false` for normal
+   * location walks, where the flag flips on lexically descending
+   * into an `act_block`/`act_inline`.
+   */
+  inDeferredExecution = false,
 ): void {
   const bindingsByName = new Map<string, BindingInfo[]>();
   const pushBinding = (name: string, info: BindingInfo): void => {
@@ -102,6 +111,21 @@ export function collectVariableBindings(
     varLower: string;
     varName: string;
     callLoc: SymbolLocation;
+    kind: 'dynamic' | 'dyneval';
+    argCount: number;
+    /**
+     * True iff this call site lexically resides in a deferred-
+     * execution frame — either inside an `act_block`/`act_inline`
+     * (tracked by descent), or inside the entire body when the
+     * collector is invoked with `inDeferredExecution=true` (exec-
+     * body sub-walker).  Both run at click time in a fresh frame:
+     * the unresolved-bucket routing sends them to
+     * {@link LocationSymbols.deferredDynamicVarCalls} so the
+     * propagated-locals channel — which models caller-frame
+     * dataflow that cannot reach click-time code — does not
+     * touch them.
+     */
+    inDeferred: boolean;
   };
   const callSites: CallSite[] = [];
 
@@ -320,7 +344,7 @@ export function collectVariableBindings(
     pushBinding(baseName, info);
   };
 
-  const noteCallSite = (node: Parser.SyntaxNode) => {
+  const noteCallSite = (node: Parser.SyntaxNode, inDeferred: boolean) => {
     if (!CONTAINER_NODE_TYPES.has(node.type)) return;
     const nameNode = node.childForFieldName('name');
     const stmtName = nameNode?.text.toLowerCase() ?? '';
@@ -346,7 +370,11 @@ export function collectVariableBindings(
     const vRef = readVarRef(firstArg);
     if (!vRef) return;
     const varName = vRef.prefix + vRef.name;
-    callSites.push({ stmtNode: node, varLower: vRef.name.toLowerCase(), varName, callLoc });
+    const kind: 'dynamic' | 'dyneval' = DYNAMIC_FUNC_NAMES.has(stmtName) ? 'dyneval' : 'dynamic';
+    const argCount = Math.max(0, countCallArgs(node) - 1);
+    callSites.push({
+      stmtNode: node, varLower: vRef.name.toLowerCase(), varName, callLoc, kind, argCount, inDeferred,
+    });
   };
 
   const noteSideEffectWrite = (node: Parser.SyntaxNode) => {
@@ -411,7 +439,14 @@ export function collectVariableBindings(
   };
 
   // ── Tree walk ──────────────────────────────────────────────────
-  const visit = () => {
+  // `inDeferred` tracks lexical containment in a deferred-execution
+  // frame during descent so call sites can be tagged at creation
+  // time — strictly cheaper than a per-call-site parent walk would
+  // be.  Seeded from `inDeferredExecution` (true when the entire
+  // location body is itself a deferred frame, e.g. an exec-body
+  // sub-walker invocation); flips on descending into `act_block` /
+  // `act_inline`.
+  const visit = (inDeferred: boolean) => {
     const n = cursor.currentNode;
     if (n.type === 'assignment_statement' || n.type === 'local_statement') {
       const isLocalStmt = n.type === 'local_statement';
@@ -451,15 +486,16 @@ export function collectVariableBindings(
         }
       }
     }
-    noteCallSite(n);
+    noteCallSite(n, inDeferred);
     noteSideEffectWrite(n);
     if (cursor.gotoFirstChild()) {
-      do { visit(); } while (cursor.gotoNextSibling());
+      const childInDeferred = inDeferred || n.type === 'act_block' || n.type === 'act_inline';
+      do { visit(childInDeferred); } while (cursor.gotoNextSibling());
       cursor.gotoParent();
     }
   };
   if (cursor.gotoFirstChild()) {
-    do { visit(); } while (cursor.gotoNextSibling());
+    do { visit(inDeferredExecution); } while (cursor.gotoNextSibling());
     cursor.gotoParent();
   }
   cursor.delete();
@@ -521,7 +557,26 @@ export function collectVariableBindings(
     }
 
     if (blocks.length === 0) {
-      locSymbols.unresolvedDynamicVarCalls.push({ loc: cs.callLoc, varName: cs.varName, varBaseName: cs.varLower });
+      // Var-mediated calls in a deferred-execution frame run at
+      // click-time in a fresh frame — see {@link LocationSymbols.
+      // deferredDynamicVarCalls} for the full rationale.  Route them
+      // there so the aggregator's cross-loc pass treats them with
+      // global-only lookup, bypassing the propagated-locals channel
+      // (which models frame-mediated dataflow that cannot reach
+      // click-time code).  `cs.inDeferred` is set during descent
+      // for `act_block`/`act_inline` ancestors, or seeded for the
+      // whole body when the collector runs as an exec-body sub-
+      // walker.
+      const bucket = cs.inDeferred
+        ? locSymbols.deferredDynamicVarCalls
+        : locSymbols.unresolvedDynamicVarCalls;
+      bucket.push({
+        loc: cs.callLoc,
+        varName: cs.varName,
+        varBaseName: cs.varLower,
+        kind: cs.kind,
+        argCount: cs.argCount,
+      });
       continue;
     }
     if (blocks.length === 1) {
@@ -539,7 +594,29 @@ export function collectVariableBindings(
       callSiteTargets.set(cs.stmtNode.id, [uniq[0].block]);
       continue;
     }
-    if (uniq.every(e => e.isLocal)) {
+    // Local shadows global.  By QSP frame semantics, once a `local
+    // $x` declaration is in scope at the call site, every read of
+    // `$x` refers to the frame-local — any prior or concurrent
+    // global binding for `$x` is invisible.  When mixed candidates
+    // reach this point (the retag pass converted post-decl globals
+    // to locals; only pre-decl or otherwise-unreachable globals
+    // remain), drop the non-locals so dispatch resolves to the
+    // local(s).  After this filter `uniq` is either fully local or
+    // fully non-local.
+    const hasLocal = uniq.some(e => e.isLocal);
+    const hasGlobal = uniq.some(e => !e.isLocal);
+    let allLocal = hasLocal && !hasGlobal;
+    if (hasLocal && hasGlobal) {
+      const localsOnly = uniq.filter(e => e.isLocal);
+      if (localsOnly.length === 1) {
+        callSiteTargets.set(cs.stmtNode.id, [localsOnly[0].block]);
+        continue;
+      }
+      uniq.length = 0;
+      for (const e of localsOnly) uniq.push(e);
+      allLocal = true;
+    }
+    if (allLocal) {
       // Multiple distinct local code-block writes.  Two cases:
       //
       //   • Same initial scope — sequential writes to one local symbol
@@ -566,13 +643,12 @@ export function collectVariableBindings(
         });
       }
     } else {
-      // Mixed local+global, or ≥2 distinct global assignments — the
-      // runtime target depends on which assignment last executed.
-      // Track every candidate so per-target diagnostics
-      // (`missingResultInFunctionCall`, `extraArgsToTargetWithoutArgs`)
-      // can apply universal-quantification logic, AND emit the
-      // `multiple-assignments` info so the user knows the dispatch
-      // wasn't statically uniqued.
+      // ≥2 distinct global assignments — the runtime target depends
+      // on which assignment last executed.  Track every candidate so
+      // per-target diagnostics (`missingResultInFunctionCall`,
+      // `extraArgsToTargetWithoutArgs`) can apply universal-
+      // quantification logic, AND emit the `multiple-assignments`
+      // info so the user knows the dispatch wasn't statically uniqued.
       callSiteTargets.set(cs.stmtNode.id, uniq.map(e => e.block));
       locSymbols.untrackedDynamicVarCalls.push({
         loc: cs.callLoc, varName: cs.varName,

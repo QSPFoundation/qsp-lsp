@@ -141,7 +141,10 @@ export class ProjectModeService {
     if (this.tsParser.isReady) {
       const tree = this.tsParser.parseOnce(text);
       if (tree) {
-        const result = extractSymbols(tree, uri);
+        const result = extractSymbols(
+          tree, uri, undefined, undefined,
+          (t) => this.tsParser.parseOnce(t),
+        );
         symbols = result.symbols;
         tree.delete();
       } else {

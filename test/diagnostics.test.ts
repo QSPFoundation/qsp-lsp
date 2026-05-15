@@ -1113,6 +1113,52 @@ y = dyneval($code)
       );
       expect(diags.some(d => d.message.toLowerCase().includes('dyneval') && d.message.includes(NEEDLE))).toBe(false);
     });
+
+    // ── cross-location global dispatch ─────────────────────────────
+    it('warns when dyneval($g) resolves to a global block in another location that lacks result', () => {
+      const diags = run(
+        `# init
+$dispatch = { x = 1 }
+---
+# other
+y = dyneval($dispatch)
+---
+`,
+        { missingResultInFunctionCall: true },
+      );
+      expect(diags.some(d => d.message.toLowerCase().includes('dyneval') && d.message.includes(NEEDLE))).toBe(true);
+    });
+
+    it('does NOT warn when the cross-location global block assigns result', () => {
+      const diags = run(
+        `# init
+$dispatch = { result = 42 }
+---
+# other
+y = dyneval($dispatch)
+---
+`,
+        { missingResultInFunctionCall: true },
+      );
+      expect(diags.some(d => d.message.toLowerCase().includes('dyneval') && d.message.includes(NEEDLE))).toBe(false);
+    });
+
+    it('does NOT warn when at least ONE cross-location candidate assigns result', () => {
+      const diags = run(
+        `# a
+$d = { x = 1 }
+---
+# b
+$d = { result = 99 }
+---
+# other
+y = dyneval($d)
+---
+`,
+        { missingResultInFunctionCall: true },
+      );
+      expect(diags.some(d => d.message.toLowerCase().includes('dyneval') && d.message.includes(NEEDLE))).toBe(false);
+    });
   });
 
   // ── extraArgsToTargetWithoutArgs ──────────────────────────────────
@@ -1754,6 +1800,122 @@ pl args[0]
         expect(hits.length).toBe(2);
         expect(hits.some(h => /1 extra value is discarded/.test(h.message))).toBe(true);
         expect(hits.some(h => /2 extra values are discarded/.test(h.message))).toBe(true);
+      });
+    });
+
+    // ── cross-location global dispatch ─────────────────────────────
+    describe('cross-location global dispatch', () => {
+      it('warns when dyneval($g, …) resolves to a global block that never reads args', () => {
+        const diags = run(
+          `# init
+$dispatch = { result = 1 }
+---
+# other
+y = dyneval($dispatch, 1, 2)
+---
+`,
+          { extraArgsToTargetWithoutArgs: true },
+        );
+        expect(diags.some(d => d.message.includes(TAG) && d.message.includes("'dyneval'"))).toBe(true);
+      });
+
+      it('does NOT warn when the cross-location block reads args[0..N]', () => {
+        const diags = run(
+          `# init
+$dispatch = { result = args[0] + args[1] }
+---
+# other
+y = dyneval($dispatch, 1, 2)
+---
+`,
+          { extraArgsToTargetWithoutArgs: true },
+        );
+        expect(diags.some(d => d.message.includes(TAG))).toBe(false);
+      });
+
+      it('warns with partial-consumption when the block reads only args[0]', () => {
+        const diags = run(
+          `# init
+$dispatch = { result = args[0] }
+---
+# other
+y = dyneval($dispatch, 1, 2, 3)
+---
+`,
+          { extraArgsToTargetWithoutArgs: true },
+        );
+        expect(diags.some(d => /at most 'args\[0\]'/.test(d.message))).toBe(true);
+      });
+
+      it("warns when `dynamic $g, …` (statement form) resolves to a global block that never reads args", () => {
+        const diags = run(
+          `# init
+$dispatch = { x = 1 }
+---
+# other
+dynamic $dispatch, 1, 2
+---
+`,
+          { extraArgsToTargetWithoutArgs: true },
+        );
+        expect(diags.some(d => d.message.includes(TAG) && d.message.includes("'dynamic'"))).toBe(true);
+      });
+
+      it("does NOT warn on `dynamic $g, …` when the global block reads args[0..N]", () => {
+        const diags = run(
+          `# init
+$dispatch = { y = args[0] + args[1] }
+---
+# other
+dynamic $dispatch, 1, 2
+---
+`,
+          { extraArgsToTargetWithoutArgs: true },
+        );
+        expect(diags.some(d => d.message.includes(TAG))).toBe(false);
+      });
+
+      it('suppresses the warning if ANY cross-location candidate fully consumes the args', () => {
+        // Universal quantification: any single candidate that
+        // consumes all extras suppresses the warning, mirroring
+        // intra-location multi-target behaviour.
+        const diags = run(
+          `# a
+$d = { y = 1 }
+---
+# b
+$d = { y = args[0] + args[1] }
+---
+# other
+y = dyneval($d, 1, 2)
+---
+`,
+          { extraArgsToTargetWithoutArgs: true },
+        );
+        expect(diags.some(d => d.message.includes(TAG))).toBe(false);
+      });
+
+      it('cross-loc dispatch is suppressed when an intra-loc binding shadows the global', () => {
+        // `other` has its own `$d = {...}` — intra-loc resolves the
+        // call, so the cross-loc post-pass never fires.  The diagnostic
+        // here is the intra-loc one (or none, if the local block reads
+        // args).  Confirm no `'dyneval' block` cross-loc warning.
+        const diags = run(
+          `# init
+$d = { y = 1 }
+---
+# other
+$d = { y = args[0] + args[1] }
+y = dyneval($d, 1, 2)
+---
+`,
+          { extraArgsToTargetWithoutArgs: true },
+        );
+        // Either no warning at all, OR an intra-loc one — but the
+        // diagnostic should NOT reference 'dyneval' block specifically
+        // from cross-loc dispatch since intra-loc resolved the call.
+        // (Both branches read args[0..1], so no warning is expected.)
+        expect(diags.some(d => d.message.includes(TAG))).toBe(false);
       });
     });
   });

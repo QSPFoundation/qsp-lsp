@@ -53,6 +53,17 @@ export function walkLocationBody(
   locBlock: Parser.SyntaxNode,
   locSymbols: LocationSymbols,
   docUri: string,
+  /**
+   * When `true`, every var-mediated `dynamic`/`dyneval` call inside
+   * `locBlock` whose first arg fails intra-location resolution is
+   * routed to {@link LocationSymbols.deferredDynamicVarCalls}
+   * regardless of lexical context.  Set by `embeddedExec.ts` when
+   * walking a synthetic location built from an `<a href="exec:…">`
+   * link body — every statement inside such a body runs at click
+   * time in a fresh frame, so caller-propagated locals must not
+   * shadow cross-loc global lookup.
+   */
+  inDeferredExecution = false,
 ): void {
   let cursor = locBlock.walk();
 
@@ -65,6 +76,7 @@ export function walkLocationBody(
   collectVariableBindings(
     locBlock, locSymbols, docUri,
     callSiteTargets, untrackedByNodeId,
+    inDeferredExecution,
   );
 
   // ── Deferred-block bookkeeping ──────────────────────────────────
@@ -135,11 +147,11 @@ export function walkLocationBody(
       if (consumedCodeBlocks.has(node.id)) return;
       if (deferredCodeBlocks.has(node.id)) return;
 
-      // Dynamic/dyneval code blocks: caller locals propagate in (the
-      // block runs in the caller's frame at runtime), but labels are
-      // confined to the block — a `jump` cannot escape outwards nor
-      // enter from outside.  So: variable-non-isolated, but a fresh
-      // label namespace.
+      // Inline dynamic/dyneval block: lexically anchored, so the
+      // scope chain already points at the right caller — no isolation
+      // needed.  Deferred (var-mediated) dynamic blocks below take
+      // the opposite path: isolated + locals injected.  Either way,
+      // labels are confined — fresh label namespace.
       if (locSymbols.dynamicCodeBlocks.has(node.id)) {
         const prevScope = scopeId;
         const prevLabelNs = labelNamespace;
@@ -154,7 +166,8 @@ export function walkLocationBody(
         return;
       }
 
-      // Other code blocks open a new *isolated* scope and a fresh
+      // Other code blocks (string-arg code literals used by `gt`,
+      // `killvar`, etc.) open a new *isolated* scope and a fresh
       // label namespace.
       const prevScope = scopeId;
       const prevLabelNs = labelNamespace;
@@ -322,10 +335,15 @@ export function walkLocationBody(
   cursor.delete();
 
   // ── Deferred walk: blocks targeted by var-mediated dynamic/dyneval
-  // Each deferred block is walked inside a synthetic scope seeded with
-  // the union of caller-site locals from every call site that resolves
-  // to this block.  Walked in topological order so a callee block is
-  // only walked after every caller block has propagated its locals in.
+  //
+  // Walked out of lexical context (same block may be reached from many
+  // call sites), so each gets an ISOLATED outer scope SEEDED with the
+  // union of caller-site locals via `injectLocalIntoScope`.  This
+  // "isolated + injected" combination is unique to deferred dynamic
+  // blocks — contrast inline dynamic blocks above.
+  //
+  // Topological order: a callee block is walked only after every
+  // caller block has propagated its locals in.
   const walkBlock = (entry: { node: Parser.SyntaxNode; locals: Map<string, import('./symbolTable').QspSymbol> }) => {
     const outer = newScope(0, /* isolated */ true);
     for (const [name, sym] of entry.locals) {

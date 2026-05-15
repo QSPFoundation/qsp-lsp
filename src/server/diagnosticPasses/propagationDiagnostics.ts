@@ -217,34 +217,58 @@ export function checkMissingResultInFunctionCall(
 export function checkMissingResultInDyneval(
   ctx: DiagnosticCtx,
   symbols: DocumentSymbols,
+  agg: SymbolAggregates,
 ): void {
-  for (const [, locSyms] of symbols.locations) {
+  for (const [locKey, locSyms] of symbols.locations) {
     if (locSyms.hasErrors) continue;
-    if (locSyms.resolvedDynamicBlocks.length === 0) continue;
 
-    const resultSym = locSyms.findVariable(RESULT_VAR_NAME);
-    const resultDefs = resultSym
-      ? resultSym.references.filter(r => r.isDefinition)
-      : [];
+    // ── Inline / locally-resolved dispatches ──
+    if (locSyms.resolvedDynamicBlocks.length > 0) {
+      const resultSym = locSyms.findVariable(RESULT_VAR_NAME);
+      const resultDefs = resultSym
+        ? resultSym.references.filter(r => r.isDefinition)
+        : [];
 
-    for (const block of locSyms.resolvedDynamicBlocks) {
-      if (block.kind !== 'dyneval') continue;
-      // Universal-quantification: warn iff EVERY candidate target
-      // fails to assign `result`.  Single-target dispatches reduce to
-      // the original check; multi-target var-mediated dispatches are
-      // suppressed when at least one candidate writes `result`, since
-      // runtime may dispatch to it.
-      const allFail = block.blockLocs.every(
-        loc => !resultDefs.some(ref => isInsideRange(ref, loc)),
-      );
-      if (!allFail) continue;
+      for (const block of locSyms.resolvedDynamicBlocks) {
+        if (block.kind !== 'dyneval') continue;
+        // Universal-quantification: warn iff EVERY candidate target
+        // fails to assign `result`.  Single-target dispatches reduce to
+        // the original check; multi-target var-mediated dispatches are
+        // suppressed when at least one candidate writes `result`, since
+        // runtime may dispatch to it.
+        const allFail = block.blockLocs.every(
+          loc => !resultDefs.some(ref => isInsideRange(ref, loc)),
+        );
+        if (!allFail) continue;
 
-      ctx.push(
-        DiagnosticSeverity.Warning,
-        ctx.locRange(block.callLoc),
-        `'dyneval' block never assigns 'result'`
-        + ` — the call always returns an empty value`,
-      );
+        ctx.push(
+          DiagnosticSeverity.Warning,
+          ctx.locRange(block.callLoc),
+          `'dyneval' block never assigns 'result'`
+          + ` — the call always returns an empty value`,
+        );
+      }
+    }
+
+    // ── Cross-location global-dispatch sites ──
+    //
+    // `dyneval($code)` where `$code` resolves only via a global
+    // binding in another location.  The candidate block bodies live
+    // in the provider locations; `writesResult` was pre-computed in
+    // aggregation so we apply the same universal-quantification rule
+    // without scanning provider symbols here.
+    const crossSites = agg.crossLocationDispatches.get(locKey);
+    if (crossSites) {
+      for (const dispatch of crossSites) {
+        if (dispatch.kind !== 'dyneval') continue;
+        if (dispatch.candidates.some(c => c.writesResult)) continue;
+        ctx.push(
+          DiagnosticSeverity.Warning,
+          ctx.locRange(dispatch.callLoc),
+          `'dyneval' block never assigns 'result'`
+          + ` — the call always returns an empty value`,
+        );
+      }
     }
   }
 }
@@ -279,7 +303,7 @@ export function checkExtraArgsToTargetWithoutArgs(
   allLocationDefs: ReadonlyMap<string, unknown>,
 ): void {
   const argsUsageByLoc = agg.argsUsageByLoc;
-  for (const [, locSyms] of symbols.locations) {
+  for (const [locKey, locSyms] of symbols.locations) {
     if (locSyms.hasErrors) continue;
 
     // ── Direct location calls ──
@@ -300,46 +324,74 @@ export function checkExtraArgsToTargetWithoutArgs(
     }
 
     // ── Inline dynamic/dyneval blocks ──
-    if (locSyms.resolvedDynamicBlocks.length === 0) continue;
-    // `variables.get(ARGS_VAR_NAME)` returns the bare-keyed (non-local)
-    // symbol; locals live under scope-keyed entries.  A `local args`
-    // inside the block therefore doesn't contribute references here
-    // — they belong to a separate scoped symbol — so the block
-    // correctly fails to satisfy "reads its args parameter".
-    const argsSym = locSyms.variables.get(ARGS_VAR_NAME);
-    const argsRefs = argsSym?.references ?? [];
-    for (const block of locSyms.resolvedDynamicBlocks) {
-      if (block.argCount === 0) continue;
-      // Universal-quantification across multi-target dispatches:
-      // warn iff EVERY candidate target has a verdict.  If at least
-      // one candidate fully consumes (or has opaque reads), suppress.
-      // Across emitted verdicts we choose the most informative — the
-      // one with the highest `maxLiteralIdx` so the message reflects
-      // the fullest consumer.
-      let mostInformative: ArgsVerdict | undefined;
-      let allHaveVerdict = true;
-      for (const loc of block.blockLocs) {
-        let hasOpaque = false;
-        let maxLiteralIdx = -1;
-        let hasAnyRef = false;
-        for (const ref of argsRefs) {
-          if (!isInsideRange(ref, loc)) continue;
-          hasAnyRef = true;
-          if (!ref.argsConsumer) continue;
-          if (ref.argsIndex === undefined) hasOpaque = true;
-          else if (ref.argsIndex > maxLiteralIdx) maxLiteralIdx = ref.argsIndex;
+    if (locSyms.resolvedDynamicBlocks.length > 0) {
+      // `variables.get(ARGS_VAR_NAME)` returns the bare-keyed (non-local)
+      // symbol; locals live under scope-keyed entries.  A `local args`
+      // inside the block therefore doesn't contribute references here
+      // — they belong to a separate scoped symbol — so the block
+      // correctly fails to satisfy "reads its args parameter".
+      const argsSym = locSyms.variables.get(ARGS_VAR_NAME);
+      const argsRefs = argsSym?.references ?? [];
+      for (const block of locSyms.resolvedDynamicBlocks) {
+        if (block.argCount === 0) continue;
+        // Universal-quantification across multi-target dispatches:
+        // warn iff EVERY candidate target has a verdict.  If at least
+        // one candidate fully consumes (or has opaque reads), suppress.
+        // Across emitted verdicts we choose the most informative — the
+        // one with the highest `maxLiteralIdx` so the message reflects
+        // the fullest consumer.
+        let mostInformative: ArgsVerdict | undefined;
+        let allHaveVerdict = true;
+        for (const loc of block.blockLocs) {
+          let hasOpaque = false;
+          let maxLiteralIdx = -1;
+          let hasAnyRef = false;
+          for (const ref of argsRefs) {
+            if (!isInsideRange(ref, loc)) continue;
+            hasAnyRef = true;
+            if (!ref.argsConsumer) continue;
+            if (ref.argsIndex === undefined) hasOpaque = true;
+            else if (ref.argsIndex > maxLiteralIdx) maxLiteralIdx = ref.argsIndex;
+          }
+          const usage = hasAnyRef ? { hasOpaque, maxLiteralIdx } : undefined;
+          const v = classifyArgsConsumption(usage, block.argCount);
+          if (!v) { allHaveVerdict = false; break; }
+          if (!mostInformative || v.maxRead > mostInformative.maxRead) mostInformative = v;
         }
-        const usage = hasAnyRef ? { hasOpaque, maxLiteralIdx } : undefined;
-        const v = classifyArgsConsumption(usage, block.argCount);
-        if (!v) { allHaveVerdict = false; break; }
-        if (!mostInformative || v.maxRead > mostInformative.maxRead) mostInformative = v;
+        if (!allHaveVerdict || !mostInformative) continue;
+        ctx.push(
+          DiagnosticSeverity.Information,
+          ctx.locRange(block.callLoc),
+          formatExtraArgsMessage(`'${block.kind}' block`, block.argCount, mostInformative),
+        );
       }
-      if (!allHaveVerdict || !mostInformative) continue;
-      ctx.push(
-        DiagnosticSeverity.Information,
-        ctx.locRange(block.callLoc),
-        formatExtraArgsMessage(`'${block.kind}' block`, block.argCount, mostInformative),
-      );
+    }
+
+    // ── Cross-location global dispatches ──
+    //
+    // `dyneval($code, …)` where `$code` resolves only to global
+    // bindings in other locations.  Each candidate's `argsUsage` was
+    // pre-computed in aggregation against the provider's own `args`
+    // refs; we apply the same universal-quantification rule across
+    // candidates.
+    const crossSites = agg.crossLocationDispatches.get(locKey);
+    if (crossSites) {
+      for (const dispatch of crossSites) {
+        if (dispatch.argCount === 0) continue;
+        let mostInformative: ArgsVerdict | undefined;
+        let allHaveVerdict = true;
+        for (const cand of dispatch.candidates) {
+          const v = classifyArgsConsumption(cand.argsUsage, dispatch.argCount);
+          if (!v) { allHaveVerdict = false; break; }
+          if (!mostInformative || v.maxRead > mostInformative.maxRead) mostInformative = v;
+        }
+        if (!allHaveVerdict || !mostInformative) continue;
+        ctx.push(
+          DiagnosticSeverity.Information,
+          ctx.locRange(dispatch.callLoc),
+          formatExtraArgsMessage(`'${dispatch.kind}' block`, dispatch.argCount, mostInformative),
+        );
+      }
     }
   }
 }
@@ -426,7 +478,7 @@ export function checkPropagation(
 
   if (ctx.settings.missingResultInFunctionCall) {
     checkMissingResultInFunctionCall(ctx, symbols, agg);
-    checkMissingResultInDyneval(ctx, symbols);
+    checkMissingResultInDyneval(ctx, symbols, agg);
   }
 
   if (ctx.settings.extraArgsToTargetWithoutArgs) {

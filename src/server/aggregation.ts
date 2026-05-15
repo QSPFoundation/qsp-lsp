@@ -29,6 +29,7 @@
 import type { LocationSymbols, QspSymbol } from '../parser';
 import { ARGS_VAR_NAME, RESULT_VAR_NAME, CALL_FRAME_BUILTINS } from '../parser';
 import type { DocumentSymbols, VariableBinding } from '../parser/symbolTable';
+import type { SymbolLocation } from '../parser/symbolTypes';
 
 /**
  * Project-wide aggregated data from all files.
@@ -174,6 +175,70 @@ export interface SymbolAggregates {
    * Built by `buildPropagatedLocals()`.
    */
   argsUsageByLoc: Map<string, ArgsUsage>;
+  /**
+   * Per-callee `dynamic $g` / `dyneval($g, …)` call sites whose first
+   * argument variable resolved — only via project-wide search — to one
+   * or more global code-block bindings in *other* locations.
+   *
+   * Populated by `buildPropagatedLocals()` as two post-passes:
+   *
+   *   • over each location's `unresolvedDynamicVarCalls` (call sites
+   *     that found no local binding and no caller-propagated binding,
+   *     and whose enclosing code runs in the host's own call frame);
+   *   • over each location's `deferredDynamicVarCalls` (call sites
+   *     inside act bodies and `<a href="exec:…">` link bodies, which
+   *     run at click time in a fresh frame — caller-propagated locals
+   *     cannot shadow the global lookup, and the host's own globals
+   *     remain visible, so self-loc is NOT excluded).
+   *
+   * Each entry carries the call-site location, dispatch kind, extra
+   * argCount, and the candidate provider bindings.
+   *
+   * Consumed by the cross-location variants of the
+   * `missingResultInDyneval` and `extraArgsToTargetWithoutArgs`
+   * diagnostics.  Keyed by the callee's lowercase location name.
+   */
+  crossLocationDispatches: Map<string, CrossLocationDispatch[]>;
+}
+
+/** One candidate provider for a cross-location dispatch. */
+export interface CrossLocationDispatchTarget {
+  /** Lowercase key of the location holding the global binding. */
+  providerLoc: string;
+  /** URI of the document containing the provider location. */
+  providerUri: string;
+  /** The provider's `variableBindings` entry whose value is a code block. */
+  binding: VariableBinding;
+  /**
+   * True iff the block body contains at least one value-bearing
+   * assignment to the built-in `result`.  Pre-computed in aggregation
+   * so the `missingResultInDyneval` diagnostic does not need to
+   * re-scan provider symbols.
+   */
+  writesResult: boolean;
+  /**
+   * How the block body uses the built-in `args` (same shape as
+   * {@link SymbolAggregates.argsUsageByLoc}).  `undefined` means the
+   * block never references `args` — every extra arg the caller
+   * passed is discarded.
+   */
+  argsUsage: ArgsUsage | undefined;
+}
+
+/** A cross-location var-mediated `dynamic`/`dyneval` dispatch. */
+export interface CrossLocationDispatch {
+  /** Range of the entire `dynamic`/`dyneval` call (diagnostic anchor). */
+  callLoc: SymbolLocation;
+  /** Statement form (`dynamic`) or function form (`dyneval`). */
+  kind: 'dynamic' | 'dyneval';
+  /** Number of extra positional args after the var argument. */
+  argCount: number;
+  /** Original-case variable name (with `$`/`#`/`%` prefix). */
+  varName: string;
+  /** Lowercased base name (no prefix). */
+  varBaseName: string;
+  /** All resolvable global candidate targets (always non-empty). */
+  candidates: CrossLocationDispatchTarget[];
 }
 
 /** Args consumption profile for a single location/block frame. */
@@ -232,6 +297,7 @@ export function emptyAggregates(): SymbolAggregates {
     crossCallWrites: new Set(),
     locationsWritingResult: new Set(),
     argsUsageByLoc: new Map(),
+    crossLocationDispatches: new Map(),
   };
 }
 
@@ -740,6 +806,195 @@ export function buildPropagatedLocals(
           }
         }
       }
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────
+  // Post-pass: cross-location global dispatch resolution.
+  //
+  // An `unresolvedDynamicVarCalls` entry that still has no candidate
+  // after the propagated-locals pass above may still resolve via a
+  // *global* code-block binding written in another location.  In
+  //   # init
+  //   $dispatch = { result = 42 }
+  //   -
+  //   # other
+  //   res = dyneval($dispatch)
+  //   -
+  // the `dyneval` call in `other` has no local binding for `dispatch`
+  // and no caller-propagated provider — but at runtime QSP resolves
+  // `$dispatch` against the global namespace and finds `init`'s write.
+  //
+  // We build a project-wide index of every non-local code-block
+  // binding once and then look up each unresolved call's varBase to
+  // collect candidates.  The result feeds the cross-location variants
+  // of the `missingResultInDyneval` and `extraArgsToTargetWithoutArgs`
+  // diagnostics; no `externalLocalBindings` flow-back is needed
+  // because every write inside the block already targets a true
+  // global (not a caller-local).
+  //
+  // We intentionally do NOT use this fallback as a tie-breaker when
+  // propagated-locals already found candidates — the two channels
+  // describe different runtime behaviours (caller-local vs. global)
+  // and should not be conflated.  The resolution is "global iff no
+  // local/caller binding exists at this call site".
+  // ────────────────────────────────────────────────────────────────────
+  type GlobalProvider = { providerLoc: string; providerUri: string; binding: VariableBinding };
+  let globalCodeBlockIndex: Map<string, GlobalProvider[]> | undefined;
+  const buildGlobalIndex = (): Map<string, GlobalProvider[]> => {
+    const idx = new Map<string, GlobalProvider[]>();
+    for (const [providerLoc, info] of locIndex) {
+      for (const [varBase, bindings] of info.locSyms.variableBindings) {
+        for (const b of bindings) {
+          if (b.isLocal) continue;
+          if (b.value.kind !== 'code-block') continue;
+          let arr = idx.get(varBase);
+          if (!arr) { arr = []; idx.set(varBase, arr); }
+          arr.push({ providerLoc, providerUri: info.uri, binding: b });
+        }
+      }
+    }
+    return idx;
+  };
+
+  // Pre-compute writesResult / argsUsage for a candidate block.
+  // `result` and `args` are non-local symbols at the provider; we
+  // filter their references to those inside the block range.
+  const computeBlockFacts = (
+    providerLocSyms: LocationSymbols,
+    blockRange: SymbolLocation,
+  ): { writesResult: boolean; argsUsage: ArgsUsage | undefined } => {
+    const resultSym = providerLocSyms.variables.get(RESULT_VAR_NAME);
+    let writesResult = false;
+    if (resultSym) {
+      for (const ref of resultSym.references) {
+        if (!ref.isDefinition) continue;
+        if (locContains(blockRange, ref)) { writesResult = true; break; }
+      }
+    }
+    const argsSym = providerLocSyms.variables.get(ARGS_VAR_NAME);
+    let argsUsage: ArgsUsage | undefined;
+    if (argsSym) {
+      let hasOpaque = false;
+      let maxLiteralIdx = -1;
+      let hasAnyRef = false;
+      for (const ref of argsSym.references) {
+        if (!locContains(blockRange, ref)) continue;
+        hasAnyRef = true;
+        if (!ref.argsConsumer) continue;
+        if (ref.argsIndex === undefined) hasOpaque = true;
+        else if (ref.argsIndex > maxLiteralIdx) maxLiteralIdx = ref.argsIndex;
+      }
+      if (hasAnyRef) argsUsage = { hasOpaque, maxLiteralIdx };
+    }
+    return { writesResult, argsUsage };
+  };
+
+  const crossLoc = out.crossLocationDispatches;
+
+  /**
+   * Collect every global code-block candidate for `varBaseName`.
+   * Excludes the named location if `excludeSelfLoc` is provided
+   * (used by the regular cross-loc pass to skip bindings the
+   * intra-location pass already searched).
+   */
+  const collectCandidates = (
+    varBaseName: string,
+    excludeSelfLoc: string | null,
+  ): CrossLocationDispatchTarget[] => {
+    if (!globalCodeBlockIndex) globalCodeBlockIndex = buildGlobalIndex();
+    const providers = globalCodeBlockIndex.get(varBaseName);
+    if (!providers) return [];
+    const candidates: CrossLocationDispatchTarget[] = [];
+    for (const p of providers) {
+      if (excludeSelfLoc !== null && p.providerLoc === excludeSelfLoc) continue;
+      const providerInfo = locIndex.get(p.providerLoc);
+      if (!providerInfo) continue;
+      if (p.binding.value.kind !== 'code-block') continue;
+      const { writesResult, argsUsage } = computeBlockFacts(
+        providerInfo.locSyms, p.binding.value.blockRange,
+      );
+      candidates.push({
+        providerLoc: p.providerLoc,
+        providerUri: p.providerUri,
+        binding: p.binding,
+        writesResult,
+        argsUsage,
+      });
+    }
+    return candidates;
+  };
+
+  const recordDispatch = (
+    calleeLoc: string,
+    call: { loc: SymbolLocation; kind: 'dynamic' | 'dyneval'; argCount: number; varName: string; varBaseName: string },
+    candidates: CrossLocationDispatchTarget[],
+  ) => {
+    let list = crossLoc.get(calleeLoc);
+    if (!list) { list = []; crossLoc.set(calleeLoc, list); }
+    list.push({
+      callLoc: call.loc,
+      kind: call.kind,
+      argCount: call.argCount,
+      varName: call.varName,
+      varBaseName: call.varBaseName,
+      candidates,
+    });
+  };
+
+  for (const [calleeLoc, calleeInfo] of locIndex) {
+    const unresolved = calleeInfo.locSyms.unresolvedDynamicVarCalls;
+    if (unresolved.length === 0) continue;
+    const byVar = result.get(calleeLoc);
+
+    for (const call of unresolved) {
+      // Propagated caller-local shadows the global.  Once any caller
+      // propagates `local $x` into this callee, the callee's frame
+      // sees that local — the global namespace lookup for `$x` is
+      // shadowed.  Skip cross-loc resolution regardless of whether
+      // the propagated local happens to hold a code-block (if it
+      // does, the propagated-locals pass already flowed its
+      // bodyWrites back; if it doesn't, the call is a runtime error
+      // we can't statically predict, but it's still NOT a dispatch
+      // to the global).
+      if (byVar?.get(call.varBaseName)?.length) continue;
+
+      // Exclude self-loc: those bindings were already searched by
+      // the intra-location pass; if they were visible, the call
+      // wouldn't be unresolved.
+      const candidates = collectCandidates(call.varBaseName, calleeLoc);
+      if (candidates.length === 0) continue;
+      recordDispatch(calleeLoc, call, candidates);
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────
+  // Post-pass: deferred-body dispatch resolution.
+  //
+  // `deferredDynamicVarCalls` are var-mediated calls whose enclosing
+  // code runs at *click time* in a fresh frame: either lifted from
+  // `<a href="exec:…">` link bodies (merged by the embedded-exec
+  // sub-walker) or routed directly from `act 'name': … end` action
+  // bodies (by `bindingCollector` when the call's lexical container
+  // is an `act_block`/`act_inline`).  They have global-namespace-only
+  // visibility:
+  //
+  //   • caller-propagated locals cannot reach this frame — the
+  //     propagated-locals dispatch channel is NOT consulted;
+  //   • the host (callee) location's own globals ARE visible — the
+  //     self-loc exclusion that applies to normal cross-loc resolution
+  //     does NOT apply here (exec-body entries come from a sub-walker
+  //     that never saw host's bindings; act-body entries come from a
+  //     pass that already failed intra-loc lookup).
+  // ────────────────────────────────────────────────────────────────────
+  for (const [calleeLoc, calleeInfo] of locIndex) {
+    const deferredCalls = calleeInfo.locSyms.deferredDynamicVarCalls;
+    if (deferredCalls.length === 0) continue;
+
+    for (const call of deferredCalls) {
+      const candidates = collectCandidates(call.varBaseName, /*excludeSelfLoc*/ null);
+      if (candidates.length === 0) continue;
+      recordDispatch(calleeLoc, call, candidates);
     }
   }
 

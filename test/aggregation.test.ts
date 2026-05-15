@@ -916,3 +916,499 @@ describe('collectAggregates: globallyRead', () => {
     expect(agg.globallyRead.has('x')).toBe(false);
   });
 });
+
+describe('crossLocationDispatches (project-wide global code-block dispatch)', () => {
+  const parser = new QspTreeSitterParser();
+
+  beforeAll(async () => {
+    await parser.init(async () => fs.readFileSync(WASM_PATH));
+  });
+
+  function buildBoth(code: string) {
+    const tree = parser.parse('test://cld', code)!;
+    const { symbols } = extractSymbols(tree, 'test://cld');
+    const agg = emptyAggregates();
+    collectAggregates(symbols.locations.values(), agg);
+    const allLocs: { locName: string; locSyms: LocationSymbols; uri: string }[] = [];
+    for (const [, ls] of symbols.locations) {
+      allLocs.push({ locName: ls.locationName, locSyms: ls, uri: 'test://cld' });
+    }
+    buildPropagatedLocals(allLocs, agg);
+    return { symbols, agg };
+  }
+
+  function build(code: string): SymbolAggregates {
+    return buildBoth(code).agg;
+  }
+
+  it('resolves a global code-block written in another location', () => {
+    const agg = build(`# init
+$dispatch = { result = 42 }
+---
+# other
+res = dyneval($dispatch)
+---
+`);
+    const sites = agg.crossLocationDispatches.get('other') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].kind).toBe('dyneval');
+    expect(sites[0].varBaseName).toBe('dispatch');
+    expect(sites[0].candidates).toHaveLength(1);
+    expect(sites[0].candidates[0].providerLoc).toBe('init');
+    expect(sites[0].candidates[0].writesResult).toBe(true);
+  });
+
+  it('records argCount and per-candidate argsUsage', () => {
+    const agg = build(`# init
+$d = { result = args[0] + args[1] }
+---
+# other
+res = dyneval($d, 1, 2, 3)
+---
+`);
+    const sites = agg.crossLocationDispatches.get('other') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].argCount).toBe(3);
+    const cand = sites[0].candidates[0];
+    expect(cand.argsUsage).toBeDefined();
+    expect(cand.argsUsage!.maxLiteralIdx).toBe(1);
+  });
+
+  it('does NOT resolve when an intra-location binding is visible', () => {
+    // `$d` is bound globally in BOTH `init` and `other`; the intra-location
+    // pass at `other` already finds it, so no cross-location entry.
+    const agg = build(`# init
+$d = { result = 1 }
+---
+# other
+$d = { result = 2 }
+res = dyneval($d)
+---
+`);
+    expect(agg.crossLocationDispatches.get('other')).toBeUndefined();
+  });
+
+  it('does NOT resolve when a propagated-local provider already supplied the binding', () => {
+    // `local $d` in caller propagates to callee; callee's `dyneval($d)`
+    // is resolved via propagatedLocals, not cross-location globals.
+    const agg = build(`# caller
+local $d = { result = 1 }
+gs 'callee'
+---
+# callee
+res = dyneval($d)
+---
+# decoy
+$d = { result = 999 }
+---
+`);
+    expect(agg.crossLocationDispatches.get('callee')).toBeUndefined();
+  });
+
+  it('propagated caller-local shadows global even when local is not a code-block', () => {
+    // Caller propagates `local $d = 'foo'` into callee.  At runtime
+    // that local shadows the global $d entirely — `dynamic $d` would
+    // be a runtime error (string, not code), NOT a dispatch to the
+    // global block in `decoy`.  Cross-loc must NOT emit an entry.
+    const agg = build(`# caller
+local $d = 'foo'
+gs 'callee'
+---
+# callee
+dynamic $d
+---
+# decoy
+$d = { result = 999 }
+---
+`);
+    expect(agg.crossLocationDispatches.get('callee')).toBeUndefined();
+  });
+
+  it('intra-loc local shadows cross-loc global: cross-loc post-pass does not fire', () => {
+    // `other` has its own `local $d = {...}` in scope at the call.
+    // Intra-loc finds the local, resolves the call, and the cross-loc
+    // pass is skipped — the global $d in `init` is shadowed.
+    const agg = build(`# init
+$d = { result = 1 }
+---
+# other
+local $d = { result = 2 }
+res = dyneval($d)
+---
+`);
+    expect(agg.crossLocationDispatches.get('other')).toBeUndefined();
+  });
+
+  it('intra-loc local shadows caller-propagated code-block local at dispatch', () => {
+    // `caller` propagates `local $d = { … }` to `callee`.  But
+    // `callee` declares its OWN `local $d = { … }` which shadows the
+    // propagated one at the dispatch site — intra-loc resolves the
+    // call before it reaches `unresolvedDynamicVarCalls`, so neither
+    // propagated-locals dispatch nor cross-loc fires.
+    const { symbols, agg } = buildBoth(`# caller
+local $d = { x = 1 }
+gs 'callee'
+---
+# callee
+local $d = { y = 2 }
+res = dyneval($d)
+---
+`);
+    expect(agg.crossLocationDispatches.get('callee')).toBeUndefined();
+    // The call site found a single local target (the callee's own
+    // `local $d`), so the locSyms tracks it as a resolved dynamic
+    // block rather than an unresolved call.
+    const callee = symbols.getLocation('callee')!;
+    expect(callee.unresolvedDynamicVarCalls).toHaveLength(0);
+    expect(callee.resolvedDynamicBlocks).toHaveLength(1);
+  });
+
+  it('collects multiple global candidates across locations', () => {
+    const agg = build(`# a
+$d = { result = 1 }
+---
+# b
+$d = { result = 2 }
+---
+# c
+res = dyneval($d)
+---
+`);
+    const sites = agg.crossLocationDispatches.get('c') ?? [];
+    expect(sites).toHaveLength(1);
+    const providers = sites[0].candidates.map(c => c.providerLoc).sort();
+    expect(providers).toEqual(['a', 'b']);
+  });
+
+  it('does not emit an entry for an unresolved var with no global block', () => {
+    const agg = build(`# other
+res = dyneval($nowhere)
+---
+`);
+    expect(agg.crossLocationDispatches.get('other')).toBeUndefined();
+  });
+
+  it('ignores local code-block bindings in other locations (only globals qualify)', () => {
+    // `local $d = {...}` in `init` is purely local to that location's
+    // call frame — it doesn't establish a global $d that another loc
+    // could dispatch to.  Cross-loc resolution must skip it.
+    const agg = build(`# init
+local $d = { result = 1 }
+---
+# other
+res = dyneval($d)
+---
+`);
+    expect(agg.crossLocationDispatches.get('other')).toBeUndefined();
+  });
+
+  it('ignores non-code-block global values (e.g. a string $d = "foo")', () => {
+    // Only code-block bindings can be dispatch targets; a plain string
+    // value isn't introspectable statically.  Confirm no cross-loc
+    // entry is recorded even though a global $d exists.
+    const agg = build(`# init
+$d = 'foo'
+---
+# other
+res = dyneval($d)
+---
+`);
+    expect(agg.crossLocationDispatches.get('other')).toBeUndefined();
+  });
+
+  it('records `dynamic` statement-form calls with kind="dynamic" and argCount=0', () => {
+    const agg = build(`# init
+$d = { x = 1 }
+---
+# other
+dynamic $d
+---
+`);
+    const sites = agg.crossLocationDispatches.get('other') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].kind).toBe('dynamic');
+    expect(sites[0].argCount).toBe(0);
+  });
+
+  it('records `dynamic` statement-form calls with extra arguments', () => {
+    const agg = build(`# init
+$d = { x = args[0] }
+---
+# other
+dynamic $d, 10, 20
+---
+`);
+    const sites = agg.crossLocationDispatches.get('other') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].kind).toBe('dynamic');
+    expect(sites[0].argCount).toBe(2);
+    expect(sites[0].candidates[0].argsUsage?.maxLiteralIdx).toBe(0);
+  });
+
+  it('falls back to cross-loc when intra-loc binding is non-code-block (string)', () => {
+    // `other` has `$d = 'foo'` (non-code-block) — the intra-location
+    // resolver filters that out, so blocks.length===0 and the call is
+    // marked unresolved.  The cross-loc pass should then find the
+    // global code-block in `init` and record the dispatch.
+    const agg = build(`# init
+$d = { result = 1 }
+---
+# other
+$d = 'foo'
+res = dyneval($d)
+---
+`);
+    const sites = agg.crossLocationDispatches.get('other') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].candidates).toHaveLength(1);
+    expect(sites[0].candidates[0].providerLoc).toBe('init');
+  });
+
+  it('pre-computes argsUsage.hasOpaque for non-literal args[i] indices', () => {
+    const agg = build(`# init
+$d = { i = 0 & result = args[i] }
+---
+# other
+res = dyneval($d, 1, 2, 3)
+---
+`);
+    const sites = agg.crossLocationDispatches.get('other') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].candidates[0].argsUsage?.hasOpaque).toBe(true);
+  });
+
+  it('records writesResult=false when block has no result assignment', () => {
+    const agg = build(`# init
+$d = { x = 1 & y = 2 }
+---
+# other
+res = dyneval($d)
+---
+`);
+    const sites = agg.crossLocationDispatches.get('other') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].candidates[0].writesResult).toBe(false);
+  });
+
+  it('records candidate.argsUsage as undefined when block has no args ref', () => {
+    const agg = build(`# init
+$d = { result = 42 }
+---
+# other
+res = dyneval($d, 1, 2)
+---
+`);
+    const sites = agg.crossLocationDispatches.get('other') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].candidates[0].argsUsage).toBeUndefined();
+  });
+
+  it('resolves cross-file: global block in fileA, dispatch in fileB', () => {
+    // Project mode: the global $d code-block lives in a different
+    // file than the dyneval call.  The cross-loc index must include
+    // both files' locations.
+    const treeA = parser.parse('test://fA', `# init
+$d = { result = 7 }
+---
+`)!;
+    const treeB = parser.parse('test://fB', `# other
+res = dyneval($d)
+---
+`)!;
+    const symsA = extractSymbols(treeA, 'test://fA').symbols;
+    const symsB = extractSymbols(treeB, 'test://fB').symbols;
+    const agg = emptyAggregates();
+    collectAggregates(symsA.locations.values(), agg);
+    collectAggregates(symsB.locations.values(), agg);
+    const allLocs: { locName: string; locSyms: LocationSymbols; uri: string }[] = [];
+    for (const [, ls] of symsA.locations) {
+      allLocs.push({ locName: ls.locationName, locSyms: ls, uri: 'test://fA' });
+    }
+    for (const [, ls] of symsB.locations) {
+      allLocs.push({ locName: ls.locationName, locSyms: ls, uri: 'test://fB' });
+    }
+    buildPropagatedLocals(allLocs, agg);
+    const sites = agg.crossLocationDispatches.get('other') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].candidates).toHaveLength(1);
+    expect(sites[0].candidates[0].providerLoc).toBe('init');
+    expect(sites[0].candidates[0].providerUri).toBe('test://fA');
+    expect(sites[0].candidates[0].writesResult).toBe(true);
+  });
+
+  it('exec-body dispatch resolves cross-file global', () => {
+    // Exec-body equivalent of the cross-file test above: the
+    // dispatch lives inside an `<a href="exec:…">` link in fileB,
+    // and the global code-block lives in fileA.
+    const treeA = parser.parse('test://fA', `# init
+$code = { result = 99 }
+---
+`)!;
+    const treeB = parser.parse('test://fB', `# home
+pl '<a href="exec:y = dyneval($code)">click</a>'
+---
+`)!;
+    const symsA = extractSymbols(
+      treeA, 'test://fA', undefined, undefined,
+      (t) => parser.parseOnce(t),
+    ).symbols;
+    const symsB = extractSymbols(
+      treeB, 'test://fB', undefined, undefined,
+      (t) => parser.parseOnce(t),
+    ).symbols;
+    const agg = emptyAggregates();
+    collectAggregates(symsA.locations.values(), agg);
+    collectAggregates(symsB.locations.values(), agg);
+    const allLocs: { locName: string; locSyms: LocationSymbols; uri: string }[] = [];
+    for (const [, ls] of symsA.locations) {
+      allLocs.push({ locName: ls.locationName, locSyms: ls, uri: 'test://fA' });
+    }
+    for (const [, ls] of symsB.locations) {
+      allLocs.push({ locName: ls.locationName, locSyms: ls, uri: 'test://fB' });
+    }
+    buildPropagatedLocals(allLocs, agg);
+    // The exec-body call site was merged into `home`; the
+    // cross-loc post-pass for exec-body calls finds the global in
+    // fileA's `init`.
+    const sites = agg.crossLocationDispatches.get('home') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].candidates).toHaveLength(1);
+    expect(sites[0].candidates[0].providerLoc).toBe('init');
+    expect(sites[0].candidates[0].providerUri).toBe('test://fA');
+    expect(sites[0].candidates[0].writesResult).toBe(true);
+  });
+
+  it('act-body dispatch resolves cross-loc global (no propagation shadow)', () => {
+    // An `act` body runs at click time in a fresh frame — caller-
+    // propagated locals don't reach it.  Even when `caller`
+    // propagates `local $code = {…}` into `callee`, the act-internal
+    // `dyneval($code)` must still resolve to `init`'s global `$code`,
+    // not be blocked by the propagated-local shadow.
+    const { agg } = buildBoth(`# init
+$code = { result = 42 }
+---
+# caller
+local $code = { result = 1 }
+gosub 'callee'
+---
+# callee
+act 'go':
+  res = dyneval($code)
+end
+---
+`);
+    const sites = agg.crossLocationDispatches.get('callee') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].candidates).toHaveLength(1);
+    expect(sites[0].candidates[0].providerLoc).toBe('init');
+    expect(sites[0].candidates[0].writesResult).toBe(true);
+  });
+
+  it('act-body dispatch ignores caller-propagated local (no externalLocalBindings)', () => {
+    // Same scenario without an init global: the act-internal call
+    // stays unresolved (correct — no global candidate exists), and
+    // the propagated-locals dispatch pass must NOT treat caller's
+    // `local $code` as a click-time candidate.  No flow-back into
+    // caller's locals is recorded.
+    const { agg } = buildBoth(`# caller
+local $code = { y = 99 }
+gosub 'callee'
+---
+# callee
+act 'go':
+  res = dyneval($code)
+end
+---
+`);
+    expect(agg.crossLocationDispatches.get('callee') ?? []).toHaveLength(0);
+    // No spurious caller-local write recorded from the act-internal
+    // dispatch.
+    const extCaller = agg.externalLocalBindings.get('caller');
+    expect(extCaller === undefined || extCaller.size === 0).toBe(true);
+  });
+
+  it('inline-act dispatch also bypasses propagation shadow', () => {
+    // Single-statement form `act 'x': stmt` parses as `act_inline`
+    // (vs multi-statement `act_block`).  Both have identical click-
+    // time/fresh-frame semantics, so deferred routing must trigger
+    // for `act_inline` too.
+    const { agg } = buildBoth(`# init
+$code = { result = 7 }
+---
+# caller
+local $code = { result = 1 }
+gosub 'callee'
+---
+# callee
+act 'go': res = dyneval($code)
+---
+`);
+    const sites = agg.crossLocationDispatches.get('callee') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].candidates).toHaveLength(1);
+    expect(sites[0].candidates[0].providerLoc).toBe('init');
+  });
+
+  it('intra-act local binding still resolves before deferred routing', () => {
+    // When the act body itself declares the code-block, intra-loc
+    // resolution at `bindingCollector` time wins and the call site
+    // never reaches the unresolved/deferred bucket — verified by
+    // the dispatch NOT appearing in crossLocationDispatches.
+    const { symbols, agg } = buildBoth(`# init
+$code = { result = 99 }
+---
+# callee
+act 'go':
+  local $code = { result = 1 }
+  res = dyneval($code)
+end
+---
+`);
+    expect(agg.crossLocationDispatches.get('callee') ?? []).toHaveLength(0);
+    // The intra-loc dispatch IS recorded as resolved on the location.
+    const callee = symbols.getLocation('callee')!;
+    expect(callee.dynamicVarCalls).toHaveLength(1);
+    // And it did NOT end up in the deferred bucket (it was resolved
+    // intra-loc to the act-internal local before any routing).
+    expect(callee.deferredDynamicVarCalls).toHaveLength(0);
+  });
+
+  it('act inside <a href="exec:…"> body also routes to deferred bucket', () => {
+    // Regression: an `act` block nested inside an exec-body link
+    // body is doubly deferred — the link's exec body runs at link-
+    // click time, and the act inside runs at action-click time after
+    // that.  Pre-fix, the embedded-exec sub-walker correctly routed
+    // the act-internal dispatch to `sub.deferredDynamicVarCalls` but
+    // the merge step only forwarded `sub.unresolvedDynamicVarCalls`,
+    // silently dropping the dispatch.  Now `walkLocationBody` is
+    // invoked with `inDeferredExecution=true` for exec bodies, so
+    // ALL unresolved dispatches inside land in `deferred…` and the
+    // merge forwards that bucket.
+    //
+    // Requires `parseFn` to drive the embedded-exec sub-parser, so
+    // we invoke `extractSymbols` directly (mirroring the cross-file
+    // exec-body test above) rather than going through `buildBoth`.
+    const tree = parser.parse('test://aie', `# init
+$code = { result = 99 }
+---
+# home
+pl '<a href="exec:act ''go'': res = dyneval($code)">click</a>'
+---
+`)!;
+    const { symbols } = extractSymbols(
+      tree, 'test://aie', undefined, undefined,
+      (t) => parser.parseOnce(t),
+    );
+    const agg = emptyAggregates();
+    collectAggregates(symbols.locations.values(), agg);
+    const allLocs: { locName: string; locSyms: LocationSymbols; uri: string }[] = [];
+    for (const [, ls] of symbols.locations) {
+      allLocs.push({ locName: ls.locationName, locSyms: ls, uri: 'test://aie' });
+    }
+    buildPropagatedLocals(allLocs, agg);
+    const sites = agg.crossLocationDispatches.get('home') ?? [];
+    expect(sites).toHaveLength(1);
+    expect(sites[0].candidates).toHaveLength(1);
+    expect(sites[0].candidates[0].providerLoc).toBe('init');
+  });
+});

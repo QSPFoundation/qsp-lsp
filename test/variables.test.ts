@@ -2518,7 +2518,12 @@ dynamic $code
     expect(loc.dynamicVarCalls).toHaveLength(1);
   });
 
-  it('resolvedDynamicBlocks records all targets for mixed local + global', () => {
+  it('mixed local + global: local shadows global, single-target dispatch', () => {
+    // QSP frame semantics: once `local $code` is declared, every
+    // read of `$code` in this frame refers to the local — the
+    // earlier global write is shadowed.  The resolver must drop the
+    // global candidate and treat the call as a clean single-target
+    // dispatch (no `multiple-assignments` info).
     const tree = parser.parse('test://vd-mt-mixed', `# test
 $code = { x = 1 }
 local $code = { x = 2 }
@@ -2528,10 +2533,67 @@ y = dyneval($code)
     const { symbols } = extractSymbols(tree!, 'test://vd-mt-mixed');
     const loc = symbols.getLocation('test')!;
     expect(loc.resolvedDynamicBlocks).toHaveLength(1);
-    expect(loc.resolvedDynamicBlocks[0].blockLocs).toHaveLength(2);
-    // Mixed local+global routes through the multiple-assignments path.
-    expect(loc.untrackedDynamicVarCalls).toHaveLength(1);
-    expect(loc.untrackedDynamicVarCalls[0].reason).toBe('multiple-assignments');
+    expect(loc.resolvedDynamicBlocks[0].blockLocs).toHaveLength(1);
+    expect(loc.untrackedDynamicVarCalls).toHaveLength(0);
+  });
+
+  it('shadowing: cross-branch locals + global → only locals are candidates (multiple-local-bindings)', () => {
+    // A global write precedes two cross-branch local declarations.
+    // The global is shadowed by whichever local is in scope at the
+    // call site; the call still has TWO local candidates from
+    // distinct branches → `multiple-local-bindings`, not
+    // `multiple-assignments`, and global is dropped.
+    const tree = parser.parse('test://vd-shadow-cross', `# test
+$code = { x = 0 }
+if y > 0:
+  local $code = { x = 1 }
+else:
+  local $code = { x = 2 }
+end
+dynamic $code
+---
+`);
+    const { symbols } = extractSymbols(tree!, 'test://vd-shadow-cross');
+    const loc = symbols.getLocation('test')!;
+    // The call site sits OUTSIDE both branches' scopes — neither
+    // local is visible, so the global IS the only candidate.  This
+    // pins the visibility semantics: shadowing applies only where
+    // the local is in scope.
+    expect(loc.resolvedDynamicBlocks).toHaveLength(1);
+    expect(loc.resolvedDynamicBlocks[0].blockLocs).toHaveLength(1);
+  });
+
+  it('shadowing inside a branch: local shadows enclosing-loc global at the inner call', () => {
+    // The call site is INSIDE the branch where `local $code` is
+    // declared, so the local is visible AND shadows the global.
+    const tree = parser.parse('test://vd-shadow-inner', `# test
+$code = { x = 0 }
+if y > 0:
+  local $code = { x = 1 }
+  dynamic $code
+end
+---
+`);
+    const { symbols } = extractSymbols(tree!, 'test://vd-shadow-inner');
+    const loc = symbols.getLocation('test')!;
+    expect(loc.resolvedDynamicBlocks).toHaveLength(1);
+    expect(loc.resolvedDynamicBlocks[0].blockLocs).toHaveLength(1);
+    expect(loc.untrackedDynamicVarCalls).toHaveLength(0);
+  });
+
+  it('mixed-prefix dispatch: `$code = {…}` then `dynamic code` (no prefix) resolves', () => {
+    // Writer uses `$` prefix; dispatcher uses bare name.  Both map to
+    // the same `code` bucket in `variableBindings`, so resolution
+    // works regardless of which prefix is on the call site.
+    const tree = parser.parse('test://vd-mixprefix', `# test
+$code = { x = 1 }
+dynamic code
+---
+`);
+    const { symbols } = extractSymbols(tree!, 'test://vd-mixprefix');
+    const loc = symbols.getLocation('test')!;
+    expect(loc.resolvedDynamicBlocks).toHaveLength(1);
+    expect(loc.resolvedDynamicBlocks[0].blockLocs).toHaveLength(1);
   });
 
   it('resolvedDynamicBlocks single-target dispatch uses 1-element blockLocs', () => {

@@ -561,7 +561,10 @@ export function createQspServer(
         // Reuse previous symbols for unchanged locations (incremental only)
         const prevSymbols = tsParser.wasLastParseIncremental
           ? previousState?.symbols : undefined;
-        const result = extractSymbols(tree, doc.uri, prevSymbols, tsParser.lastEdit);
+        const result = extractSymbols(
+          tree, doc.uri, prevSymbols, tsParser.lastEdit,
+          (t) => tsParser.parseOnce(t),
+        );
         symbols = result.symbols;
         reusedLocationNames = result.reusedLocations;
         treeHasErrors = tree.rootNode.hasError;
@@ -697,7 +700,10 @@ export function createQspServer(
     if (!tree) return null;
 
     try {
-      const result = extractSymbols(tree, docUri);
+      const result = extractSymbols(
+        tree, docUri, undefined, undefined,
+        (t) => tsParser.parseOnce(t),
+      );
       const errors = extractErrors(tree);
       const tokens = collectSemanticTokenTuples(tree);
 

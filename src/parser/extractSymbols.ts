@@ -21,6 +21,7 @@ import { DocumentSymbols } from './symbolTable';
 import { nodeLoc } from './walkHelpers';
 import { hasStructuralErrors } from './extractErrors';
 import { walkLocationBody } from './symbolWalker';
+import { extractEmbeddedExec } from './embeddedExec';
 
 // Re-export for backward compatibility.
 export { isVariableDefinition } from './variableUtils';
@@ -34,12 +35,18 @@ export { extractQuotedRefInfo, extractExactQuotedRefInfo, nodeLoc } from './walk
  * When `previousSymbols` is provided, unchanged location blocks reuse
  * the old symbols with adjusted line numbers — reducing work from
  * O(tree) to O(changed_locations) for typical edits.
+ *
+ * When `parseFn` is provided, every newly-extracted location is also
+ * scanned for embedded `<a href="exec:CODE">` hyperlinks; their bodies
+ * are sub-parsed via `parseFn` and contributed location / object /
+ * action refs are merged into the host location's symbols.
  */
 export function extractSymbols(
   tree: Parser.Tree,
   docUri: string,
   previousSymbols?: DocumentSymbols,
   lastEdit?: { startIndex: number; newEndIndex: number } | null,
+  parseFn?: (text: string) => Parser.Tree | null,
 ): { symbols: DocumentSymbols; reusedLocations: Set<string> } {
   const symbols = new DocumentSymbols(docUri);
   const reusedLocations = new Set<string>();
@@ -91,6 +98,8 @@ export function extractSymbols(
     locSymbols.hasErrors = hasStructuralErrors(locBlock);
     walkLocationBody(locBlock, locSymbols, docUri);
   }
+
+  extractEmbeddedExec(tree, docUri, symbols, parseFn, reusedLocations);
 
   symbols.rebuildGlobalBindings();
   return { symbols, reusedLocations };
