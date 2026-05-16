@@ -36,6 +36,14 @@ export const LOCATION_REF_NAMES = new Set([
   'gosub', 'goto', 'gs', 'gt', 'xgoto', 'xgt', 'func', 'desc',
 ]);
 
+/**
+ * Statement names whose execution breaks/transfers control flow.
+ * Used for semantic-token highlighting (the `controlFlow` modifier).
+ */
+export const CONTROL_FLOW_STMT_NAMES: ReadonlySet<string> = new Set([
+  'exit', 'goto', 'gt', 'xgoto', 'xgt', 'jump',
+]);
+
 /** Subset of LOCATION_REF_NAMES where locals propagate to the called location. */
 export const LOCALS_PROPAGATING_NAMES = new Set([
   'gosub', 'gs', 'func', 'desc',

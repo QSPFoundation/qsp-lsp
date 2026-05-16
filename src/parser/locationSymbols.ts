@@ -14,6 +14,7 @@ import {
   type DeprecationWarning,
   type VariableBinding,
 } from './symbolTypes';
+import type { SyntaxError } from './extractErrors';
 
 export class LocationSymbols {
   public readonly locationName: string;
@@ -54,6 +55,14 @@ export class LocationSymbols {
   public readonly argCountWarnings: ArgCountWarning[] = [];
   /** Warnings for deprecated/outdated builtin statements or functions. */
   public readonly deprecationWarnings: DeprecationWarning[] = [];
+  /**
+   * Syntax errors extracted from sub-parses of `<a href="exec:CODE">`
+   * link bodies inside this location's renderable strings.  Positions
+   * are translated back into the host string's source coordinates by
+   * {@link extractEmbeddedExec}, so they can be reported alongside the
+   * top-level tree-sitter errors with proper editor underlining.
+   */
+  public readonly embeddedExecErrors: SyntaxError[] = [];
   /** True when the tree-sitter location_block node contained ERROR sub-nodes. */
   public hasErrors = false;
 
@@ -678,9 +687,11 @@ export class LocationSymbols {
       for (const [k, v] of source.objectRefs) copy.objectRefs.set(k, v);
       for (const [k, v] of source.actionRefs) copy.actionRefs.set(k, v);
       for (const act of source.actions) copy.actions.push(act);
+      for (const loc of source.unreachableLabels) copy.unreachableLabels.push(loc);
       for (const pw of source.prefixWarnings) copy.prefixWarnings.push(pw);
       for (const aw of source.argCountWarnings) copy.argCountWarnings.push(aw);
       for (const dw of source.deprecationWarnings) copy.deprecationWarnings.push(dw);
+      for (const e of source.embeddedExecErrors) copy.embeddedExecErrors.push(e);
       for (const d of source.dynamicVarCalls) copy.dynamicVarCalls.push(d);
       for (const d of source.untrackedDynamicVarCalls) copy.untrackedDynamicVarCalls.push(d);
       for (const d of source.unresolvedDynamicVarCalls) copy.unresolvedDynamicVarCalls.push(d);
@@ -752,6 +763,13 @@ export class LocationSymbols {
     }
     for (const dw of source.deprecationWarnings) {
       copy.deprecationWarnings.push({ ...dw, loc: shift(dw.loc) });
+    }
+    for (const e of source.embeddedExecErrors) {
+      copy.embeddedExecErrors.push({
+        ...e,
+        startRow: e.startRow + lineShift,
+        endRow: e.endRow + lineShift,
+      });
     }
     for (const d of source.dynamicVarCalls) {
       copy.dynamicVarCalls.push({ ...d, loc: shift(d.loc) });

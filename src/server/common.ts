@@ -164,6 +164,7 @@ export function createQspServer(
   // everywhere it's used.
   interface QspSettings {
     project: { enabled: boolean };
+    embeddedExec: { enabled: boolean };
     diagnostics: DiagnosticSettings;
     semanticHighlighting: { enabled: boolean };
     hover: { possibleValues: boolean };
@@ -171,6 +172,7 @@ export function createQspServer(
 
   const defaultSettings: QspSettings = {
     project: { enabled: true },
+    embeddedExec: { enabled: true },
     diagnostics: {
       duplicateLocations: true,
       duplicateLabels: true,
@@ -214,6 +216,7 @@ export function createQspServer(
   function parseSettingsFromConfig(qspConfig: Record<string, unknown> | undefined): QspSettings {
     const d = qspConfig?.diagnostics as Record<string, unknown> | undefined;
     const proj = qspConfig?.project as Record<string, unknown> | undefined;
+    const emb = qspConfig?.embeddedExec as Record<string, unknown> | undefined;
     const sem = qspConfig?.semanticHighlighting as Record<string, unknown> | undefined;
     const hov = qspConfig?.hover as Record<string, unknown> | undefined;
     const pick = <T>(v: unknown, def: T): T => typeof v === typeof def ? v as T : def;
@@ -225,6 +228,7 @@ export function createQspServer(
     }
     return {
       project: { enabled: pick(proj?.enabled, defaultSettings.project.enabled) },
+      embeddedExec: { enabled: pick(emb?.enabled, defaultSettings.embeddedExec.enabled) },
       diagnostics: diagnostics as unknown as DiagnosticSettings,
       semanticHighlighting: { enabled: pick(sem?.enabled, defaultSettings.semanticHighlighting.enabled) },
       hover: { possibleValues: pick(hov?.possibleValues, defaultSettings.hover.possibleValues) },
@@ -307,6 +311,7 @@ export function createQspServer(
     ]).then(([qspConfig, filesConfig]) => {
       fileEncoding = filesConfig?.encoding ?? 'utf8';
       settings = parseSettingsFromConfig(qspConfig as Record<string, unknown> | undefined);
+      project.embeddedExecEnabled = settings.embeddedExec.enabled;
       if (settings.project.enabled) {
         project.init(fsProvider!, fileEncoding, () => collectCallTypesPerTarget(documentStates), (ownUri: string) => collectPeerDocs(documentStates, ownUri), settings.diagnostics);
       }
@@ -333,6 +338,7 @@ export function createQspServer(
       fileEncoding = filesConfig?.encoding ?? 'utf8';
       const prevProjectEnabled = settings.project.enabled;
       settings = parseSettingsFromConfig(qspConfig as Record<string, unknown> | undefined);
+      project.embeddedExecEnabled = settings.embeddedExec.enabled;
       // Re-analyze all open documents with new settings
       for (const doc of documents.all()) {
         analyzeDocument(doc);
@@ -563,7 +569,7 @@ export function createQspServer(
           ? previousState?.symbols : undefined;
         const result = extractSymbols(
           tree, doc.uri, prevSymbols, tsParser.lastEdit,
-          (t) => tsParser.parseOnce(t),
+          settings.embeddedExec.enabled ? (t) => tsParser.parseOnce(t) : undefined,
         );
         symbols = result.symbols;
         reusedLocationNames = result.reusedLocations;
@@ -700,12 +706,15 @@ export function createQspServer(
     if (!tree) return null;
 
     try {
+      const embedParseFn = settings.embeddedExec.enabled
+        ? (t: string) => tsParser.parseOnce(t)
+        : undefined;
       const result = extractSymbols(
         tree, docUri, undefined, undefined,
-        (t) => tsParser.parseOnce(t),
+        embedParseFn,
       );
       const errors = extractErrors(tree);
-      const tokens = collectSemanticTokenTuples(tree);
+      const tokens = collectSemanticTokenTuples(tree, undefined, embedParseFn);
 
       // extractSymbols wraps the location in a DocumentSymbols with one entry.
       // Get the LocationSymbols for the single location_block.

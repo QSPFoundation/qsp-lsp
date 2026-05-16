@@ -14,6 +14,11 @@ import {
   SemanticTokenModifiers,
 } from 'vscode-languageserver';
 import { isVariableDefinition } from '../parser';
+import { EXEC_PROBE_RE, EXEC_LINK_RE, decodeDoubledQuotes } from '../parser/embeddedExec';
+import { CONTROL_FLOW_STMT_NAMES } from '../parser/lookupTables';
+
+/** Sub-parser used to lift `<a href="exec:…">` link bodies out of strings. */
+export type SemanticParseFn = (text: string) => Parser.Tree | null;
 
 // ──────────────────────────────────────────────────────────────────────
 // Legend — the token types and modifiers we provide
@@ -84,8 +89,6 @@ function tokenMod(...mods: SemanticTokenModifiers[]): number {
 // Tree walker → semantic tokens
 // ──────────────────────────────────────────────────────────────────────
 
-const CONTROL_FLOW_STMTS = new Set(['exit', 'goto', 'gt', 'xgoto', 'xgt', 'jump']);
-
 /** Callback that receives one semantic token at a time. */
 type TokenSink = (line: number, char: number, length: number, type: number, modifiers: number) => void;
 
@@ -94,14 +97,28 @@ type TokenSink = (line: number, char: number, length: number, type: number, modi
  * Walk a tree-sitter parse tree and emit semantic tokens via a callback.
  * Shared core used by both buildSemanticTokens (builder) and
  * collectSemanticTokenTuples (flat array).
+ *
+ * When `parseFn` is supplied, single-line `<a href="exec:…">` link
+ * bodies inside string literals are sub-parsed and their tokens are
+ * emitted on top of the surrounding string tokens.  Returns `true`
+ * when at least one exec body was emitted — a hint that callers may
+ * need to sort the resulting stream because sub-tokens can land at
+ * columns earlier than tokens emitted right before them.
  */
-function emitSemanticTokens(tree: Parser.Tree, emit: TokenSink, gotoTargets?: ReadonlySet<string>): void {
+function emitSemanticTokens(
+  tree: Parser.Tree,
+  emit: TokenSink,
+  gotoTargets?: ReadonlySet<string>,
+  parseFn?: SemanticParseFn,
+): boolean {
   let cursor = tree.walk();
+  let emittedExecBody = false;
 
   function push(
     node: Parser.SyntaxNode,
     type: number,
     modifiers: number = 0,
+    sink: TokenSink = emit,
   ): void {
     // Only emit for single-line spans (VS Code requires line-by-line tokens)
     const startLine = node.startPosition.row;
@@ -110,7 +127,7 @@ function emitSemanticTokens(tree: Parser.Tree, emit: TokenSink, gotoTargets?: Re
     const endChar = node.endPosition.column;
 
     if (startLine === endLine) {
-      emit(startLine, startChar, endChar - startChar, type, modifiers);
+      sink(startLine, startChar, endChar - startChar, type, modifiers);
     } else {
       // Multi-line token: emit a token for each line so the entire
       // span is coloured (e.g. multiline comments with '…', "…", {…}).
@@ -124,7 +141,7 @@ function emitSemanticTokens(tree: Parser.Tree, emit: TokenSink, gotoTargets?: Re
             ? endChar
             : lines[i].length;
         if (len > 0) {
-          emit(lineNo, col, len, type, modifiers);
+          sink(lineNo, col, len, type, modifiers);
         }
       }
     }
@@ -173,7 +190,7 @@ function emitSemanticTokens(tree: Parser.Tree, emit: TokenSink, gotoTargets?: Re
       case 'statement_name':
         push(node, tokenType(SemanticTokenTypes.type),
           tokenMod(MOD_BUILTIN)
-          | (CONTROL_FLOW_STMTS.has(node.text.toLowerCase()) ? tokenMod(MOD_CONTROL_FLOW) : 0));
+          | (CONTROL_FLOW_STMT_NAMES.has(node.text.toLowerCase()) ? tokenMod(MOD_CONTROL_FLOW) : 0));
         return;
 
       // ── Built-in function names ─────────────────────────
@@ -207,35 +224,41 @@ function emitSemanticTokens(tree: Parser.Tree, emit: TokenSink, gotoTargets?: Re
       }
 
       // ── Strings ─────────────────────────────────────────
-      // Emit string tokens for the literal parts and recurse into
-      // interpolation children so variables/expressions get highlighted.
+      // Emit string tokens for literal parts; recurse into
+      // interpolation children.  When the string contains
+      // `<a href="exec:…">` link bodies, clip the string tokens
+      // around each body and let the sub-parser fill it instead —
+      // overlapping tokens would otherwise hide the sub-parser's
+      // output.
       case 'single_quoted_string':
       case 'double_quoted_string': {
         const strType = tokenType(SemanticTokenTypes.string);
-        const childCount = node.childCount;
-        if (childCount === 0) {
-          // No children (no interpolation) — emit the whole string
-          push(node, strType);
-          return;
-        }
-        // Walk children: emit string tokens for literal gaps and
-        // anonymous children (quotes), recurse into named children.
-        let pos = { row: node.startPosition.row, column: node.startPosition.column };
-        for (let i = 0; i < childCount; i++) {
-          const child = node.child(i)!;
-          // Emit string token for literal text gap before this child
-          emitStringGap(pos, child.startPosition, strType);
-          if (child.isNamed) {
-            // Named child (e.g. string_interpolation) — recurse
-            visitNode(child);
-          } else {
-            // Anonymous child (quotes, literal text) — emit as string
-            push(child, strType);
+        const bodies = parseFn ? findExecBodies(node) : [];
+        const strEmit = bodies.length > 0 ? clipStringEmit(emit, bodies, strType) : emit;
+
+        if (node.childCount === 0) {
+          push(node, strType, 0, strEmit);
+        } else {
+          let pos: { row: number; column: number } = node.startPosition;
+          for (let i = 0; i < node.childCount; i++) {
+            const child = node.child(i)!;
+            emitStringGap(pos, child.startPosition, strType, strEmit);
+            if (child.isNamed) {
+              // Named child (e.g. string_interpolation): recurse via the
+              // ORIGINAL emit — interpolation tokens aren't strings and
+              // don't intersect exec bodies.
+              visitNode(child);
+            } else {
+              push(child, strType, 0, strEmit);
+            }
+            pos = child.endPosition;
           }
-          pos = { row: child.endPosition.row, column: child.endPosition.column };
+          emitStringGap(pos, node.endPosition, strType, strEmit);
         }
-        // Emit string token for literal text after the last child
-        emitStringGap(pos, node.endPosition, strType);
+        for (const info of bodies) {
+          emitExecBodyForInfo(info, parseFn!, emit, gotoTargets);
+          emittedExecBody = true;
+        }
         return;
       }
 
@@ -339,11 +362,12 @@ function emitSemanticTokens(tree: Parser.Tree, emit: TokenSink, gotoTargets?: Re
     start: { row: number; column: number },
     end: { row: number; column: number },
     type: number,
+    sink: TokenSink = emit,
   ): void {
     if (start.row === end.row) {
       const len = end.column - start.column;
       if (len > 0) {
-        emit(start.row, start.column, len, type, 0);
+        sink(start.row, start.column, len, type, 0);
       }
     }
     // Multi-line gap: skip (TextMate handles as fallback)
@@ -351,27 +375,218 @@ function emitSemanticTokens(tree: Parser.Tree, emit: TokenSink, gotoTargets?: Re
 
   visit();
   cursor.delete();
+  return emittedExecBody;
 }
 
 /**
  * Build a SemanticTokensBuilder result from a tree-sitter parse tree.
  * Used for full-file (non-per-location) mode.
+ *
+ * `parseFn`, when supplied, enables semantic highlighting inside
+ * `<a href="exec:…">` link bodies embedded in string literals.
  */
-export function buildSemanticTokens(tree: Parser.Tree, gotoTargets?: ReadonlySet<string>): { data: number[] } {
+export function buildSemanticTokens(
+  tree: Parser.Tree,
+  gotoTargets?: ReadonlySet<string>,
+  parseFn?: SemanticParseFn,
+): { data: number[] } {
   const builder = new SemanticTokensBuilder();
-  emitSemanticTokens(tree, (l, c, len, t, m) => builder.push(l, c, len, t, m), gotoTargets);
+  const tuples = collectSemanticTokenTuples(tree, gotoTargets, parseFn);
+  for (let i = 0; i < tuples.length; i += 5) {
+    builder.push(tuples[i], tuples[i + 1], tuples[i + 2], tuples[i + 3], tuples[i + 4]);
+  }
   return builder.build();
 }
 
 /**
- * Collect semantic tokens as a flat tuple array [line, char, len, type, mod, ...].
+ * Collect semantic tokens as a flat tuple array [line, char, len, type, mod, ...],
+ * sorted by (line, char) so they can be fed straight into a
+ * `SemanticTokensBuilder` (which delta-encodes and requires ascending
+ * order).  Sorting here lets sub-token sources (e.g. embedded `exec:`
+ * link bodies) emit at any column without interleaving carefully with
+ * the surrounding string tokens.
+ *
  * Positions are tree-local (line 0 = root of the tree).
  * Used for per-location caching in large files.
+ *
+ * `parseFn`, when supplied, enables semantic highlighting inside
+ * `<a href="exec:…">` link bodies embedded in string literals.
  */
-export function collectSemanticTokenTuples(tree: Parser.Tree, gotoTargets?: ReadonlySet<string>): number[] {
+export function collectSemanticTokenTuples(
+  tree: Parser.Tree,
+  gotoTargets?: ReadonlySet<string>,
+  parseFn?: SemanticParseFn,
+): number[] {
   const tuples: number[] = [];
-  emitSemanticTokens(tree, (l, c, len, t, m) => { tuples.push(l, c, len, t, m); }, gotoTargets);
-  return tuples;
+  const emittedExecBody = emitSemanticTokens(
+    tree, (l, c, len, t, m) => { tuples.push(l, c, len, t, m); }, gotoTargets, parseFn,
+  );
+  // Tree-walk emission is naturally (line, char)-sorted; only exec
+  // body sub-tokens can land at columns earlier than tokens emitted
+  // just before them.  Skip the sort entirely otherwise.
+  const n = tuples.length / 5;
+  if (!emittedExecBody || n < 2) return tuples;
+
+  const idx = new Array<number>(n);
+  for (let i = 0; i < n; i++) idx[i] = i;
+  idx.sort((a, b) => {
+    const dl = tuples[a * 5] - tuples[b * 5];
+    return dl !== 0 ? dl : tuples[a * 5 + 1] - tuples[b * 5 + 1];
+  });
+  // Identity permutation: nothing actually moved; return as-is.
+  let moved = false;
+  for (let i = 0; i < n; i++) { if (idx[i] !== i) { moved = true; break; } }
+  if (!moved) return tuples;
+
+  const out = new Array<number>(tuples.length);
+  for (let i = 0; i < n; i++) {
+    const k = idx[i] * 5;
+    const j = i * 5;
+    out[j]     = tuples[k];
+    out[j + 1] = tuples[k + 1];
+    out[j + 2] = tuples[k + 2];
+    out[j + 3] = tuples[k + 3];
+    out[j + 4] = tuples[k + 4];
+  }
+  return out;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Embedded `exec:` link body highlighting
+// ──────────────────────────────────────────────────────────────────────
+//
+// `<a href="exec:CODE">…</a>` link bodies inside QSP strings are
+// executable QSP code.  To highlight them as code (not as string):
+//   1. `findExecBodies` discovers single-line body ranges in a string.
+//   2. The string handler uses `clipStringEmit` to drop the host
+//      `string` token inside each body range (no overlap, no string
+//      colour bleeding through).
+//   3. `emitExecBodyForInfo` sub-parses each body and emits tokens at
+//      the precise source positions.
+// Multi-line bodies are left to the surrounding `string` colour.
+
+/** Synthetic wrapper that turns a body into a parseable location.
+ *  The body sits at line 1, column 0 of the wrapper. */
+const WRAP_HEADER = '# __exec__\n';
+const WRAP_FOOTER = '\n---\n';
+
+/** A single single-line `exec:` body inside a host string. */
+interface ExecBodyInfo {
+  /** Source row of the body. */
+  row: number;
+  /** Source column of the first raw body character (inclusive). */
+  startCol: number;
+  /** Source column just past the last raw body character (exclusive). */
+  endCol: number;
+  /** Decoded body text (after `''`/`""` escape collapse). */
+  decoded: string;
+  /** Decoded→raw column shift map; `null` when no escapes were present. */
+  extra: number[] | null;
+}
+
+/** Scan a host string for embedded `exec:` link bodies, in source order. */
+function findExecBodies(stringNode: Parser.SyntaxNode): ExecBodyInfo[] {
+  const raw = stringNode.text;
+  if (raw.length < 2 || !EXEC_PROBE_RE.test(raw)) return [];
+  const hostQuote = raw[0];
+  if (hostQuote !== "'" && hostQuote !== '"') return [];
+
+  const inner = raw.slice(1, -1);
+  const stringStart = stringNode.startPosition;
+  const out: ExecBodyInfo[] = [];
+
+  // `matchAll` keeps the global regex's `lastIndex` untouched across
+  // calls, removing the leading/trailing reset dance.
+  for (const m of inner.matchAll(EXEC_LINK_RE)) {
+    const rawBody = m[2];
+    if (!rawBody || rawBody.includes('\n')) continue;
+    // `d` flag: m.indices[2] is the body's offset within `inner`;
+    // `+ 1` accounts for the opening quote stripped from `raw → inner`.
+    const innerOffset = m.indices![2]![0] + 1;
+    const bodyPos = offsetToSourcePos(raw, innerOffset, stringStart);
+    const { text: decoded, extra } = decodeDoubledQuotes(rawBody, hostQuote);
+    out.push({
+      row: bodyPos.row,
+      startCol: bodyPos.column,
+      endCol: bodyPos.column + rawBody.length,
+      decoded,
+      extra,
+    });
+  }
+  return out;
+}
+
+/**
+ * Wrap `baseEmit` so that tokens of `stringType` are clipped around
+ * `bodies` — the portion of any string token that falls inside a body
+ * range is dropped; the surrounding parts are emitted as separate
+ * tokens.  Other token types pass through.  `bodies` must be sorted
+ * by `(row, startCol)`, which `findExecBodies` guarantees.
+ */
+function clipStringEmit(
+  baseEmit: TokenSink,
+  bodies: ReadonlyArray<ExecBodyInfo>,
+  stringType: number,
+): TokenSink {
+  return (line, char, length, type, modifiers) => {
+    if (type !== stringType) {
+      baseEmit(line, char, length, type, modifiers);
+      return;
+    }
+    const end = char + length;
+    let cursor = char;
+    for (const r of bodies) {
+      if (r.row !== line || r.endCol <= cursor || r.startCol >= end) continue;
+      if (r.startCol > cursor) {
+        baseEmit(line, cursor, r.startCol - cursor, type, modifiers);
+      }
+      cursor = Math.min(r.endCol, end);
+      if (cursor >= end) return;
+    }
+    if (cursor < end) baseEmit(line, cursor, end - cursor, type, modifiers);
+  };
+}
+
+/** Sub-parse a single exec body and emit its tokens at the precise
+ *  source positions covered by `info`. */
+function emitExecBodyForInfo(
+  info: ExecBodyInfo,
+  parseFn: SemanticParseFn,
+  emit: TokenSink,
+  gotoTargets: ReadonlySet<string> | undefined,
+): void {
+  const subTree = parseFn(WRAP_HEADER + info.decoded + WRAP_FOOTER);
+  if (!subTree) return;
+  try {
+    const { row, startCol, decoded, extra } = info;
+    // Body sits at (line=1, column=0) in the wrapper; project back.
+    const project: TokenSink = (line, char, length, type, modifiers) => {
+      if (line !== 1 || char < 0 || char > decoded.length) return;
+      const d2 = Math.min(char + length, decoded.length);
+      const srcCol = startCol + char + (extra ? extra[char] : 0);
+      const srcEnd = startCol + d2   + (extra ? extra[d2]   : 0);
+      if (srcEnd > srcCol) emit(row, srcCol, srcEnd - srcCol, type, modifiers);
+    };
+    emitSemanticTokens(subTree, project, gotoTargets);
+  } finally {
+    subTree.delete();
+  }
+}
+
+/** Convert an offset within `text` to an absolute source position,
+ *  starting from `base`.  Newlines reset the column and advance the row. */
+function offsetToSourcePos(
+  text: string,
+  offset: number,
+  base: { row: number; column: number },
+): { row: number; column: number } {
+  let row = base.row;
+  let col = base.column;
+  for (let i = 0; i < offset; i++) {
+    if (text.charCodeAt(i) === 10) { row++; col = 0; }
+    else col++;
+  }
+  return { row, column: col };
 }
 
 /** Check if a variable_ref node is on the definition side. */

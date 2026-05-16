@@ -7,11 +7,14 @@
  * in identifier-position contexts are skipped.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
+import { TextDocument } from 'vscode-languageserver-textdocument';
 import { QspTreeSitterParser, extractSymbols } from '../src/parser/treeSitter';
 import { extractEmbeddedExec } from '../src/parser/embeddedExec';
 import type { DocumentSymbols } from '../src/parser/symbolTable';
 import { initParser } from './testHelpers';
 import { buildFileAggregates } from '../src/server/aggregation';
+import { buildLocationIndex } from '../src/common/locations';
+import { computeDiagnostics, type DiagnosticSettings } from '../src/server/diagnostics';
 
 const URI = 'test://exec';
 
@@ -218,18 +221,20 @@ pl '<a href=''exec:gs "target"''>x</a>'
   });
 
   describe('position', () => {
-    it('reports the ref on the line containing the host string', () => {
+    it('reports the ref at a precise span inside the host string body', () => {
       const code = `# home\npl '<a href="exec:gs ''target''">x</a>'\n---\n`;
       const symbols = run(code);
       const ref = symbols.getLocation('home')!.locationRefs.get('target');
       expect(ref).toBeDefined();
       const r = ref!.references[0];
       expect(r.line).toBe(1);
-      // Range covers the host string literal.
       const line = code.split('\n')[r.line];
       const span = line.substring(r.column, r.endColumn);
-      expect(span.startsWith("'") || span.startsWith('"')).toBe(true);
-      expect(span).toContain('exec:');
+      // Span should be inside the host string body — not the whole
+      // string — and refer to the target location name.
+      expect(span.toLowerCase()).toContain('target');
+      expect(span).not.toContain('exec:');
+      expect(span).not.toContain('<a href=');
     });
 
     it('handles bodies where a literal precedes the target call', () => {
@@ -740,19 +745,86 @@ result = 1
       expect(home.locationRefs.get('user_proc')).toBeDefined();
       expect(home.locationRefs.get('user_fn')).toBeDefined();
     });
+  });
 
-    it('records lint warnings emitted by the standard walker', () => {
-      // `killqst` is a deprecated builtin — calling it triggers a
-      // deprecation warning that the merger must lift into the host.
-      const symbols = run(
-        `# home
-pl '<a href="exec:killqst">go</a>'
+  describe('precise sub-statement positions inside the host string', () => {
+    // The merge layer projects every sub-tree position through the
+    // single-line translator so diagnostics underline the offending
+    // sub-statement, not the whole host string.  Each test below
+    // pins one diagnostic-bearing field to its precise span.
+
+    const sliceOf = (code: string, line: number, col: number, endCol: number) =>
+      code.split('\n')[line]!.substring(col, endCol);
+
+    it('resolvedDynamicBlocks.callLoc + blockLocs are precise', () => {
+      // `dyneval({ ... })` inside an exec body — the callLoc must
+      // cover `dyneval({...})` and the blockLoc the `{...}`.
+      const code = `# home
+pl '<a href="exec:y = dyneval({ result = 1 })">click</a>'
 ---
-`,
-      );
+`;
+      const symbols = run(code);
       const home = symbols.getLocation('home')!;
-      expect(home.deprecationWarnings.length).toBeGreaterThan(0);
-      expect(home.deprecationWarnings[0]!.name).toBe('killqst');
+      expect(home.resolvedDynamicBlocks.length).toBe(1);
+      const d = home.resolvedDynamicBlocks[0]!;
+      const callSpan = sliceOf(code, d.callLoc.line, d.callLoc.column, d.callLoc.endColumn);
+      expect(callSpan).toContain('dyneval');
+      expect(callSpan).toContain('result = 1');
+      expect(callSpan.startsWith('dyneval')).toBe(true);
+      expect(d.blockLocs.length).toBe(1);
+      const blockSpan = sliceOf(
+        code, d.blockLocs[0]!.line, d.blockLocs[0]!.column, d.blockLocs[0]!.endColumn);
+      expect(blockSpan).toContain('result = 1');
+      expect(blockSpan).not.toContain('dyneval');
+    });
+
+    it('untrackedDynamicVarCalls.loc pins just the dynamic call site', () => {
+      // `dynamic $a + $b` is a complex first-arg expression — the
+      // walker records an `untrackedDynamicVarCalls` entry whose loc
+      // should cover only the `dynamic` statement.
+      const code = `# home
+pl '<a href="exec:dynamic $a + $b">click</a>'
+---
+`;
+      const symbols = run(code);
+      const home = symbols.getLocation('home')!;
+      expect(home.untrackedDynamicVarCalls.length).toBeGreaterThan(0);
+      const u = home.untrackedDynamicVarCalls[0]!;
+      const span = sliceOf(code, u.loc.line, u.loc.column, u.loc.endColumn);
+      expect(span.startsWith('dynamic')).toBe(true);
+      expect(span).not.toContain('<a href=');
+    });
+
+    it('deferredDynamicVarCalls.loc pins just the dispatch call', () => {
+      const code = `# home
+pl 'text <a href="exec:y = dyneval($code)">click</a> more'
+---
+`;
+      const symbols = run(code);
+      const home = symbols.getLocation('home')!;
+      expect(home.deferredDynamicVarCalls.length).toBe(1);
+      const c = home.deferredDynamicVarCalls[0]!;
+      const span = sliceOf(code, c.loc.line, c.loc.column, c.loc.endColumn);
+      expect(span).toContain('dyneval');
+      expect(span).not.toContain('<a href=');
+      expect(span).not.toContain('text');
+    });
+
+    it('unreachableLabels records sub-body label after `&` chain', () => {
+      // A label after `&` in an inline chain is unreachable at runtime
+      // — the standard walker pushes it onto `unreachableLabels`.
+      // The merger must lift it (with translated position).
+      const code = `# home
+pl '<a href="exec:pl 1 & :lbl">click</a>'
+---
+`;
+      const symbols = run(code);
+      const home = symbols.getLocation('home')!;
+      expect(home.unreachableLabels.length).toBeGreaterThan(0);
+      const u = home.unreachableLabels[0]!;
+      const span = sliceOf(code, u.line, u.column, u.endColumn);
+      expect(span).toContain('lbl');
+      expect(span).not.toContain('<a href=');
     });
   });
 
@@ -1038,6 +1110,193 @@ pl '<a href="exec:y = dyneval($b)">B</a>'
       expect(dispatches.length).toBe(2);
       const vars = dispatches.map(d => d.varBaseName).sort();
       expect(vars).toEqual(['a', 'b']);
+    });
+  });
+
+  describe('end-to-end diagnostics from inside exec bodies', () => {
+    // The merge pipeline lifts warnings, bindings, dynamic-call buckets
+    // and syntax errors into the host LocationSymbols.  These tests run
+    // the full `computeDiagnostics` surface and verify that each
+    // diagnostic class actually fires for code that lives inside an
+    // `<a href="exec:…">` body — and that the diagnostic range lies
+    // strictly inside the host string, not at column 0.
+
+    const ALL_OFF: DiagnosticSettings = {
+      duplicateLocations: false,
+      duplicateLabels: false,
+      duplicateActions: false,
+      unreachableLabels: false,
+      unclosedLocations: false,
+      uninitializedVariables: false,
+      unresolvedLocationRefs: false,
+      unresolvedLabelRefs: false,
+      unresolvedActionRefs: false,
+      unresolvedObjectRefs: false,
+      unusedLocations: false,
+      unusedLabels: false,
+      unusedVariables: false,
+      unusedObjects: false,
+      invalidFunctionPrefix: false,
+      invalidBuiltinArgCount: false,
+      mixedVariablePrefixes: false,
+      typeMismatch: false,
+      mixedLocationCallTypes: false,
+      inconsistentLocalPropagation: false,
+      untrackedDynamicCalls: false,
+      missingResultInFunctionCall: false,
+      extraArgsToTargetWithoutArgs: false,
+      shadowsCallFrameBuiltin: false,
+      shadowsPropagatedLocal: false,
+      maxErrorsPerLocation: 1000,
+      maxLocationLines: 0,
+    };
+
+    function diagnose(code: string, overrides: Partial<DiagnosticSettings>, opts?: { parseExec?: boolean }) {
+      const doc = TextDocument.create(URI, 'qsp', 1, code);
+      const tree = parser.parse(URI, code)!;
+      const parseExec = opts?.parseExec ?? true;
+      const { symbols } = extractSymbols(
+        tree, URI, undefined, undefined,
+        parseExec ? (t) => parser.parseOnce(t) : undefined,
+      );
+      const locationIndex = buildLocationIndex(code);
+      const settings = { ...ALL_OFF, ...overrides };
+      return computeDiagnostics(doc, URI, locationIndex, settings, parser, new Map(), symbols);
+    }
+
+    /** Source span (substring on `loc.range.start.line`) covered by a diagnostic. */
+    const sliceDiag = (code: string, d: { range: { start: { line: number; character: number }; end: { character: number } } }) =>
+      code.split('\n')[d.range.start.line]!.substring(d.range.start.character, d.range.end.character);
+
+    it('reports a syntax error inside an exec body as a diagnostic', () => {
+      const code = `# home
+pl '<a href="exec:if 1:">click</a>'
+---
+`;
+      const diags = diagnose(code, {});  // syntax errors are always on
+      // The host string line gets at least one error pointing inside the body.
+      const lineText = code.split('\n')[1]!;
+      const inExec = diags.filter(d =>
+        d.range.start.line === 1
+        && d.range.start.character > lineText.indexOf('exec:')
+        && d.range.start.character < lineText.indexOf('">'),
+      );
+      expect(inExec.length).toBeGreaterThan(0);
+    });
+
+    it('uninitializedVariables fires for an unassigned read inside exec', () => {
+      const code = `# home
+pl '<a href="exec:pl q">click</a>'
+---
+`;
+      const diags = diagnose(code, { uninitializedVariables: true });
+      const hits = diags.filter(d => d.message === "Variable 'q' is used but never assigned");
+      expect(hits.length).toBe(1);
+      // Range must lie strictly inside the host string body.
+      expect(hits[0]!.range.start.line).toBe(1);
+      expect(sliceDiag(code, hits[0]!)).toBe('q');
+    });
+
+    it('typeMismatch fires for $string = numeric inside exec', () => {
+      const code = `# home
+pl '<a href="exec:$gold = 34">click</a>'
+---
+`;
+      const diags = diagnose(code, { typeMismatch: true });
+      const hits = diags.filter(d => d.message.startsWith('Type mismatch'));
+      expect(hits.length).toBe(1);
+      expect(hits[0]!.range.start.line).toBe(1);
+      // Range underlines only the assignment statement, not the whole host.
+      expect(sliceDiag(code, hits[0]!)).toBe('$gold = 34');
+    });
+
+    it('invalidBuiltinArgCount fires for too many args inside exec', () => {
+      const code = `# home
+pl '<a href="exec:$x = len(''a'', ''b'')">click</a>'
+---
+`;
+      const diags = diagnose(code, { invalidBuiltinArgCount: true });
+      const hits = diags.filter(d => /expects .* arguments, got/.test(d.message));
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0]!.range.start.line).toBe(1);
+      expect(sliceDiag(code, hits[0]!)).toBe('len');
+    });
+
+    it('invalidFunctionPrefix fires for an unsupported prefix inside exec', () => {
+      const code = `# home
+pl '<a href="exec:$x = $len(''abc'')">click</a>'
+---
+`;
+      const diags = diagnose(code, { invalidFunctionPrefix: true });
+      const hits = diags.filter(d => /does not support the .* prefix/.test(d.message));
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0]!.range.start.line).toBe(1);
+      expect(sliceDiag(code, hits[0]!)).toBe('$len');
+    });
+
+    it('deprecation warning fires for an outdated builtin inside exec', () => {
+      const code = `# home
+pl '<a href="exec:killqst">click</a>'
+---
+`;
+      const diags = diagnose(code, {});
+      const hits = diags.filter(d => /KILLQST.*outdated/.test(d.message));
+      expect(hits.length).toBe(1);
+      expect(hits[0]!.range.start.line).toBe(1);
+      expect(sliceDiag(code, hits[0]!)).toBe('killqst');
+    });
+
+    it('unresolvedLocationRefs fires for a missing gs target inside exec', () => {
+      const code = `# home
+pl '<a href="exec:gs ''missing''">click</a>'
+---
+`;
+      const diags = diagnose(code, { unresolvedLocationRefs: true });
+      const hits = diags.filter(d => /Location 'missing' is not defined/i.test(d.message));
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0]!.range.start.line).toBe(1);
+    });
+
+    it('reports NO embedded-exec diagnostics when parseFn is not supplied', () => {
+      // Simulates `qsp.embeddedExec.enabled = false`: extractSymbols is
+      // called without parseFn, so exec bodies stay opaque strings and
+      // none of the sub-statement diagnostics fire.
+      const code = `# home
+pl '<a href="exec:$gold = 34 & pl q & killqst & $x = $len(''abc'')">click</a>'
+---
+`;
+      const diags = diagnose(
+        code,
+        {
+          typeMismatch: true,
+          uninitializedVariables: true,
+          invalidFunctionPrefix: true,
+          invalidBuiltinArgCount: true,
+        },
+        { parseExec: false },
+      );
+      // No diagnostic should land inside the exec body.
+      const lineText = code.split('\n')[1]!;
+      const execStart = lineText.indexOf('exec:');
+      const execEnd = lineText.indexOf('">');
+      const inExec = diags.filter(d =>
+        d.range.start.line === 1
+        && d.range.start.character >= execStart
+        && d.range.start.character < execEnd,
+      );
+      expect(inExec).toEqual([]);
+    });
+
+    it('emits each exec-body diagnostic exactly once (no double-merge)', () => {
+      // Regression: a single exec link must not produce duplicate
+      // diagnostics from the merge pipeline.
+      const code = `# home
+pl '<a href="exec:$gold = 34">click</a>'
+---
+`;
+      const diags = diagnose(code, { typeMismatch: true });
+      const tm = diags.filter(d => d.message.startsWith('Type mismatch'));
+      expect(tm.length).toBe(1);
     });
   });
 });

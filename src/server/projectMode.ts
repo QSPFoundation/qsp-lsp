@@ -54,6 +54,13 @@ export class ProjectModeService {
   /** URIs of all project files (both open and on-disk). */
   readonly projectFileUris = new Set<string>();
 
+  /**
+   * Whether to sub-parse `<a href="exec:...">` link bodies during
+   * symbol extraction. Mirrored from `qsp.embeddedExec.enabled`; the
+   * server updates this on configuration change.
+   */
+  embeddedExecEnabled = true;
+
   constructor(
     private connection: Connection,
     private documents: TextDocuments<TextDocument>,
@@ -143,7 +150,7 @@ export class ProjectModeService {
       if (tree) {
         const result = extractSymbols(
           tree, uri, undefined, undefined,
-          (t) => this.tsParser.parseOnce(t),
+          this.embeddedExecEnabled ? (t) => this.tsParser.parseOnce(t) : undefined,
         );
         symbols = result.symbols;
         tree.delete();

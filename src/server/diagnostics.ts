@@ -85,7 +85,7 @@ export function computeDiagnostics(
   const ctx = new DiagnosticCtx(doc, diagnosticSettings);
 
   // ── Document-structure diagnostics ──────────────────────────────
-  checkSyntaxErrors(ctx, docUri, locationIndex, tsParser, preExtractedErrors);
+  checkSyntaxErrors(ctx, docUri, locationIndex, tsParser, preExtractedErrors, symbols);
   if (diagnosticSettings.duplicateLocations) {
     checkDuplicateLocations(ctx, locationIndex, docUri, projectAgg);
   }

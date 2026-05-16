@@ -77,25 +77,26 @@ function getWordInfo(doc: TextDocument, pos: Position): { word: string; hasTypeP
     end: { line: pos.line, character: Number.MAX_SAFE_INTEGER },
   });
 
-  let m: RegExpExecArray | null;
-  SPACED_STATEMENTS_RE.lastIndex = 0;
-  while ((m = SPACED_STATEMENTS_RE.exec(line)) !== null) {
-    if (pos.character >= m.index && pos.character <= m.index + m[0].length) {
+  // `matchAll` returns a fresh iterator each call, so the early
+  // `return` inside the loop cannot leak `lastIndex` state into the
+  // next invocation — unlike a stateful `re.exec()` loop.
+  for (const m of line.matchAll(SPACED_STATEMENTS_RE)) {
+    const idx = m.index ?? 0;
+    if (pos.character >= idx && pos.character <= idx + m[0].length) {
       return {
         word: m[0].toLowerCase(),
         hasTypePrefix: false,
         range: {
-          start: { line: pos.line, character: m.index },
-          end: { line: pos.line, character: m.index + m[0].length },
+          start: { line: pos.line, character: idx },
+          end: { line: pos.line, character: idx + m[0].length },
         },
       };
     }
   }
 
   const re = /[*$#%]?[\p{L}_][\p{L}\p{N}_.]*/gu;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(line)) !== null) {
-    const start = match.index;
+  for (const match of line.matchAll(re)) {
+    const start = match.index ?? 0;
     const end = start + match[0].length;
     if (pos.character >= start && pos.character <= end) {
       const raw = match[0];

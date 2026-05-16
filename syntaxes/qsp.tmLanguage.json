@@ -99,6 +99,7 @@
       "endCaptures": { "0": { "name": "punctuation.definition.string.end.qsp" } },
       "patterns": [
         { "match": "''", "name": "constant.character.escape.qsp" },
+        { "include": "#exec-link" },
         { "include": "#string-interpolation" }
       ]
     },
@@ -109,6 +110,20 @@
       "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.qsp" } },
       "endCaptures": { "0": { "name": "punctuation.definition.string.end.qsp" } },
       "patterns": [
+        { "match": "\"\"", "name": "constant.character.escape.qsp" },
+        { "include": "#exec-link" },
+        { "include": "#string-interpolation" }
+      ]
+    },
+    "exec-link": {
+      "begin": "(?i)<a\\s(?:[^>]*?\\s)?href\\s*=\\s*[\"']{1,2}\\s*(exec)(:)",
+      "end": "(?i)</a>",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.exec.qsp" },
+        "2": { "name": "punctuation.separator.exec.qsp" }
+      },
+      "patterns": [
+        { "match": "''", "name": "constant.character.escape.qsp" },
         { "match": "\"\"", "name": "constant.character.escape.qsp" },
         { "include": "#string-interpolation" }
       ]

@@ -32,10 +32,10 @@
  * etc.) fires on it automatically because the symbols land in the
  * host's `LocationSymbols`.
  *
- * Positions for every merged entry are collapsed to the host string's
- * source span — precise enough for find-references and diagnostic
- * squiggles without the complexity of a per-character offset map from
- * the decoded body back to source coordinates.
+ * Positions for every merged entry are translated back to precise
+ * source spans inside the host string body — single-line bodies
+ * inside single-line host strings get true per-token ranges; bodies
+ * spanning multiple lines fall back to the host string's full span.
  *
  * Strings in identifier positions (location names, file paths, var
  * names, etc.) are skipped — they never reach the HTML renderer.
@@ -43,7 +43,7 @@
 
 import type Parser from 'web-tree-sitter';
 import type { DocumentSymbols } from './symbolTable';
-import { hasStructuralErrors } from './extractErrors';
+import { extractErrors, hasStructuralErrors } from './extractErrors';
 import { LocationSymbols } from './locationSymbols';
 import type { SymbolLocation } from './symbolTypes';
 import { walkLocationBody } from './symbolWalker';
@@ -94,15 +94,23 @@ const REGEX_PATTERN_ARG: ReadonlyMap<string, number> = new Map([
 // ── HTML anchor scanning ─────────────────────────────────────────────
 
 /** Cheap case-insensitive probe for `exec:` substring. */
-const EXEC_PROBE_RE = /exec:/i;
+export const EXEC_PROBE_RE = /exec:/i;
 
 /**
  * Match `<a ...href="exec:CODE"...>` (or single-quoted attribute).
  * `(?:[^>]*?\s)?` requires whitespace before `href` so that custom
  * attributes like `data-href` aren't misidentified.
+ *
+ * The `d` flag exposes per-group `indices`, letting callers locate
+ * the body's exact offset within the match without a second regex.
+ *
+ * Capture groups:
+ *   [1] — the host quote character (`"` or `'`).
+ *   [2] — the raw exec body (may contain doubled-quote escapes if the
+ *         host string uses the same quote).
  */
-const EXEC_LINK_RE =
-  /<a\s(?:[^>]*?\s)?href\s*=\s*(["'])\s*exec:([\s\S]*?)\1[^>]*>/gi;
+export const EXEC_LINK_RE =
+  /<a\s(?:[^>]*?\s)?href\s*=\s*(["'])\s*exec:([\s\S]*?)\1[^>]*>/gid;
 
 /** Wrap an exec body so it parses as the body of a location. */
 const WRAPPER_PREFIX = '# __exec__\n';
@@ -283,31 +291,150 @@ function processString(
   const hostQuote = raw[0];
   if (hostQuote !== "'" && hostQuote !== '"') return;
 
-  // Decode the host string's doubled-quote escapes once.  We don't map
-  // positions back to source: every merged ref/var uses the host
-  // string's span, which is precise enough for LSP find-references
-  // and diagnostics.
-  const decoded = unescapeStringBody(raw, hostQuote);
+  // Decode the host string's doubled-quote escapes once.  We also
+  // build a `decoded → raw` shift map (`extra[d]` = number of escape
+  // pairs collapsed strictly before decoded position `d`) so we can
+  // project sub-tree positions back to RAW source positions later.
+  const inner = raw.slice(1, -1);
+  const { text: decoded, extra } = decodeDoubledQuotes(inner, hostQuote);
   const hostLoc = nodeLoc(s, docUri);
 
-  EXEC_LINK_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = EXEC_LINK_RE.exec(decoded)) !== null) {
+  // `matchAll` returns a fresh iterator and never mutates the regex's
+  // `lastIndex`, so the global flag on EXEC_LINK_RE stays safe across
+  // concurrent / re-entrant calls.
+  for (const m of decoded.matchAll(EXEC_LINK_RE)) {
     const body = m[2];
-    if (body) subParseAndMerge(body, hostLoc, locSymbols, docUri, parseFn);
+    if (!body) continue;
+
+    // `d` flag: m.indices[2] is [bodyStart, bodyEnd] in `decoded`.
+    const decodedBodyStart = m.indices![2]![0];
+
+    // Build a position translator.  Single-line bodies inside
+    // single-line host strings get precise per-token ranges; anything
+    // multi-line falls back to the full host span (which is the
+    // pre-existing behaviour and remains valid for diagnostics).
+    const translate = makeTranslator(
+      s, body, decodedBodyStart, extra, hostLoc,
+    );
+
+    subParseAndMerge(body, translate, hostLoc, locSymbols, docUri, parseFn);
   }
 }
 
-/** Strip outer quotes and collapse doubled-quote escapes (`''`→`'` or `""`→`"`). */
-function unescapeStringBody(raw: string, quote: string): string {
-  const inner = raw.slice(1, -1);
-  return inner.includes(quote + quote)
-    ? inner.split(quote + quote).join(quote)
-    : inner;
+/** Translator: sub-tree position → source `SymbolLocation`. */
+type LocTranslator = (subRef: SymbolLocation) => SymbolLocation;
+
+/**
+ * Build a position translator for a single exec body.  Returns a
+ * closure that maps a sub-tree `SymbolLocation` to a source
+ * `SymbolLocation`.  Body positions arrive in the wrapped tree's
+ * coordinate space (body sits at line 1, column 0 — see
+ * {@link WRAPPER_PREFIX}).
+ *
+ * Multi-line bodies and multi-line host strings fall back to the
+ * host string's span: per-line escape tracking and host-string
+ * wrapping don't justify the complexity for what is essentially a
+ * non-existent real-world case.
+ */
+function makeTranslator(
+  hostNode: Parser.SyntaxNode,
+  body: string,
+  decodedBodyStart: number,
+  extra: number[] | null,
+  hostLoc: SymbolLocation,
+): LocTranslator {
+  const hostStart = hostNode.startPosition;
+  const hostEnd = hostNode.endPosition;
+  const bodyIsMultiLine = body.includes('\n');
+  const hostIsMultiLine = hostStart.row !== hostEnd.row;
+
+  if (bodyIsMultiLine || hostIsMultiLine) {
+    // Fall back to host span for everything.
+    return (subRef) => mergeRefMetadata(subRef, hostLoc);
+  }
+
+  // Single-line body inside a single-line host string.  Body lives on
+  // hostStart.row, starting at:
+  //   hostStart.column        (opening quote)
+  //   + 1                     (skip opening quote)
+  //   + decodedBodyStart       (decoded offset of body within inner)
+  //   + extra[decodedBodyStart] (raw shift for that decoded position)
+  const innerStartCol = hostStart.column + 1;
+  const rawBodyStart = innerStartCol + decodedBodyStart
+    + (extra ? extra[decodedBodyStart] : 0);
+
+  return (subRef) => {
+    // Sub-tree position: line 1 = body row 0 (because of WRAPPER_PREFIX);
+    // we already filtered to single-line bodies, so subRef.line should
+    // always be 1 — defensive fallback to host span otherwise.
+    if (subRef.line !== 1 || subRef.endLine !== 1) {
+      return mergeRefMetadata(subRef, hostLoc);
+    }
+    const dStart = subRef.column;          // decoded column within body
+    const dEnd = subRef.endColumn;
+    const rawStart = rawBodyStart + dStart
+      + (extra ? extra[decodedBodyStart + dStart] - (extra[decodedBodyStart] ?? 0) : 0);
+    const rawEnd = rawBodyStart + dEnd
+      + (extra ? extra[decodedBodyStart + dEnd] - (extra[decodedBodyStart] ?? 0) : 0);
+    const out: SymbolLocation = {
+      uri: hostLoc.uri,
+      line: hostStart.row,
+      column: rawStart,
+      endLine: hostStart.row,
+      endColumn: rawEnd,
+    };
+    return mergeRefMetadata(subRef, out);
+  };
+}
+
+/** Copy ref-level metadata (callType / argCount / isDefinition / scopeId
+ *  / blockRange) from `subRef` onto `target`. */
+function mergeRefMetadata(
+  subRef: SymbolLocation,
+  target: SymbolLocation,
+): SymbolLocation {
+  const out: SymbolLocation = { ...target };
+  if (subRef.callType) out.callType = subRef.callType;
+  if (subRef.callText) out.callText = subRef.callText;
+  if (subRef.argCount !== undefined) out.argCount = subRef.argCount;
+  if (subRef.isDefinition) out.isDefinition = subRef.isDefinition;
+  return out;
+}
+
+/** Decode QSP doubled-quote escapes (`qq` → `q` where `q` is `hostQuote`)
+ *  in `raw`.  Returns the decoded text plus a `decoded → raw` shift map
+ *  (`extra[d]` = number of escape pairs collapsed strictly before
+ *  decoded position `d`); `extra` is `null` when no escapes were
+ *  present (fast path — avoids an O(n) array of zeros). */
+export function decodeDoubledQuotes(
+  raw: string,
+  hostQuote: string,
+): { text: string; extra: number[] | null } {
+  const dq = hostQuote + hostQuote;
+  if (!raw.includes(dq)) return { text: raw, extra: null };
+  let text = '';
+  const extra: number[] = [0];
+  let escapes = 0;
+  const qCode = hostQuote.charCodeAt(0);
+  for (let i = 0; i < raw.length; i++) {
+    if (i + 1 < raw.length
+        && raw.charCodeAt(i) === qCode
+        && raw.charCodeAt(i + 1) === qCode) {
+      text += hostQuote;
+      escapes++;
+      extra.push(escapes);
+      i++;  // skip the partner quote
+    } else {
+      text += raw[i];
+      extra.push(escapes);
+    }
+  }
+  return { text, extra };
 }
 
 function subParseAndMerge(
   body: string,
+  translate: LocTranslator,
   hostLoc: SymbolLocation,
   hostSyms: LocationSymbols,
   docUri: string,
@@ -320,6 +447,12 @@ function subParseAndMerge(
     const subLocBlock = findNamedChildOfType(subTree.rootNode, 'location_block');
     if (!subLocBlock) return;
 
+    // Surface tree-sitter syntax errors from the embedded body as
+    // host-level diagnostics with proper source coordinates.  Errors
+    // are emitted regardless of severity so the user sees red squiggles
+    // inside the `exec:` text the same way they do at top level.
+    collectEmbeddedErrors(subTree, translate, hostLoc, hostSyms);
+
     // Skip bodies that fail to parse cleanly: a partial parse would
     // emit garbage refs / variables.  The user simply gets no
     // exec-body diagnostics for that link until they fix the syntax.
@@ -331,9 +464,56 @@ function subParseAndMerge(
     const subSyms = new LocationSymbols(SUB_LOC_NAME);
     walkLocationBody(subLocBlock, subSyms, docUri, /*inDeferredExecution*/ true);
 
-    mergeIntoHost(subSyms, hostSyms, hostLoc);
+    mergeIntoHost(subSyms, hostSyms, translate);
   } finally {
     subTree.delete();
+  }
+}
+
+/**
+ * Translate every {@link SyntaxError} in the sub-tree back into host
+ * source coordinates and push it onto `hostSyms.embeddedExecErrors`.
+ *
+ * Sub-tree positions are in the wrapped body's coordinate space —
+ * `# __exec__\n` puts the body at row 1.  We only translate errors
+ * that land inside the body proper (row >= 1, row <= 1 + body lines).
+ * Errors outside that range (e.g. from the synthetic wrapper) are
+ * dropped: they cannot be caused by user code.
+ *
+ * The translator collapses multi-line bodies (and multi-line host
+ * strings) to the host string's full span; that's the same fallback
+ * used for symbol refs and keeps the diagnostic visible without
+ * complex per-line escape tracking.
+ */
+function collectEmbeddedErrors(
+  subTree: Parser.Tree,
+  translate: LocTranslator,
+  hostLoc: SymbolLocation,
+  hostSyms: LocationSymbols,
+): void {
+  const errs = extractErrors(subTree);
+  if (errs.length === 0) return;
+  // Body rows in the wrapped tree start at 1 (after `# __exec__\n`).
+  // Drop errors that land in the synthetic header/footer.
+  for (const e of errs) {
+    if (e.startRow < 1) continue;
+    const subLoc: SymbolLocation = {
+      uri: hostLoc.uri,
+      line: e.startRow,
+      column: e.startCol,
+      endLine: e.endRow,
+      endColumn: e.endCol,
+    };
+    const mapped = translate(subLoc);
+    hostSyms.embeddedExecErrors.push({
+      startRow: mapped.line,
+      startCol: mapped.column,
+      endRow: mapped.endLine,
+      endCol: mapped.endColumn,
+      message: e.message,
+      inCodeBlock: e.inCodeBlock,
+      inInterpolation: e.inInterpolation,
+    });
   }
 }
 
@@ -341,14 +521,15 @@ function subParseAndMerge(
 
 /**
  * Graft everything walkLocationBody produced for the exec body into
- * the host's LocationSymbols.  Every position is collapsed to the
- * host string's span; locals are placed in a fresh isolated scope so
- * they neither shadow nor inherit from the host's locals.
+ * the host's LocationSymbols.  Every position passes through
+ * `translate(subRef)` so diagnostics anchor on precise sub-statements
+ * inside the host string; locals are placed in a fresh isolated scope
+ * so they neither shadow nor inherit from the host's locals.
  */
 function mergeIntoHost(
   sub: LocationSymbols,
   host: LocationSymbols,
-  hostLoc: SymbolLocation,
+  translate: LocTranslator,
 ): void {
   const execScope = allocateExecScope(host);
 
@@ -364,7 +545,7 @@ function mergeIntoHost(
     let prefixIdx = 0;
     for (const subRef of sym.references) {
       const isDef = subRef.isDefinition === true;
-      const loc: SymbolLocation = { ...hostLoc };
+      const loc = translate(subRef);
       if (isDef) loc.isDefinition = true;
       // Rotate prefixes across refs so host.addVariable accumulates
       // every prefix the sub-symbol observed.  Lossy at the per-ref
@@ -388,11 +569,7 @@ function mergeIntoHost(
   // ── Location refs (gs/gt/func/desc/@/@@/jump-loc) ──
   for (const [, sym] of sub.locationRefs) {
     for (const subRef of sym.references) {
-      const loc: SymbolLocation = { ...hostLoc };
-      if (subRef.callType) loc.callType = subRef.callType;
-      if (subRef.callText) loc.callText = subRef.callText;
-      if (subRef.argCount !== undefined) loc.argCount = subRef.argCount;
-      host.addLocationRef(sym.name, loc);
+      host.addLocationRef(sym.name, translate(subRef));
     }
   }
 
@@ -405,20 +582,20 @@ function mergeIntoHost(
     const defLoc = sym.definition;
     for (const subRef of sym.references) {
       const isDef = defLoc !== undefined && subRef === defLoc;
-      host.addObjectRef(sym.name, { ...hostLoc }, isDef);
+      host.addObjectRef(sym.name, translate(subRef), isDef);
     }
   }
 
   // ── Action refs (delact) ──
   for (const [, sym] of sub.actionRefs) {
-    for (let i = 0; i < sym.references.length; i++) {
-      host.addActionRef(sym.name, { ...hostLoc });
+    for (const subRef of sym.references) {
+      host.addActionRef(sym.name, translate(subRef));
     }
   }
 
   // ── Action defs (act blocks declared inside an exec body) ──
   for (const action of sub.actions) {
-    host.addAction(action.name, { ...hostLoc });
+    host.addAction(action.name, translate(action.definition!));
   }
 
   // ── Labels & label-refs (confined to the exec body's own ns) ──
@@ -429,25 +606,35 @@ function mergeIntoHost(
   // body, which the collapsed bucket still detects when neither side
   // declares the label.
   for (const lbl of sub.allLabelSymbols()) {
-    for (let i = 0; i < lbl.references.length; i++) {
-      host.addLabel(lbl.name, { ...hostLoc }, execScope);
+    for (const subRef of lbl.references) {
+      host.addLabel(lbl.name, translate(subRef), execScope);
     }
   }
   for (const lblRef of sub.allLabelRefSymbols()) {
-    for (let i = 0; i < lblRef.references.length; i++) {
-      host.addLabelRef(lblRef.name, { ...hostLoc }, execScope);
+    for (const subRef of lblRef.references) {
+      host.addLabelRef(lblRef.name, translate(subRef), execScope);
     }
   }
 
-  // ── Lint warnings ──
-  for (const w of sub.prefixWarnings) {
-    host.prefixWarnings.push({ ...w, loc: { ...hostLoc } });
-  }
-  for (const w of sub.argCountWarnings) {
-    host.argCountWarnings.push({ ...w, loc: { ...hostLoc } });
-  }
-  for (const w of sub.deprecationWarnings) {
-    host.deprecationWarnings.push({ ...w, loc: { ...hostLoc } });
+  // ── Lint warnings & diagnostic locations ──
+  //
+  // Every entry that carries a single `loc: SymbolLocation` (prefix /
+  // arg-count / deprecation warnings) is translated through the same
+  // projection.  `unreachableLabels` is a plain SymbolLocation[] so it
+  // gets the bare translate() call.  Keeping these merges together
+  // makes it obvious which diagnostic-bearing fields are forwarded
+  // from the sub-walk; new ones added to LocationSymbols should be
+  // wired in here as well.
+  const mergeWithLoc = <T extends { loc: SymbolLocation }>(
+    src: readonly T[], dst: T[],
+  ): void => {
+    for (const w of src) dst.push({ ...w, loc: translate(w.loc) });
+  };
+  mergeWithLoc(sub.prefixWarnings,      host.prefixWarnings);
+  mergeWithLoc(sub.argCountWarnings,    host.argCountWarnings);
+  mergeWithLoc(sub.deprecationWarnings, host.deprecationWarnings);
+  for (const loc of sub.unreachableLabels) {
+    host.unreachableLabels.push(translate(loc));
   }
 
   // ── Dynamic / dyneval call sites (powers checkMissingResult* and
@@ -458,28 +645,29 @@ function mergeIntoHost(
   // (to decide a code_block's variable-scope isolation).  The sub-walk
   // already consumed its own entries before we got here, and the
   // sub-tree's nodes are about to be freed by `subTree.delete()`.
+  //
+  // Every `loc`/`callLoc`/`blockLocs` goes through `translate()` so
+  // diagnostics and hovers anchor on the precise sub-statement inside
+  // the host string rather than the full string span.  Multi-line
+  // bodies/hosts fall back to the host span via the translator itself.
   for (const d of sub.resolvedDynamicBlocks) {
     host.resolvedDynamicBlocks.push({
       kind: d.kind,
-      callLoc: { ...hostLoc },
-      // Use a single hostLoc for every block target; the diagnostic
-      // only uses these to test `isInsideRange` against args refs,
-      // and those refs were also rewritten to hostLoc above — so they
-      // still register as "inside" the block.
-      blockLocs: d.blockLocs.map(() => ({ ...hostLoc })),
+      callLoc: translate(d.callLoc),
+      blockLocs: d.blockLocs.map(translate),
       argCount: d.argCount,
     });
   }
   for (const d of sub.dynamicVarCalls) {
     host.dynamicVarCalls.push({
-      loc: { ...hostLoc },
+      loc: translate(d.loc),
       varName: d.varName,
       varBaseName: d.varBaseName,
       localNames: [...d.localNames],
     });
   }
   for (const d of sub.untrackedDynamicVarCalls) {
-    host.untrackedDynamicVarCalls.push({ ...d, loc: { ...hostLoc } });
+    host.untrackedDynamicVarCalls.push({ ...d, loc: translate(d.loc) });
   }
 
   // ── Deferred-frame dynamic var calls ──
@@ -494,7 +682,7 @@ function mergeIntoHost(
   // `sub.unresolvedDynamicVarCalls` stays empty in this mode and
   // requires no handling.
   for (const d of sub.deferredDynamicVarCalls) {
-    host.deferredDynamicVarCalls.push({ ...d, loc: { ...hostLoc } });
+    host.deferredDynamicVarCalls.push({ ...d, loc: translate(d.loc) });
   }
 
   // ── Variable bindings (writes that target globals) ──
@@ -505,16 +693,19 @@ function mergeIntoHost(
   // are dropped — exec body locals live in the player's call frame
   // for that click and don't survive outside it.
   //
-  // Positions are collapsed to hostLoc (lossy but find-references and
-  // diagnostics on globals only need a single anchor inside the host
-  // string).  `scopeNodeId` / `isolationAncestorId` are sub-tree node
-  // ids that no longer match any node in the host's tree; this is
-  // harmless because the consumers (`aggregation.findCodeBlockDefs`,
-  // hover) iterate bindings by base name, not by node id.
+  // Sub-tree positions are projected through `translate()` so
+  // single-line bodies get precise per-statement ranges (e.g. the
+  // type-mismatch diagnostic underlines just the offending `$x = 34`
+  // rather than the whole host string).  Multi-line bodies/hosts fall
+  // back to the host span via the translator's own fallback.
+  // `scopeNodeId` / `isolationAncestorId` are sub-tree node ids that
+  // no longer match any node in the host's tree; this is harmless
+  // because the consumers (`aggregation.findCodeBlockDefs`, hover)
+  // iterate bindings by base name, not by node id.
   for (const [key, bindings] of sub.variableBindings) {
     const globals = bindings.filter(b => !b.isLocal);
     if (globals.length === 0) continue;
-    const rewritten = globals.map(b => rewriteBindingToHostLoc(b, hostLoc));
+    const rewritten = globals.map(b => rewriteBindingLoc(b, translate));
     const existing = host.variableBindings.get(key);
     if (existing) existing.push(...rewritten);
     else host.variableBindings.set(key, rewritten);
@@ -522,26 +713,27 @@ function mergeIntoHost(
 }
 
 /**
- * Re-anchor a {@link VariableBinding} to `hostLoc`, recursively for
- * code-block bodyWrites.  Sub-tree positions are discarded — the
- * binding is reported as occurring at the host string's span.
+ * Re-anchor a {@link VariableBinding} from sub-tree coordinates to
+ * source coordinates via `translate`, recursively for code-block
+ * `bodyWrites`.  Multi-line bodies fall back to the host string's
+ * span (handled inside the translator itself).
  */
-function rewriteBindingToHostLoc(
+function rewriteBindingLoc(
   b: import('./symbolTypes').VariableBinding,
-  hostLoc: SymbolLocation,
+  translate: LocTranslator,
 ): import('./symbolTypes').VariableBinding {
   const rewritten: import('./symbolTypes').VariableBinding = {
     ...b,
-    stmtLoc: { ...hostLoc },
+    stmtLoc: translate(b.stmtLoc),
   };
   if (b.value.kind === 'code-block') {
     rewritten.value = {
       kind: 'code-block',
-      blockRange: { ...hostLoc },
+      blockRange: translate(b.value.blockRange),
       bodyWrites: b.value.bodyWrites
         ? b.value.bodyWrites.map(w => ({
             varBaseName: w.varBaseName,
-            binding: rewriteBindingToHostLoc(w.binding, hostLoc),
+            binding: rewriteBindingLoc(w.binding, translate),
           }))
         : undefined,
     };

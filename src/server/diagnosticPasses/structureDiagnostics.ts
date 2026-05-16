@@ -12,6 +12,7 @@ import { DiagnosticSeverity } from 'vscode-languageserver';
 import {
   extractErrors,
   findLocationAtLine,
+  type DocumentSymbols,
   type LocationEntry,
   type SyntaxError,
   type QspTreeSitterParser,
@@ -31,6 +32,7 @@ export function checkSyntaxErrors(
   locationIndex: LocationEntry[],
   tsParser: QspTreeSitterParser,
   preExtractedErrors?: SyntaxError[],
+  symbols?: DocumentSymbols,
 ): void {
   const maxPerLoc = ctx.settings.maxErrorsPerLocation;
 
@@ -40,6 +42,20 @@ export function checkSyntaxErrors(
     if (tree) syntaxErrors = extractErrors(tree);
   }
   if (!syntaxErrors) return;
+
+  // Merge in errors from embedded `<a href="exec:CODE">` link bodies.
+  // Positions on `embeddedExecErrors` are already in absolute source
+  // coordinates (translated by extractEmbeddedExec; line-shifted by
+  // LocationSymbols.copyWithLineShift on the per-location path).
+  if (symbols) {
+    let combined: SyntaxError[] | null = null;
+    for (const [, locSyms] of symbols.locations) {
+      if (locSyms.embeddedExecErrors.length === 0) continue;
+      if (!combined) combined = syntaxErrors.slice();
+      for (const e of locSyms.embeddedExecErrors) combined.push(e);
+    }
+    if (combined) syntaxErrors = combined;
+  }
 
   const endLines = new Set<number>();
   for (let i = 0; i < locationIndex.length; i++) endLines.add(locationIndex[i].endLine);

@@ -77,6 +77,7 @@ export interface DocumentState {
 /** Settings shape the feature handlers need. */
 export interface FeatureSettings {
   project: { enabled: boolean };
+  embeddedExec: { enabled: boolean };
   semanticHighlighting: { enabled: boolean };
   hover: { possibleValues: boolean };
 }
