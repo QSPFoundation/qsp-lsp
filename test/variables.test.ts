@@ -3519,8 +3519,9 @@ dynamic $a
 `);
     const { symbols } = extractSymbols(tree!, 'test://vb-self');
     const loc = symbols.getLocation('test')!;
-    // Only one code-block exists; the self-referential `set $a = $a` is
-    // a var-ref whose edge points back to $a — ignored (same name).
+    // `$a = $a` is recorded as `compoundOp: 'other'` (read-then-write
+    // of the same slot, no chain edge), so the resolver still sees
+    // only the original code-block binding of $a — no untracked call.
     expect(loc.untrackedDynamicVarCalls).toHaveLength(0);
     expect(loc.dynamicVarCalls).toHaveLength(1);
   });

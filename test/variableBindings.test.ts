@@ -2775,6 +2775,40 @@ $a = $a
     expect(entries[1].compoundOp).toBe('other');
   });
 
+  it('tags only the self-ref slot under positional zip (`a, b = a, 1` → a compound, b plain)', () => {
+    // Multi-LHS plain `=` zips LHS[i] with RHS element i.  Only the
+    // slot whose RHS subtree contains the LHS name is tagged `'other'`.
+    const src = `# test
+a, b = a, 1
+---
+`;
+    const { symbols } = parseAndExtract(parser, src, 'test://ss-zip');
+    const loc = symbols.locations.get('test')!;
+    const aEntries = loc.variableBindings.get('a')!;
+    const bEntries = loc.variableBindings.get('b')!;
+    expect(aEntries).toHaveLength(1);
+    expect(aEntries[0].compoundOp).toBe('other');
+    expect(bEntries).toHaveLength(1);
+    expect(bEntries[0].compoundOp).toBeUndefined();
+  });
+
+  it('tags last LHS as `other` when its absorbed tail contains the name (`a, b = 1, b + 2`)', () => {
+    // The last LHS absorbs every remaining RHS element; if any of
+    // them references the LHS name, it's a read-then-write.
+    const src = `# test
+a, b = 1, b + 2
+---
+`;
+    const { symbols } = parseAndExtract(parser, src, 'test://ss-tail');
+    const loc = symbols.locations.get('test')!;
+    const aEntries = loc.variableBindings.get('a')!;
+    const bEntries = loc.variableBindings.get('b')!;
+    expect(aEntries).toHaveLength(1);
+    expect(aEntries[0].compoundOp).toBeUndefined();
+    expect(bEntries).toHaveLength(1);
+    expect(bEntries[0].compoundOp).toBe('other');
+  });
+
   it('surfaces the global value through a self-shadowing local', () => {
     const src = `# a
 x = 7

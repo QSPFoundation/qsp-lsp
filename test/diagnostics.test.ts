@@ -237,13 +237,12 @@ x += 3
       expect(diags.some(d => d.message === "Variable 'x' is assigned but never read")).toBe(true);
     });
 
-    it('flags a global write when only a self-ref `=` follows (`x = x + 1` is compound, not a read)', () => {
-      // `x = x + 1` is treated as `compoundOp: 'other'` — the LHS is
-      // neither a proper read nor a proper write.  The RHS read of `x`
-      // IS a proper read though, so `x` is "read" — but only by a
-      // compound op that doesn't itself constitute a new definition
-      // either.  The original `x = 5` write has no PURE read following,
-      // so it stays flagged as unused.
+    it('does NOT flag a global write when followed by a self-ref `=` (RHS counts as a real read)', () => {
+      // `x = x + 1` is `compoundOp: 'other'` — its LHS is neither a
+      // pure read nor a pure definition.  But the RHS read of `x` IS
+      // a real read of the prior `x = 5` value, so `x` is NOT unused.
+      // Contrast with `x += 3` (line above): there `x` only appears as
+      // a compound LHS, so the prior `x = 5` IS flagged unused.
       const diags = run(
         `# a
 x = 5
@@ -253,8 +252,6 @@ x = x + 1
         { unusedVariables: true },
       );
       expect(diags.some(d => d.message === "Variable 'x' is assigned but never read")).toBe(false);
-      // (`x` has a proper read on the RHS, so it's NOT unused — the
-      // self-ref RHS counts as a real read of the prior value.)
     });
 
     it('still flags a global write when only killvar follows (no pure read)', () => {
