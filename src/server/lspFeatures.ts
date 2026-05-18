@@ -537,7 +537,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
                     ? resolvePossibleValuesAcrossProject(
                         (function *() { yield state!.symbols; yield* projectDocs; })(), targetKey)
                     : resolvePossibleValuesInDocument(state!.symbols, targetKey);
-                for (const ln of buildPossibleValuesLines(entries, uri, { expandVarRef, assignedVarName: key })) {
+                for (const ln of buildPossibleValuesLines(entries, uri, { expandVarRef })) {
                   lines.push(ln);
                 }
                 if (tempTree) tree.delete();

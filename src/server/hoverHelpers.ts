@@ -15,7 +15,7 @@ import type {
   CursorValueEntry,
   SymbolLocation,
 } from '../parser';
-import { COMPOUND_OPS, CALL_FRAME_BUILTINS } from '../parser';
+import { CALL_FRAME_BUILTINS } from '../parser';
 import { uriBasename as basename } from './helpers';
 import type {
   DocumentState,
@@ -34,27 +34,8 @@ export type { BuildPossibleValuesOptions };
 const MAX_HOVER_VALUES = 10;
 /** Max location/line citations to render per distinct value before collapsing. */
 const MAX_HOVER_LOCATIONS_PER_VALUE = 20;
-/**
- * Max characters of a single rendered value snippet before truncating —
- * applied to string literals, opaque RHS text, and array-index expressions.
- */
-const MAX_HOVER_STRING = 50;
 /** Cap on the number of globals to render in the hover. */
 const MAX_HOVER_GLOBALS = 25;
-
-/**
- * Per-call-frame implicit locals — `args` (incoming arguments) and
- * `result` (function/dyneval return value).  These behave as locals
- * to each invocation, not as globals, so they should not surface in
- * the "Uses globals:" hover section even though they are not declared
- * with `local`.  Imported from the parser layer for a single source
- * of truth.
- */
-
-/** Truncate `s` to `MAX_HOVER_STRING` chars, appending `…` when cut. */
-function truncate(s: string): string {
-  return s.length > MAX_HOVER_STRING ? s.slice(0, MAX_HOVER_STRING) + '…' : s;
-}
 
 /** Wrap `s` in a backtick code span, escaping interior backticks. */
 function codeSpan(s: string): string {
@@ -64,61 +45,13 @@ function codeSpan(s: string): string {
 /**
  * Render a single `VariableBinding` as a short inline markdown fragment.
  *
- * Every reachable shape is some subset of `{lhs}[idx] {op} {rhs}` with
- * an optional ` *(set by stmt)*` suffix.  We extract each piece, then
- * assemble — uniformly handling indexed/non-indexed, compound-op, and
- * side-effect writes.
- *
- * Reachable invariants (enforced by `bindingCollector`):
- *   - `kind` ∈ {string, number, var-ref, code-block} ⟹ `writeOp` and
- *     `indexText` are undefined (typed-RHS plain `=` only).
- *   - `indexText` set ⟹ `kind === 'other'` (indexed writes are opaque).
- *   - `writeOp` set ⟹ `kind === 'other'` (compound ops + side-effect
- *     writes always use the catch-all kind).
+ * Every binding carries a `stmtText` — the source statement that
+ * created it — and hover surfaces that verbatim.  Declaration-only
+ * bindings (`local x` with no initializer) may have an empty
+ * `stmtText`; render as `*(expr)*` so the row still has content.
  */
-function formatBindingValue(b: VariableBinding, varBaseName?: string): string {
-  const v = b.value;
-
-  // RHS text — kind-dependent, formatted once.
-  let rhs: string | undefined;
-  switch (v.kind) {
-    case 'string':     rhs = '\'' + truncate(v.value) + '\''; break;
-    case 'number':     rhs = String(v.value); break;
-    case 'var-ref':    rhs = (v.readPrefix ?? '') + v.varBaseName; break;
-    case 'code-block': rhs = '{ … }'; break;
-    case 'other':      rhs = v.text ? truncate(v.text) : undefined; break;
-  }
-
-  // Side-effect writes (`setvar`, `scanstr`, …) always render as
-  // plain `=` and carry a `*(set by stmt)*` suffix.  Compound-op
-  // writes preserve the operator text (`+=`, `-=`, …).  Plain `=`
-  // is the default when no `writeOp` is set.
-  const isSideEffect = !!b.writeOp && !COMPOUND_OPS.has(b.writeOp);
-  const op = b.writeOp && COMPOUND_OPS.has(b.writeOp) ? b.writeOp : '=';
-  const setBy = isSideEffect ? ` *(set by ${b.writeOp})*` : '';
-
-  // No assigned-name context: render the value (or side-effect tag) alone.
-  if (!varBaseName) {
-    if (isSideEffect) return rhs !== undefined ? codeSpan(rhs) + setBy : setBy.trimStart();
-    if (v.kind === 'var-ref') return '→ ' + codeSpan(rhs!);
-    return rhs !== undefined ? codeSpan(rhs) : '*(expr)*';
-  }
-
-  // Build LHS (with optional index).
-  let lhs = (b.writePrefix ?? '') + varBaseName;
-  if (b.indexText !== undefined) lhs += '[' + truncate(b.indexText) + ']';
-
-  if (isSideEffect) {
-    return rhs !== undefined
-      ? codeSpan(lhs + ' = ' + rhs) + setBy
-      : codeSpan(lhs) + setBy;
-  }
-
-  if (rhs !== undefined) return codeSpan(lhs + ' ' + op + ' ' + rhs);
-  // Indexed write with no captured RHS — keep the slot LHS visible
-  // and elide the value, rather than collapsing to `*(expr)*`.
-  if (b.indexText !== undefined) return codeSpan(lhs + ' ' + op + ' …');
-  return '*(expr)*';
+function formatBindingValue(b: VariableBinding): string {
+  return b.stmtText ? codeSpan(b.stmtText) : '*(expr)*';
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -181,14 +114,14 @@ export function buildPossibleValuesLines(
         if (children.length === 0) {
           const fileInfo = e.uri !== hoverUri ? ` [${basename(e.uri)}]` : '';
           flat.push({
-            valueStr: formatBindingValue(e.binding, options.assignedVarName) + ' *(unresolved)*',
+            valueStr: formatBindingValue(e.binding) + ' *(unresolved)*',
             locationStr: `\`${e.locationName}\` line ${e.binding.stmtLoc.line + 1}${fileInfo}`,
           });
         } else {
           for (const c of children) {
             const childFileInfo = c.uri !== hoverUri ? ` [${basename(c.uri)}]` : '';
             flat.push({
-              valueStr: formatBindingValue(c.binding, key),
+              valueStr: formatBindingValue(c.binding),
               locationStr: `\`${c.locationName}\` line ${c.binding.stmtLoc.line + 1}${childFileInfo}`,
             });
           }
@@ -198,7 +131,7 @@ export function buildPossibleValuesLines(
 
       const fileInfo = e.uri !== hoverUri ? ` [${basename(e.uri)}]` : '';
       flat.push({
-        valueStr: formatBindingValue(e.binding, options.assignedVarName) + originTag,
+        valueStr: formatBindingValue(e.binding) + originTag,
         locationStr: `\`${e.locationName}\` line ${e.binding.stmtLoc.line + 1}${fileInfo}`,
       });
     }

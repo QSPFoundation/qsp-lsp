@@ -115,12 +115,6 @@ export interface BuildPossibleValuesOptions {
    * into one line per chain-target write.
    */
   expandVarRef?: (targetVarName: string) => readonly PossibleValueEntry[];
-  /**
-   * Base name of the variable being hovered (no type prefix).  When
-   * provided, compound-assignment entries (`+=`, `-=`, …) are rendered
-   * as a full expression.
-   */
-  assignedVarName?: string;
 }
 
 // ──────────────────────────────────────────────────────────────────────

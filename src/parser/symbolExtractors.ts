@@ -10,7 +10,7 @@
 import type Parser from 'web-tree-sitter';
 import type { SymbolLocation, TypePrefix } from './symbolTypes';
 import type { LocationSymbols } from './locationSymbols';
-import { isVariableDefinition, isCompoundAssignmentLhs, isLocalVariable, variableDefinitionHasValue } from './variableUtils';
+import { classifyAssignmentLhs, isLocalVariable, variableDefinitionHasValue } from './variableUtils';
 import {
   LOCATION_REF_NAMES,
   LOCALS_PROPAGATING_NAMES,
@@ -58,11 +58,21 @@ export function extractVariable(
 
   const loc: SymbolLocation = nodeLoc(nameNode, docUri);
 
-  const isDefinition = isVariableDefinition(node);
+  const lhsKind = classifyAssignmentLhs(node);
   const isLocal = isLocalVariable(node);
-  const hasValue = isDefinition && variableDefinitionHasValue(node);
+  const hasValue = lhsKind === 'definition' && variableDefinitionHasValue(node);
 
-  if (!isDefinition && !isCompoundAssignmentLhs(node)) loc.isProperUsage = true;
+  // Compound assignment LHS (`x += 1`, or self-referential `hp = hp + 5`)
+  // is neither a proper read nor a proper write: it mutates an existing
+  // value without exposing the old value as a read elsewhere and without
+  // introducing a new definition.  So `a = 4 & a += 5` leaves `a` flagged
+  // as "assigned but never read" and bare `x += 1` leaves `x` flagged as
+  // "used but never assigned" (the bare-reference loop in
+  // `checkUninitializedVariables` walks every non-definition ref, and the
+  // compound binding fails the `compoundOp === undefined` guard in the
+  // value-binding check).  The compound binding is still recorded by
+  // `bindingCollector` so hover / possible-values display it.
+  if (lhsKind === null) loc.isProperUsage = true;
 
   // For non-local, non-pure-definition refs to the built-in `args`,
   // capture which slot is being read so `extraArgsToTargetWithoutArgs`
@@ -70,13 +80,13 @@ export function extractVariable(
   // writes (`args[0] = 99`) overwrite the slot rather than consuming
   // the caller's value, so they're excluded.  Compound LHS refs
   // (`args[0] += 1`) do read first and are included.
-  if (!isLocal && !isDefinition && name.toLowerCase() === ARGS_VAR_NAME) {
+  if (!isLocal && lhsKind !== 'definition' && name.toLowerCase() === ARGS_VAR_NAME) {
     loc.argsConsumer = true;
     const idx = readArgsLiteralIndex(node);
     if (idx !== undefined) loc.argsIndex = idx;
   }
 
-  locSymbols.addVariable(name, loc, isLocal, isDefinition, prefix, scopeId, hasValue);
+  locSymbols.addVariable(name, loc, isLocal, lhsKind === 'definition', prefix, scopeId, hasValue);
 }
 
 /**

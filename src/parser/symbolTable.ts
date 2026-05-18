@@ -19,7 +19,6 @@ export {
   QspSymbolKind,
   type TypePrefix,
   type CompoundOp,
-  COMPOUND_OPS,
   type BindingValue,
   type VariableBinding,
   type PrefixWarning,

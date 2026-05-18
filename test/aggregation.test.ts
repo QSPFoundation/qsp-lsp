@@ -337,7 +337,7 @@ x = 2
     expect(ext![0].sourceLoc).toBe('b');
     expect(ext![0].varNameLower).toBe('x');
     expect(ext![0].binding.isLocal).toBe(false);
-    expect(ext![0].binding.value).toEqual({ kind: 'number', value: 2 });
+    expect(ext![0].binding.value).toEqual({ kind: 'expr' });
   });
 
   it('records callee non-local string write via func', () => {
@@ -355,7 +355,7 @@ result = $s
     const ext = agg.externalLocalBindings.get(sym!);
     expect(ext).toBeDefined();
     expect(ext!.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'string' && e.binding.value.value === 'bye')).toBe(true);
+      e.binding.stmtText.includes('bye'))).toBe(true);
   });
 
   it('does NOT record callee LOCAL write as external binding', () => {
@@ -392,7 +392,7 @@ x = 42
     const ext = agg.externalLocalBindings.get(sym!);
     expect(ext).toBeDefined();
     expect(ext!.some(e => e.sourceLoc === 'c' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 42)).toBe(true);
+      /\b42\b/.test(e.binding.stmtText))).toBe(true);
   });
 
   it('records multiple distinct bindings from the same callee', () => {
@@ -412,8 +412,8 @@ end
     expect(sym).toBeDefined();
     const ext = agg.externalLocalBindings.get(sym!);
     expect(ext).toBeDefined();
-    const values = ext!.map(e => e.binding.value).filter(v => v.kind === 'number').map(v => (v as { value: number }).value).sort();
-    expect(values).toEqual([1, 2]);
+    const values = ext!.map(e => e.binding.stmtText).sort();
+    expect(values).toEqual(['x = 1', 'x = 2']);
   });
 
   it('deduplicates identical bindings reached via multiple paths', () => {
@@ -453,7 +453,7 @@ $fn = 'updated'
     const ext = agg.externalLocalBindings.get(sym!);
     expect(ext).toBeDefined();
     expect(ext!.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'string' && e.binding.value.value === 'updated')).toBe(true);
+      e.binding.stmtText.includes('updated'))).toBe(true);
   });
 
   it('has no entry when caller local is unused downstream', () => {
@@ -707,7 +707,7 @@ x = 42
     const sym = localSymOf(symbols, 'a', 'x');
     const ext = agg.externalLocalBindings.get(sym!) ?? [];
     expect(ext.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 42)).toBe(true);
+      /\b42\b/.test(e.binding.stmtText))).toBe(true);
   });
 
   it.each([
@@ -776,7 +776,7 @@ dynamic { x = 42 }
     const sym = localSymOf(symbols, 'a', 'x');
     const ext = agg.externalLocalBindings.get(sym!) ?? [];
     expect(ext.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 42)).toBe(true);
+      /\b42\b/.test(e.binding.stmtText))).toBe(true);
   });
 
   it('dyneval("code") in callee writes to caller-propagated local', () => {
@@ -791,7 +791,7 @@ y = dyneval({ x = 99 })
     const sym = localSymOf(symbols, 'a', 'x');
     const ext = agg.externalLocalBindings.get(sym!) ?? [];
     expect(ext.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 99)).toBe(true);
+      /\b99\b/.test(e.binding.stmtText))).toBe(true);
   });
 
   it('var-mediated dynamic $code in callee writes to caller local', () => {
@@ -808,7 +808,7 @@ dynamic $code
     const sym = localSymOf(symbols, 'a', 'x');
     const ext = agg.externalLocalBindings.get(sym!) ?? [];
     expect(ext.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 77)).toBe(true);
+      /\b77\b/.test(e.binding.stmtText))).toBe(true);
   });
 
   it('dynamic inside nested if/loop still flows back', () => {
@@ -825,7 +825,7 @@ end
     const sym = localSymOf(symbols, 'a', 'x');
     const ext = agg.externalLocalBindings.get(sym!) ?? [];
     expect(ext.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 11)).toBe(true);
+      /\b11\b/.test(e.binding.stmtText))).toBe(true);
   });
 
   it('side-effect write inside dynamic block flows back', () => {
@@ -857,7 +857,7 @@ dynamic { x = 5 }
     const sym = localSymOf(symbols, 'a', 'x');
     const ext = agg.externalLocalBindings.get(sym!) ?? [];
     expect(ext.some(e => e.sourceLoc === 'c' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 5)).toBe(true);
+      /\b5\b/.test(e.binding.stmtText))).toBe(true);
   });
 });
 
@@ -903,8 +903,9 @@ describe('collectAggregates: globallyRead', () => {
   });
 
   it('compound-assignment LHS does NOT add variable to globallyRead', () => {
-    // `x += 1` is a read-then-write at runtime, but isProperUsage is false
-    // on the LHS ref — it should not count as "read" in the fallback path.
+    // `x += 1` is a read-then-write at runtime, but compound LHS is
+    // neither a proper read nor a proper write — isProperUsage is
+    // false, so it must not appear in globallyRead.
     const agg = buildAgg(`# main\nx = 1\nx += 2\n---\n`);
     expect(agg.globallyRead.has('x')).toBe(false);
   });

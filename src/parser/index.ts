@@ -25,7 +25,6 @@ export type {
   TypePrefix,
   VarResolverCallGraph,
 } from './variableBindings';
-export { COMPOUND_OPS } from './symbolTable';
 export { ARGS_VAR_NAME, RESULT_VAR_NAME, CALL_FRAME_BUILTINS } from './lookupTables';
 export type {
   BindingValue,

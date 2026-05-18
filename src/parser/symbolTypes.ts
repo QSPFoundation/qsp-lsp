@@ -52,17 +52,21 @@ export interface SymbolLocation {
    */
   callText?: string;
   /**
-   * Whether this reference is a genuine read of the variable — not a definition
-   * (plain `=` or `local`) and not the LHS of a compound assignment
-   * (`+=` / `-=` / `*=` / `/=`).  Compound LHS refs read-then-write at runtime
-   * and count as references for go-to-definition / find-references, but NOT as
-   * "pure reads" for `unusedVariables`.
+   * Whether this reference is a genuine read of the variable — not a
+   * definition (plain `=` or `local`) and not the LHS of a compound
+   * assignment (`+=` / `-=` / `*=` / `/=`).  Compound LHS refs are
+   * neither proper reads nor proper writes: they count as references
+   * for go-to-definition / find-references, but NOT as reads for
+   * `unusedVariables` and NOT as definitions that would suppress
+   * `uninitializedVariables`.
    */
   isProperUsage?: boolean;
   /**
-   * For `args` references: true iff this ref consumes a caller slot
-   * (read, or compound-LHS read-then-write).  Undefined for pure
-   * overwrites (`args[0] = …`) and refs to other variables.
+   * For `args` references: true iff this ref consumes a caller slot —
+   * either a plain read or a compound-LHS read-then-write (the
+   * compound op reads `args[i]` at runtime even though static
+   * analysis treats it as neither read nor write).  Undefined for
+   * pure overwrites (`args[0] = …`) and refs to other variables.
    *
    * Consumed by `extraArgsToTargetWithoutArgs`.
    */
@@ -86,10 +90,13 @@ export interface QspSymbol {
   definition?: SymbolLocation;
   /**
    * True iff this symbol has at least one value-bearing definition —
-   * an assignment with an RHS (`x = 10`, `local x = 10`, `x += 1`),
-   * or a side-effect write that produces a value (`setvar 'x', 1`,
+   * an assignment with an RHS (`x = 10`, `local x = 10`), or a
+   * side-effect write that produces a value (`setvar 'x', 1`,
    * `copyarr 'x', src`, …).  A bare `local x` declaration is a
-   * definition (it pins the local in scope) but is NOT value-bearing.
+   * definition (it pins the local in scope) but is NOT value-bearing,
+   * and a compound assignment (`x += 1`) is neither a definition nor
+   * a proper write (so it does not set this flag) — though its
+   * binding is still recorded for hover/possible-values.
    *
    * The `uninitializedVariables` diagnostic uses this flag so that
    * reads of `local x` (with no companion assignment) still warn even
@@ -131,29 +138,38 @@ export enum QspSymbolKind {
  */
 export type TypePrefix = '#' | '$' | '%';
 
-/** Compound assignment operators. */
-export type CompoundOp = '+=' | '-=' | '*=' | '/=';
-
-/** Set of all compound assignment operators for fast membership checks. */
-export const COMPOUND_OPS: ReadonlySet<string> = new Set<CompoundOp>(['+=' , '-=', '*=', '/=']);
+/**
+ * Compound assignment operators.
+ *
+ *   `'+='` / `'-='` / `'*='` / `'/='` — explicit compound forms.
+ *   `'other'` — a plain `=` assignment whose RHS references the same
+ *     base name as the LHS (`hp = hp + 5`, `$s = ucase($s)`, …).
+ *     Semantically equivalent to a compound form: the LHS is a
+ *     read-then-write of the same slot, so static analysis treats it
+ *     as neither a proper read nor a proper write and the binding is
+ *     not a definition.
+ *
+ * Only the single-LHS case is detected as `'other'`; multi-LHS forms
+ * (`a, b = b, a`) keep their per-pair classification because the
+ * tree-sitter AST flattens RHS comma-lists at statement level.
+ */
+export type CompoundOp = '+=' | '-=' | '*=' | '/=' | 'other';
 
 /**
- * A statically-known value assigned to a variable at a single site.
- * - `code-block`: the RHS was a `{…}` block.  `blockRange` is the full
- *   range of the block (useful for hover / jump-to-definition).
- * - `string` / `number`: the RHS was a literal (no interpolation).
- * - `var-ref`: the RHS was a bare variable reference (e.g.
- *   `local $g = $fn`).  At runtime the value depends on whichever
- *   `<varBaseName>` binding is in scope at the assignment site — it
- *   may come from a `local` declaration in an enclosing scope, or the
- *   location-level global binding.  `readPrefix` records the type
- *   prefix the RHS used (informational only; chain following is
- *   prefix-agnostic).  Consumers that want a concrete value must
- *   resolve the chain via `LocationSymbols.variableBindings` (cycles
- *   are possible and must be detected by the caller).
- * - `other`: the RHS is some other expression (binary op, call,
- *   interpolated string, …).  Recorded so we know the variable is
- *   "written" here even if its value isn't statically known.
+ * A statically-known reference structure for a variable write.
+ *
+ * Only three shapes matter for analysis — the user-visible rendering
+ * of the assignment uses `VariableBinding.stmtText` (the literal
+ * source line), so we don't try to reconstruct the value here.
+ *
+ * - `code-block`: the RHS was a `{…}` block.  `blockRange` and
+ *   `bodyWrites` drive `dynamic` / `dyneval` dispatch resolution.
+ * - `var-ref`: the RHS was a bare unindexed variable reference
+ *   (or a bare zero-arg function call).  Enables chain following
+ *   so dynamic dispatch can transit through scalar variables.
+ * - `expr`: anything else (literals, indexed reads, arithmetic,
+ *   calls with args, tuples, compound writes, opaque unpacks).
+ *   No chain edge is established; consumers fall back to `stmtText`.
  */
 export type BindingValue =
   | {
@@ -171,29 +187,12 @@ export type BindingValue =
        */
       bodyWrites?: Array<{ varBaseName: string; binding: VariableBinding }>;
     }
-  | { kind: 'string'; value: string }
-  | { kind: 'number'; value: number }
   | {
       kind: 'var-ref';
       /** Lowercased base name of the RHS variable (no prefix). */
       varBaseName: string;
-      /** Type prefix that appeared on the RHS reference, if any. */
-      readPrefix?: TypePrefix;
     }
-  | {
-      kind: 'other';
-      /**
-       * Source-text snippet of the RHS expression (whitespace
-       * collapsed, length-capped).  Populated for opaque RHS forms
-       * — tuple literals (`[1, 2, 3]`, `(a, b)`), arithmetic, function
-       * calls, interpolated strings, compound operators, etc. — so
-       * hover/completion surfaces can render the written expression
-       * instead of an opaque "(expr)" placeholder.  Absent for
-       * side-effect writes (e.g. `killvar 'x'`) where there is no
-       * RHS to capture.
-       */
-      text?: string;
-    };
+  | { kind: 'expr' };
 
 /**
  * A single `<var> = <rhs>` or `local <var> = <rhs>` binding site.
@@ -207,6 +206,15 @@ export interface VariableBinding {
   value: BindingValue;
   /** Range of the whole assignment statement. */
   stmtLoc: SymbolLocation;
+  /**
+   * Literal source text of the binding statement (whitespace
+   * collapsed, length-capped).  This is what hover surfaces render
+   * — no LHS=RHS reconstruction, just the line the user wrote.
+   * Empty for non-source bindings (e.g. declaration-only `local x`
+   * passes still capture the `local x` slice, but synthetic
+   * bindings without a source statement leave it empty).
+   */
+  stmtText: string;
   /** True when declared via `local …` — scope-limited binding. */
   isLocal: boolean;
   /**
@@ -221,8 +229,10 @@ export interface VariableBinding {
    *   value-bearing (true): assignment / `local x = …` /
    *     `setvar` / `scanstr` / `unpackarr` / `copyarr`-dest / a
    *     `code-block` definition.  Compound operators (`+=`, `-=`, …)
-   *     are also value-bearing (they write a new value) but are
-   *     additionally flagged by `writeKind`.
+   *     are also value-bearing at runtime (they store a new value)
+   *     and are additionally flagged by `compoundOp`; static
+   *     analysis treats them as neither a proper read nor a proper
+   *     write (see `isProperUsage`).
    *   non-value-bearing (false): bare `local x` declarations (pin
    *     a fresh empty slot in scope), and the read/permute/reset
    *     side-effects `sortarr` / `killvar` / `menu`.
@@ -264,26 +274,12 @@ export interface VariableBinding {
    */
   rhsTypePrefix?: TypePrefix;
   /**
-   * How this binding was written, when it was not a plain `=` assignment.
-   * Compound operators use the operator string (`+=`, `-=`, `*=`, `/=`);
-   * side-effect statements use the statement name (`'setvar'`, `'scanstr'`,
-   * `'unpackarr'`, `'copyarr'`, …).  Any other description string is valid.
-   * Distinguish compound ops from stmt names with `COMPOUND_OPS.has(writeOp)`
-   * (only the four compound operators are members of that set).
+   * Compound assignment operator used at this write site (`+=`, `-=`,
+   * `*=`, `/=`).  Absent for plain `=` assignments, `local` writes,
+   * and side-effect writes (`setvar`, `scanstr`, …).  Consumed by the
+   * `typeMismatch` diagnostic to apply the per-operator type rules.
    */
-  writeOp?: string;
-  /**
-   * Index expression text for indexed array writes (e.g. `arr[test] = 6`
-   * → `'test'`, `arr[] = 6` → `''`, `arr[1, 2] = 5` → `'1, 2'`).
-   * Whitespace-collapsed and capped at 50 chars.  Absent for
-   * non-indexed writes.
-   *
-   * Captured so hover / possible-values surfaces can render the slot
-   * being written (`arr[test] = 6`) instead of just the bare RHS (`6`),
-   * which is misleading for arrays.  Type-mismatch / mixed-prefix and
-   * value-tracking diagnostics still treat indexed writes as opaque.
-   */
-  indexText?: string;
+  compoundOp?: CompoundOp;
 }
 
 /**

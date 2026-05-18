@@ -10,7 +10,7 @@
 
 
 import type Parser from 'web-tree-sitter';
-import type { VariableBinding, SymbolLocation, TypePrefix, CompoundOp } from './symbolTypes';
+import type { VariableBinding, SymbolLocation, TypePrefix, CompoundOp, BindingValue } from './symbolTypes';
 import type { LocationSymbols } from './locationSymbols';
 import { type QspSymbol } from './symbolTypes';
 import { isBindingVisibleFrom, findScopeAncestor, findIsolationAncestor } from './scopeUtils';
@@ -25,7 +25,6 @@ import {
   readVarRef,
   nodeLoc,
   getFirstArgNode,
-  getNthArgNode,
   findDirectString,
   hasInterpolation,
   collapseNewlines,
@@ -33,6 +32,7 @@ import {
 } from './walkHelpers';
 import { lookupArgConstraints, lookupFunctionReturnType } from './builtins';
 import { parseVarStringArg } from './variableBindings';
+import { isTupleTypedRhs, tupleLiteralOf, subtreeReferencesVariable } from './variableUtils';
 
 /**
  * Internal binding info with parse-tree metadata for the retag pass
@@ -56,30 +56,13 @@ type BindingInfo = VariableBinding & {
 };
 
 const MAX_BINDING_SNIPPET = 80;
-function rhsSnippet(node: Parser.SyntaxNode): string | undefined {
+function rhsSnippet(node: Parser.SyntaxNode): string {
   const raw = node.text;
-  if (!raw) return undefined;
+  if (!raw) return '';
   const collapsed = collapseNewlines(raw);
-  if (!collapsed) return undefined;
+  if (!collapsed) return '';
   if (collapsed.length <= MAX_BINDING_SNIPPET) return collapsed;
   return collapsed.slice(0, MAX_BINDING_SNIPPET - 1) + '…';
-}
-
-/**
- * Extract the inner index expression(s) from an `array_index` node
- * (e.g. `[test]` → `'test'`, `[1, 2]` → `'1, 2'`, `[]` → `''`).
- * Line breaks are collapsed to single spaces (spaces/tabs preserved
- * verbatim) and the result is capped at `MAX_INDEX_SNIPPET` (50)
- * chars.  Always returns a string (possibly empty) for present-but-
- * empty `[]`.
- */
-const MAX_INDEX_SNIPPET = 50;
-function indexSnippet(indexNode: Parser.SyntaxNode): string {
-  const raw = indexNode.text;
-  // Strip surrounding brackets and collapse line breaks.
-  const inner = collapseNewlines(raw.replace(/^\[|\]$/g, ''));
-  if (inner.length <= MAX_INDEX_SNIPPET) return inner;
-  return inner.slice(0, MAX_INDEX_SNIPPET - 1) + '…';
 }
 
 // ── Main entry point ─────────────────────────────────────────────────
@@ -134,12 +117,19 @@ export function collectVariableBindings(
   const cursor = locBlock.walk();
 
   // ── record(): convert an assignment pair into a BindingInfo ────
+  //
+  // Always records `stmtText` (the source line) so hover renders the
+  // user's actual code.  The `value` field only carries chain-following
+  // metadata (`var-ref` edges, `code-block` dispatch targets); literal
+  // numbers / strings / tuples / opaque exprs all collapse to
+  // `{kind:'expr'}` since their rendering comes from `stmtText`.
   const record = (
     stmtNode: Parser.SyntaxNode,
     lhs: Parser.SyntaxNode,
     rhs: Parser.SyntaxNode,
     isLocal: boolean,
     compoundOp: CompoundOp | undefined,
+    stmtTextOverride?: string,
   ) => {
     const isCompound = compoundOp !== undefined;
     if (lhs.type !== 'variable_ref' && lhs.type !== 'ml_variable_ref') return;
@@ -154,37 +144,16 @@ export function collectVariableBindings(
     const scopeNodeId = scopeAnc ? scopeAnc.id : 0;
     const isolationAncestorId = isolAnc ? isolAnc.id : 0;
 
-    const stmtLoc: SymbolLocation = nodeLoc(stmtNode, docUri);
-
-    const push = (value: VariableBinding['value'], blockNode?: Parser.SyntaxNode, rhsTypePrefix?: TypePrefix) => {
-      const info: BindingInfo = {
-        value, stmtLoc, isLocal, scopeNodeId, isolationAncestorId,
-        writePrefix, isValueBearing: true,
-        writeOp: compoundOp, stmtNode, blockNode, rhsTypePrefix,
-        initialScopeNodeId: scopeNodeId,
-      };
-      pushBinding(baseName, info);
-    };
-
     const inferRhsTypePrefix = (node: Parser.SyntaxNode): TypePrefix | undefined => {
       if (node.type === 'number_literal') {
         return Number.isFinite(Number(node.text)) ? '#' : undefined;
       }
-      // Variable-ref RHS (indexed or plain): the prefix written at the
-      // call site determines the type lens through which the read
-      // happens, so it's the value's effective type at this assignment.
       if (node.type === 'variable_ref' || node.type === 'ml_variable_ref') {
         const ref = readVarRef(node);
         return ref ? ((ref.prefix || '#') as TypePrefix) : undefined;
       }
-      let strNode: Parser.SyntaxNode | null = null;
-      if (node.type === 'single_quoted_string' || node.type === 'double_quoted_string') {
-        strNode = node;
-      } else if (node.type === 'string') {
-        const child = node.namedChild(0);
-        if (child && (child.type === 'single_quoted_string' || child.type === 'double_quoted_string')) strNode = child;
-      }
-      if (strNode) return '$';
+      if (node.type === 'single_quoted_string' || node.type === 'double_quoted_string'
+          || node.type === 'string') return '$';
       // Code blocks are string-typed: `dynamic`/`dyneval` consume them
       // as strings, and `$x = {…}` is the canonical storage form.
       if (node.type === 'code_block') return '$';
@@ -199,130 +168,67 @@ export function collectVariableBindings(
       return undefined;
     };
 
-    if (isIndexedWrite) {
-      const indexNode = lhs.childForFieldName('index');
-      // Indexed writes record `rhsTypePrefix` so the type-mismatch
-      // diagnostic catches `$arr[i] = #x`-style errors; the binding
-      // value itself stays opaque (we don't propagate slot values).
-      const info: BindingInfo = {
-        value: { kind: 'other', text: rhsSnippet(rhs) },
-        stmtLoc, isLocal, scopeNodeId, isolationAncestorId,
-        writePrefix, isValueBearing: true, stmtNode,
-        initialScopeNodeId: scopeNodeId,
-        indexText: indexNode ? indexSnippet(indexNode) : undefined,
-        rhsTypePrefix: inferRhsTypePrefix(rhs),
-        writeOp: compoundOp,
-      };
-      pushBinding(baseName, info);
-      return;
-    }
-
-    if (isCompound) {
-      push({ kind: 'other', text: rhsSnippet(rhs) }, undefined, inferRhsTypePrefix(rhs));
-      return;
-    }
-
-    if (rhs.type === 'code_block') {
-      // Code blocks are stringly-typed at the type-checker level
-      // (`dynamic`/`dyneval` consume them as strings, and `$x = {…}`
-      // is the canonical pattern for storing deferred code).  Tag
-      // them with `$` so `i = {x+1}` / `%t = {…}` get flagged.
-      push({ kind: 'code-block', blockRange: nodeLoc(rhs, docUri) }, rhs, '$');
-      return;
-    }
-
-    if (rhs.type === 'number_literal') {
-      const n = Number(rhs.text);
-      push(
-        Number.isFinite(n) ? { kind: 'number', value: n } : { kind: 'other', text: rhsSnippet(rhs) },
-        undefined, Number.isFinite(n) ? '#' : undefined,
-      );
-      return;
-    }
-
-    if ((rhs.type === 'variable_ref' || rhs.type === 'ml_variable_ref') && !rhs.childForFieldName('index')) {
-      const rhsRef = readVarRef(rhs);
-      if (rhsRef) {
-        const rp = ((rhsRef.prefix || '#') as TypePrefix);
-        push(
-          { kind: 'var-ref', varBaseName: rhsRef.name.toLowerCase(), readPrefix: rp },
-          undefined, rp,
-        );
-      } else {
-        push({ kind: 'other', text: rhsSnippet(rhs) });
-      }
-      return;
-    }
-
-    if (rhs.type === 'na_func_call' || rhs.type === 'ext_func_call' || rhs.type === 'ml_func_call') {
-      // Detect the "bare function call without parens and without args"
-      // pattern (`x = func` rather than `x = func(...)`) in a single
-      // pass: scan all children once, looking for paren_args (which
-      // disqualifies) and capturing function_name / type_prefix; reject
-      // if any other named child is present.
-      let hasParen = false;
-      let allMeta = true;
-      let fnNode: Parser.SyntaxNode | undefined;
-      let fnPrefixNode: Parser.SyntaxNode | undefined;
-      const cc = rhs.childCount;
-      for (let i = 0; i < cc; i++) {
-        const c = rhs.child(i);
-        if (!c) continue;
-        if (c.type === 'paren_args') { hasParen = true; break; }
-        if (!c.isNamed) continue;
-        if (c.type === 'function_name') { fnNode = c; continue; }
-        if (c.type === 'type_prefix') { fnPrefixNode = c; continue; }
-        allMeta = false;
-      }
-      if (!hasParen && allMeta) {
-        const fnPrefix = ((fnPrefixNode?.text || '#') as TypePrefix);
-        if (fnNode && !fnNode.isMissing) {
+    // Determine the chain-following value.  Indexed writes and compound
+    // ops never establish chain edges; the slot/operator semantics are
+    // opaque for propagation purposes.
+    let value: BindingValue = { kind: 'expr' };
+    let blockNode: Parser.SyntaxNode | undefined;
+    if (!isIndexedWrite && !isCompound) {
+      if (rhs.type === 'code_block') {
+        value = { kind: 'code-block', blockRange: nodeLoc(rhs, docUri) };
+        blockNode = rhs;
+      } else if ((rhs.type === 'variable_ref' || rhs.type === 'ml_variable_ref')
+                 && !rhs.childForFieldName('index')) {
+        const rhsRef = readVarRef(rhs);
+        if (rhsRef) value = { kind: 'var-ref', varBaseName: rhsRef.name.toLowerCase() };
+      } else if (rhs.type === 'na_func_call' || rhs.type === 'ext_func_call' || rhs.type === 'ml_func_call') {
+        // Bare function call (no parens, no args): treat as var-ref to
+        // the function name so dispatch resolution chains through it.
+        // Detect via single-pass scan looking for `paren_args` (which
+        // disqualifies) and any non-meta children.
+        let hasParen = false;
+        let allMeta = true;
+        let fnNode: Parser.SyntaxNode | undefined;
+        const cc = rhs.childCount;
+        for (let i = 0; i < cc; i++) {
+          const c = rhs.child(i);
+          if (!c) continue;
+          if (c.type === 'paren_args') { hasParen = true; break; }
+          if (!c.isNamed) continue;
+          if (c.type === 'function_name') { fnNode = c; continue; }
+          if (c.type === 'type_prefix') continue;
+          allMeta = false;
+        }
+        if (!hasParen && allMeta && fnNode && !fnNode.isMissing) {
           const fnText = fnNode.text.trim();
           if (fnText) {
             const fnLower = fnText.toLowerCase();
             const fixedReturn = lookupFunctionReturnType(fnLower);
             const argInfo = fixedReturn !== undefined ? lookupArgConstraints(fnLower) : undefined;
-            const isZeroArgOnly = argInfo !== undefined && argInfo.maxArgs === 0;
-            if (isZeroArgOnly) {
-              push({ kind: 'other', text: fnLower }, undefined, fixedReturn);
-            } else {
-              push(
-                { kind: 'var-ref', varBaseName: fnLower, readPrefix: fnPrefix },
-                undefined, fixedReturn !== undefined ? fixedReturn : fnPrefix,
-              );
+            // Zero-arg-only built-ins (`rand`, `iif`, …) stay opaque.
+            if (!(argInfo !== undefined && argInfo.maxArgs === 0)) {
+              value = { kind: 'var-ref', varBaseName: fnLower };
             }
-          } else {
-            push({ kind: 'other', text: rhsSnippet(rhs) });
           }
-        } else {
-          push({ kind: 'other', text: rhsSnippet(rhs) });
         }
-        return;
       }
     }
 
-    let strNode: Parser.SyntaxNode | null = null;
-    if (rhs.type === 'single_quoted_string' || rhs.type === 'double_quoted_string') {
-      strNode = rhs;
-    } else if (rhs.type === 'string') {
-      const child = rhs.namedChild(0);
-      if (child && (child.type === 'single_quoted_string' || child.type === 'double_quoted_string')) {
-        strNode = child;
-      }
-    }
-    if (strNode && !hasInterpolation(strNode)) {
-      const text = strNode.text;
-      push({ kind: 'string', value: text.length >= 2 ? text.slice(1, -1) : text }, undefined, '$');
-    } else if (strNode) {
-      push({ kind: 'other', text: rhsSnippet(rhs) }, undefined, '$');
-    } else {
-      // Catch-all: defer to the shared inference so indexed reads
-      // (`b[0]`), tuples, and function calls all contribute a prefix.
-      push({ kind: 'other', text: rhsSnippet(rhs) }, undefined, inferRhsTypePrefix(rhs));
-    }
+    const info: BindingInfo = {
+      value,
+      stmtLoc: nodeLoc(stmtNode, docUri),
+      stmtText: stmtTextOverride ?? rhsSnippet(stmtNode),
+      isLocal, scopeNodeId, isolationAncestorId,
+      writePrefix, isValueBearing: true,
+      compoundOp,
+      rhsTypePrefix: inferRhsTypePrefix(rhs),
+      stmtNode, blockNode,
+      initialScopeNodeId: scopeNodeId,
+    };
+    pushBinding(baseName, info);
   };
 
-  const recordDeclarationOnly = (stmtNode: Parser.SyntaxNode, lhs: Parser.SyntaxNode) => {
+  const recordDeclarationOnly = (stmtNode: Parser.SyntaxNode, lhs: Parser.SyntaxNode, stmtText: string) => {
     if (lhs.type !== 'variable_ref' && lhs.type !== 'ml_variable_ref') return;
     if (lhs.childForFieldName('index')) return;
     const lhsRef = readVarRef(lhs);
@@ -332,12 +238,59 @@ export function collectVariableBindings(
 
     const scopeAnc = findScopeAncestor(stmtNode, locBlock, isConsumed);
     const isolAnc = findIsolationAncestor(stmtNode, locBlock, isConsumed);
-    const stmtLoc: SymbolLocation = nodeLoc(stmtNode, docUri);
     const info: BindingInfo = {
-      value: { kind: 'other' },
-      stmtLoc, isLocal: true, writePrefix, isValueBearing: false,
+      value: { kind: 'expr' },
+      stmtLoc: nodeLoc(stmtNode, docUri),
+      stmtText,
+      isLocal: true, writePrefix, isValueBearing: false,
       scopeNodeId: scopeAnc ? scopeAnc.id : 0,
       isolationAncestorId: isolAnc ? isolAnc.id : 0,
+      stmtNode,
+      initialScopeNodeId: scopeAnc ? scopeAnc.id : 0,
+    };
+    pushBinding(baseName, info);
+  };
+
+  /**
+   * Record an LHS whose RHS slot can't be tied to a single expression:
+   *   • opaque unpacks      (`a, b = %f`)
+   *   • known tail-slice    (`a, %t = 1, 2, 3` → `%t` collects 2, 3)
+   *   • non-`%` tail-slice  (`a, b = 1, 2, 3` → `b` receives the tuple
+   *                          `(2, 3)`, triggering the type-mismatch pass)
+   *
+   * Always opaque (`kind:'expr'`); the `stmtText` is the full statement
+   * so hover shows the whole assignment.  Indexed LHS (`a[i], b = %f`)
+   * are honoured.  When the caller can statically prove the RHS forms a
+   * tuple value (≥2 known elements, or any tail length into a `%`-LHS),
+   * pass `rhsTypePrefix='%'` so `typeMismatch` can compare against the
+   * LHS prefix; otherwise leave it `undefined` (truly opaque).
+   */
+  const recordUnpacked = (
+    stmtNode: Parser.SyntaxNode,
+    lhs: Parser.SyntaxNode,
+    stmtText: string,
+    isLocal: boolean,
+    rhsTypePrefix?: TypePrefix,
+    compoundOp?: CompoundOp,
+  ) => {
+    if (lhs.type !== 'variable_ref' && lhs.type !== 'ml_variable_ref') return;
+    const lhsRef = readVarRef(lhs);
+    if (!lhsRef) return;
+    const baseName = lhsRef.name.toLowerCase();
+    const writePrefix = ((lhsRef.prefix || '#') as TypePrefix);
+
+    const scopeAnc = findScopeAncestor(stmtNode, locBlock, isConsumed);
+    const isolAnc = findIsolationAncestor(stmtNode, locBlock, isConsumed);
+    const info: BindingInfo = {
+      value: { kind: 'expr' },
+      stmtLoc: nodeLoc(stmtNode, docUri),
+      stmtText,
+      isLocal,
+      scopeNodeId: scopeAnc ? scopeAnc.id : 0,
+      isolationAncestorId: isolAnc ? isolAnc.id : 0,
+      writePrefix, isValueBearing: true,
+      compoundOp,
+      rhsTypePrefix,
       stmtNode,
       initialScopeNodeId: scopeAnc ? scopeAnc.id : 0,
     };
@@ -401,39 +354,19 @@ export function collectVariableBindings(
     const baseName = parsed.base.toLowerCase();
     if (baseName === '') return;
 
-    // `setvar 'name', value, index` — capture the third positional arg
-    // text as the index slot being written, mirroring how direct
-    // indexed assignment (`name[index] = value`) records `indexText`.
-    let indexText: string | undefined;
-    let valueText: string | undefined;
-    if (stmtName === 'setvar') {
-      const idxNode = getNthArgNode(node, 2);
-      if (idxNode) {
-        const raw = collapseNewlines(idxNode.text);
-        if (raw) indexText = raw.length <= MAX_INDEX_SNIPPET
-          ? raw
-          : raw.slice(0, MAX_INDEX_SNIPPET - 1) + '…';
-      }
-      // Capture arg #1 (the value) so hovers can render
-      // `#name[idx] = value *(set by setvar)*`, mirroring how plain
-      // assignments display their RHS.
-      const valNode = getNthArgNode(node, 1);
-      if (valNode) valueText = rhsSnippet(valNode);
-    }
-
     const scopeAnc = findScopeAncestor(node, locBlock, isConsumed);
     const isolAnc = findIsolationAncestor(node, locBlock, isConsumed);
     const stmtLoc: SymbolLocation = nodeLoc(node, docUri);
     const info: BindingInfo = {
-      value: { kind: 'other', text: valueText },
-      stmtLoc, isLocal: false, writePrefix: sidePrefix,
+      value: { kind: 'expr' },
+      stmtLoc,
+      stmtText: rhsSnippet(node),
+      isLocal: false, writePrefix: sidePrefix,
       isValueBearing: VAR_DEF_STMT_NAMES.has(stmtName),
-      writeOp: VAR_DEF_STMT_NAMES.has(stmtName) ? stmtName : undefined,
       scopeNodeId: scopeAnc ? scopeAnc.id : 0,
       isolationAncestorId: isolAnc ? isolAnc.id : 0,
       stmtNode: node, fromSideEffect: true,
       initialScopeNodeId: scopeAnc ? scopeAnc.id : 0,
-      indexText,
     };
     pushBinding(baseName, info);
   };
@@ -472,17 +405,161 @@ export function collectVariableBindings(
         rhsArr.push(c);
       }
       if (varListNode) {
-        // Collect var refs from the variable_list without an intermediate Array.
+        // Collect var refs from the variable_list.  The grammar
+        // guarantees only variable_ref children, but we filter to
+        // stay robust against parse-error recoveries.
         const vlc = varListNode.namedChildCount;
         const vars: Parser.SyntaxNode[] = [];
         for (let i = 0; i < vlc; i++) {
           const v = varListNode.namedChild(i);
           if (v && (v.type === 'variable_ref' || v.type === 'ml_variable_ref')) vars.push(v);
         }
-        const n2 = Math.min(vars.length, rhsArr.length);
-        for (let i = 0; i < n2; i++) record(n, vars[i], rhsArr[i], isLocalStmt, compoundOp);
-        if (isLocalStmt && vars.length > n2) {
-          for (let i = n2; i < vars.length; i++) recordDeclarationOnly(n, vars[i]);
+        // ── Multi-LHS assignment semantics ────────────────────────
+        //
+        // QSP packs all RHS values into a single tuple, then assigns
+        // element-wise onto the LHS list — with one twist: the LAST
+        // LHS greedily absorbs the entire RHS tail.
+        //
+        //   `a, b = 1, 2`         → a=1, b=2          (tail len 1, scalar)
+        //   `a, b = 1, 2, 3`      → a=1, b=(2,3)      (tail len 2 → tuple)
+        //   `a, %t = 1, 2, 3`     → a=1, %t=(2,3)     (same; %-LHS happy)
+        //   `a, %t = 1, 2`        → a=1, %t=[2]       (singleton wraps)
+        //   `a, %t = 1`           → a=1, %t empty     (no tail → unassigned)
+        //   `a, b, c = 1, 2`      → a=1, b=2, c empty (head short → unassigned)
+        //   `a, b = ()` / `= []`  → both unassigned   (empty tuple literal)
+        //   `a = 1, 2, 3`         → a=(1,2,3)         (single LHS absorbs all)
+        //
+        // For non-`%` LHS receiving a tail of ≥2 elements, the binding
+        // is recorded with `rhsTypePrefix='%'` so `typeMismatch` flags
+        // "assignment of a tuple value to a $/# variable".
+        //
+        // RHS shapes treated as element lists:
+        //   • comma list: `1, 2, 3` → 3 elems
+        //   • literal tuple: `[1, 2, 3]` / `(1, 2, 3)` → expanded to 3
+        //   • opaque %-typed: `%f`, `arrpack(…)` → element count unknown
+        //     → falls back to every LHS getting an opaque, type-suppressed
+        //     binding (no element-wise type checking possible).
+        //
+        // Compound ops never unpack — they go through plain element-wise
+        // zip with no tail synthesis (the grammar normally only allows a
+        // single LHS anyway; parse-error recoveries pass through harmlessly).
+        const stmtText = rhsSnippet(n);
+
+        let elems: Parser.SyntaxNode[] = rhsArr;
+        let opaqueUnpack = false;
+        if (!compoundOp && rhsArr.length === 1 && vars.length > 1
+            && isTupleTypedRhs(rhsArr[0])) {
+          const lit = tupleLiteralOf(rhsArr[0]);
+          if (lit) {
+            const cnt = lit.namedChildCount;
+            elems = [];
+            for (let i = 0; i < cnt; i++) {
+              const c = lit.namedChild(i);
+              if (c) elems.push(c);
+            }
+          } else {
+            opaqueUnpack = true;
+          }
+        }
+
+        // Self-reference detector for plain-`=` assignments.  Returns
+        // `'other'` when `lhs` is a non-local variable whose base name
+        // appears in any of `rhsList`'s subtrees — semantically a
+        // read-then-write of the same slot (`hp = hp + 5`,
+        // `hp = hp, 5`, `a, b = a, 1` → `a = a`).  Locals are excluded:
+        // `local x = x` keeps its chain-edge var-ref binding.  Indexed
+        // LHS (`arr[0] = arr[0] + 1`) is currently out of scope —
+        // `record` collapses indexed writes to opaque `{kind:'expr'}`
+        // regardless of `compoundOp`.
+        const detectSelfRef = (
+          lhs: Parser.SyntaxNode,
+          rhsList: readonly Parser.SyntaxNode[],
+        ): CompoundOp | undefined => {
+          if (isLocalStmt) return undefined;
+          const lhsName = readVarRef(lhs)?.name.toLowerCase();
+          if (!lhsName) return undefined;
+          for (const e of rhsList) {
+            if (subtreeReferencesVariable(e, lhsName)) return 'other';
+          }
+          return undefined;
+        };
+
+        if (compoundOp) {
+          // Compound op (`+=`, etc.) — element-wise zip, no tail.
+          const n2 = Math.min(vars.length, elems.length);
+          for (let i = 0; i < n2; i++) {
+            record(n, vars[i], elems[i], isLocalStmt, compoundOp, stmtText);
+          }
+        } else if (opaqueUnpack) {
+          // Opaque %-typed single RHS: element count unknown — every
+          // LHS gets an opaque binding, no rhsTypePrefix.
+          for (let i = 0; i < vars.length; i++) {
+            recordUnpacked(n, vars[i], stmtText, isLocalStmt);
+          }
+        } else if (vars.length === 1 && elems.length >= 1) {
+          // Single LHS absorbs the entire RHS.  Self-referential plain-
+          // `=` (`hp = hp + 5`, `hp = hp, 5`, `$s = ucase($s)`) is
+          // tagged compound op `'other'` so static analysis treats it
+          // the same as `hp += …`: not a definition, not a proper read,
+          // but still value-bearing at runtime for hover.
+          //
+          // Bare `local x` (elems.length === 0) is intentionally NOT
+          // handled here — it falls through to the tail-absorption
+          // branch so `recordDeclarationOnly` preserves the non-value-
+          // bearing semantics.
+          const opForThis = detectSelfRef(vars[0], elems);
+          if (elems.length === 1) {
+            // Single RHS expression — preserve `inferRhsTypePrefix`
+            // handling (var-ref chain edges, tuple-literal `%`, …).
+            record(n, vars[0], elems[0], isLocalStmt, opForThis, stmtText);
+          } else {
+            // Multi-RHS tuple (`hp = hp, 5`) — opaque from a chain-
+            // following standpoint.  When not self-referential, tag
+            // with `rhsTypePrefix='%'` so `typeMismatch` flags
+            // scalar←tuple; when self-referential, suppress that tag
+            // (read-then-write semantics dominate, mirroring how
+            // `hp += …` doesn't carry a tuple type either).
+            recordUnpacked(n, vars[0], stmtText, isLocalStmt,
+                           opForThis ? undefined : '%', opForThis);
+          }
+        } else if (vars.length > 0) {
+          // Multi-LHS tail-absorption (`a, b = 1, 2, 3` → b = (2,3)).
+          // Per-element self-ref detection: `a, b = a, 1` records
+          // `a = a` as compound `'other'` and `b = 1` as a normal
+          // definition.  Swaps (`a, b = b, a`) are not self-ref under
+          // positional zip and remain definitions.
+          const lastIdx = vars.length - 1;
+          for (let i = 0; i < lastIdx; i++) {
+            if (i < elems.length) {
+              record(n, vars[i], elems[i], isLocalStmt,
+                     detectSelfRef(vars[i], [elems[i]]), stmtText);
+            } else if (isLocalStmt) {
+              recordDeclarationOnly(n, vars[i], stmtText);
+            }
+          }
+          const lastV = vars[lastIdx];
+          const lastPrefix = lastV.childForFieldName('prefix')?.text;
+          const tailLen = elems.length - lastIdx;
+          if (tailLen <= 0) {
+            // Empty tail — `c` in `a, b, c = 1, 2`, or any LHS when RHS
+            // is `()` / `[]`.  Locally surfaces as declaration-only so
+            // `uninitializedVariables` can flag reads; non-local writes
+            // produce no binding entry (current behaviour preserved).
+            if (isLocalStmt) recordDeclarationOnly(n, lastV, stmtText);
+          } else if (tailLen === 1 && lastPrefix !== '%') {
+            // Singleton tail into a scalar LHS — plain element zip.
+            record(n, lastV, elems[lastIdx], isLocalStmt,
+                   detectSelfRef(lastV, [elems[lastIdx]]), stmtText);
+          } else {
+            // ≥2-element tail OR any tail into a `%` LHS — the RHS
+            // value is a tuple.  Self-ref against any tail element
+            // (`a, b = 1, b, 2`) is still read-then-write of `b`,
+            // so tag `'other'` and drop the tuple type tag (mirroring
+            // the single-LHS multi-RHS case).
+            const opForLast = detectSelfRef(lastV, elems.slice(lastIdx));
+            recordUnpacked(n, lastV, stmtText, isLocalStmt,
+                           opForLast ? undefined : '%', opForLast);
+          }
         }
       }
     }
@@ -675,7 +752,7 @@ export function collectVariableBindings(
               p = p.parent;
             }
             if (!inside) continue;
-            writes.push({ varBaseName: otherName, binding: { value: ob.value, stmtLoc: ob.stmtLoc, isLocal: ob.isLocal, writePrefix: ob.writePrefix, isValueBearing: ob.isValueBearing, writeOp: ob.writeOp, scopeNodeId: ob.scopeNodeId, isolationAncestorId: ob.isolationAncestorId } });
+            writes.push({ varBaseName: otherName, binding: { value: ob.value, stmtLoc: ob.stmtLoc, stmtText: ob.stmtText, isLocal: ob.isLocal, writePrefix: ob.writePrefix, isValueBearing: ob.isValueBearing, compoundOp: ob.compoundOp, scopeNodeId: ob.scopeNodeId, isolationAncestorId: ob.isolationAncestorId } });
           }
         }
         if (writes.length > 0) cb.value = { ...cb.value, bodyWrites: writes };
@@ -746,11 +823,10 @@ export function collectVariableBindings(
   // ── Commit to persistent store ─────────────────────────────────
   for (const [key, bindings] of bindingsByName) {
     const published: VariableBinding[] = bindings.map(b => ({
-      value: b.value, stmtLoc: b.stmtLoc, isLocal: b.isLocal,
+      value: b.value, stmtLoc: b.stmtLoc, stmtText: b.stmtText, isLocal: b.isLocal,
       writePrefix: b.writePrefix, isValueBearing: b.isValueBearing,
-      writeOp: b.writeOp, scopeNodeId: b.scopeNodeId,
+      compoundOp: b.compoundOp, scopeNodeId: b.scopeNodeId,
       isolationAncestorId: b.isolationAncestorId, rhsTypePrefix: b.rhsTypePrefix,
-      indexText: b.indexText,
     }));
     locSymbols.variableBindings.set(key, published);
   }

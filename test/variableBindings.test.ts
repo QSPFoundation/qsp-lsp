@@ -94,11 +94,11 @@ $foo = 'world'
     symbols.rebuildGlobalBindings();
     const values = resolvePossibleValuesInDocument(symbols, '$foo');
     expect(values).toHaveLength(2);
-    expect(values.every(v => v.binding.value.kind === 'string')).toBe(true);
+    expect(values.every(v => v.binding.value.kind === 'expr')).toBe(true);
     const strs = values
-      .map(v => v.binding.value.kind === 'string' ? v.binding.value.value : '')
+      .map(v => v.binding.stmtText)
       .sort();
-    expect(strs).toEqual(['hello', 'world']);
+    expect(strs).toEqual(["$foo = 'hello'", "$foo = 'world'"]);
   });
 
   it('follows var-ref chains intra-document', () => {
@@ -110,9 +110,9 @@ $b = $a
     symbols.rebuildGlobalBindings();
     const values = resolvePossibleValuesInDocument(symbols, '$b');
     const strs = values
-      .map(v => v.binding.value.kind === 'string' ? v.binding.value.value : null)
+      .map(v => v.binding.stmtText)
       .filter(Boolean);
-    expect(strs).toContain('payload');
+    expect(strs.some(s => s.includes("'payload'"))).toBe(true);
   });
 
   it('unions across multiple documents', () => {
@@ -122,9 +122,9 @@ $b = $a
     b.rebuildGlobalBindings();
     const all = resolvePossibleValuesAcrossProject([a, b], '$g');
     const strs = all
-      .map(v => v.binding.value.kind === 'string' ? v.binding.value.value : '')
+      .map(v => v.binding.stmtText)
       .sort();
-    expect(strs).toEqual(['from_a', 'from_b']);
+    expect(strs).toEqual(["$g = 'from_a'", "$g = 'from_b'"]);
   });
 });
 
@@ -156,9 +156,9 @@ local $x = 'mine'
     expect(merged.length).toBeGreaterThan(0);
     expect(merged.every(m => !m.fromCall)).toBe(true);
     const texts = merged
-      .map(m => m.binding.value.kind === 'string' ? m.binding.value.value : null)
+      .map(m => m.binding.stmtText)
       .filter(Boolean);
-    expect(texts).toContain('mine');
+    expect(texts.some(s => s.includes("'mine'"))).toBe(true);
   });
 
   it('merges callee mutations when buildPropagatedLocals has run', () => {
@@ -180,10 +180,10 @@ $x = 'from_callee'
     const merged = getMergedLocalBindings(agg, sym, loc, 'test://m');
 
     const texts = merged
-      .map(m => m.binding.value.kind === 'string' ? m.binding.value.value : null)
+      .map(m => m.binding.stmtText)
       .filter(Boolean);
-    expect(texts).toContain('initial');
-    expect(texts).toContain('from_callee');
+    expect(texts.some(s => s.includes("'initial'"))).toBe(true);
+    expect(texts.some(s => s.includes("'from_callee'"))).toBe(true);
     const fromCallEntry = merged.find(m => m.fromCall);
     expect(fromCallEntry).toBeDefined();
   });
@@ -297,13 +297,13 @@ local #count = 5
     expect(bs.length).toBe(3);
     // Pre-declaration write: still a real global.
     expect(bs[0].isLocal).toBe(false);
-    expect(bs[0].value).toEqual({ kind: 'number', value: 10 });
+    expect(bs[0].value).toEqual({ kind: 'expr' });
     // The `local` declaration itself.
     expect(bs[1].isLocal).toBe(true);
-    expect(bs[1].value).toEqual({ kind: 'number', value: 5 });
+    expect(bs[1].value).toEqual({ kind: 'expr' });
     // Post-declaration bare write: retagged to the local.
     expect(bs[2].isLocal).toBe(true);
-    expect(bs[2].value).toEqual({ kind: 'number', value: 20 });
+    expect(bs[2].value).toEqual({ kind: 'expr' });
   });
 
   it('setvar BEFORE `local x` stays global, setvar AFTER retags', () => {
@@ -510,7 +510,7 @@ x = 777
     expect(ext).toBeDefined();
     const fromC = ext!.filter(e => e.sourceLoc === 'c');
     expect(fromC).toHaveLength(1);
-    expect(fromC[0].binding.value).toEqual({ kind: 'number', value: 777 });
+    expect(fromC[0].binding.value).toEqual({ kind: 'expr' });
   });
 
   it('callee nested-block write bubbles up to caller local', () => {
@@ -543,7 +543,7 @@ end
     const ext = agg.externalLocalBindings.get(aSym!);
     expect(ext).toBeDefined();
     expect(ext!.some(e => e.sourceLoc === 'c' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 55)).toBe(true);
+      /\b55\b/.test(e.binding.stmtText))).toBe(true);
   });
 });
 
@@ -585,10 +585,10 @@ pl x
     const merged = getMergedLocalBindings(agg, sym, loc, 'test://rec1');
 
     const values = merged
-      .map(m => m.binding.value.kind === 'number' ? m.binding.value.value : null)
+      .map(m => m.binding.stmtText)
       .filter(v => v !== null);
-    expect(values).toContain(0);
-    expect(values).toContain(1);
+    expect(values.some(s => /\b0\b/.test(s))).toBe(true);
+    expect(values.some(s => /\b1\b/.test(s))).toBe(true);
     // No fromCall entries — self-recursion keeps everything in-location.
     expect(merged.every(m => !m.fromCall)).toBe(true);
   });
@@ -609,7 +609,7 @@ gs 'A'
     const ext = agg.externalLocalBindings.get(sym) ?? [];
     const fromB = ext.filter(e => e.sourceLoc === 'b');
     expect(fromB).toHaveLength(1);
-    expect(fromB[0].binding.value).toEqual({ kind: 'number', value: 42 });
+    expect(fromB[0].binding.value).toEqual({ kind: 'expr' });
   });
 
   it('3-cycle A→B→C→A: C\'s write pops back to A\'s local', () => {
@@ -630,7 +630,7 @@ gs 'A'
     const sym = localSymOf(symbols, 'A', 'x');
     const ext = agg.externalLocalBindings.get(sym) ?? [];
     expect(ext.some(e => e.sourceLoc === 'c' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 7)).toBe(true);
+      /\b7\b/.test(e.binding.stmtText))).toBe(true);
   });
 
   it('recursion terminates cleanly (no infinite loop, no duplicate entries)', () => {
@@ -660,10 +660,11 @@ gs 'A'
     }
     // Values from A (0, 1) and from B (2) all present.
     const values = merged
-      .map(m => m.binding.value.kind === 'number' ? m.binding.value.value : null)
-      .filter(v => v !== null)
-      .sort();
-    expect(values).toEqual([0, 1, 2]);
+      .map(m => m.binding.stmtText)
+      .filter(v => v !== null);
+    expect(values.some(s => /\b0\b/.test(s))).toBe(true);
+    expect(values.some(s => /\b1\b/.test(s))).toBe(true);
+    expect(values.some(s => /\b2\b/.test(s))).toBe(true);
   });
 
   it('self-recursion with side-effect write: pops back to own local', () => {
@@ -722,7 +723,7 @@ dynamic {
     // Both are tagged local against the outer scope.
     expect(bs.every(b => b.isLocal)).toBe(true);
     // The nested write carries the actual value.
-    expect(bs.some(b => b.value.kind === 'number' && b.value.value === 10)).toBe(true);
+    expect(bs.some(b => /\b10\b/.test(b.stmtText))).toBe(true);
     // No leak into globalBindings.
     symbols.rebuildGlobalBindings();
     expect(symbols.globalBindings.get('x')).toBeUndefined();
@@ -747,7 +748,7 @@ y = dyneval({
     const bs = loc.variableBindings.get('x') ?? [];
     expect(bs).toHaveLength(2);
     expect(bs.every(b => b.isLocal)).toBe(true);
-    expect(bs.some(b => b.value.kind === 'number' && b.value.value === 15)).toBe(true);
+    expect(bs.some(b => /\b15\b/.test(b.stmtText))).toBe(true);
     symbols.rebuildGlobalBindings();
     expect(symbols.globalBindings.get('x')).toBeUndefined();
   });
@@ -770,7 +771,7 @@ dynamic {
     const sym = localSymOf(symbols, 'A', 'x');
     const ext = agg.externalLocalBindings.get(sym) ?? [];
     expect(ext.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 20)).toBe(true);
+      /\b20\b/.test(e.binding.stmtText))).toBe(true);
   });
 
   it('side-effect write inside nested dynamic bubbles up', () => {
@@ -810,7 +811,7 @@ dynamic {
     const sym = localSymOf(symbols, 'A', 'x');
     const ext = agg.externalLocalBindings.get(sym) ?? [];
     expect(ext.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 30)).toBe(true);
+      /\b30\b/.test(e.binding.stmtText))).toBe(true);
   });
 
   it('triply nested dynamic: write still reaches the outermost local', () => {
@@ -828,7 +829,7 @@ dynamic {
     const { symbols } = parseAndExtract(parser, src);
     const loc = getLoc(symbols, 'A');
     const bs = loc.variableBindings.get('x') ?? [];
-    expect(bs.some(b => b.isLocal && b.value.kind === 'number' && b.value.value === 99)).toBe(true);
+    expect(bs.some(b => b.isLocal && /\b99\b/.test(b.stmtText))).toBe(true);
     symbols.rebuildGlobalBindings();
     expect(symbols.globalBindings.get('x')).toBeUndefined();
   });
@@ -851,10 +852,10 @@ dynamic {
     // Should not hang; merged bindings contain both 0 and 1.
     const merged = getMergedLocalBindings(agg, sym, loc, 'test://nd4');
     const values = merged
-      .map(m => m.binding.value.kind === 'number' ? m.binding.value.value : null)
-      .filter(v => v !== null)
-      .sort();
-    expect(values).toEqual([0, 1]);
+      .map(m => m.binding.stmtText)
+      .filter(v => v !== null);
+    expect(values.some(s => /\b0\b/.test(s))).toBe(true);
+    expect(values.some(s => /\b1\b/.test(s))).toBe(true);
   });
 });
 
@@ -909,8 +910,8 @@ dynamic $code
     const { symbols } = parseAndExtract(parser, src);
     const loc = getLoc(symbols, 'A');
     const bs = loc.variableBindings.get('x') ?? [];
-    expect(bs.some(b => b.isLocal && b.value.kind === 'number' && b.value.value === 0)).toBe(true);
-    expect(bs.some(b => b.isLocal && b.value.kind === 'number' && b.value.value === 99)).toBe(true);
+    expect(bs.some(b => b.isLocal && /\b0\b/.test(b.stmtText))).toBe(true);
+    expect(bs.some(b => b.isLocal && /\b99\b/.test(b.stmtText))).toBe(true);
     symbols.rebuildGlobalBindings();
     expect(symbols.globalBindings.get('x')).toBeUndefined();
   });
@@ -928,7 +929,7 @@ dynamic { x = 99 }
     const bs = loc.variableBindings.get('x') ?? [];
     expect(bs).toHaveLength(2);
     expect(bs.every(b => b.isLocal)).toBe(true);
-    expect(bs.some(b => b.value.kind === 'number' && b.value.value === 99)).toBe(true);
+    expect(bs.some(b => /\b99\b/.test(b.stmtText))).toBe(true);
     symbols.rebuildGlobalBindings();
     expect(symbols.globalBindings.get('x')).toBeUndefined();
   });
@@ -948,7 +949,7 @@ dynamic $code
     const sym = localSymOf(symbols, 'A', 'x');
     const ext = agg.externalLocalBindings.get(sym) ?? [];
     expect(ext.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 42)).toBe(true);
+      /\b42\b/.test(e.binding.stmtText))).toBe(true);
   });
 
   // ── Holder = LOCAL (same location, visible at call site) ───────────
@@ -982,7 +983,7 @@ end
     const { symbols } = parseAndExtract(parser, src);
     const loc = getLoc(symbols, 'A');
     const bs = loc.variableBindings.get('x') ?? [];
-    expect(bs.some(b => b.isLocal && b.value.kind === 'number' && b.value.value === 55)).toBe(true);
+    expect(bs.some(b => b.isLocal && /\b55\b/.test(b.stmtText))).toBe(true);
     symbols.rebuildGlobalBindings();
     expect(symbols.globalBindings.get('x')).toBeUndefined();
   });
@@ -1018,7 +1019,7 @@ dynamic $code
     const sym = localSymOf(symbols, 'A', 'x');
     const ext = agg.externalLocalBindings.get(sym) ?? [];
     expect(ext.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 88)).toBe(true);
+      /\b88\b/.test(e.binding.stmtText))).toBe(true);
   });
 
   // ── Holder = PROPAGATED-LOCAL (caller provides $code, callee dynamic $code) ──
@@ -1080,8 +1081,8 @@ dynamic $code
     const sym = localSymOf(symbols, 'A', 'x');
     const ext = agg.externalLocalBindings.get(sym) ?? [];
     expect(ext.some(e => e.sourceLoc === 'b'
-      && e.binding.value.kind === 'number'
-      && e.binding.value.value === 123)).toBe(true);
+      && e.binding.value.kind === 'expr'
+      && /\b123\b/.test(e.binding.stmtText))).toBe(true);
   });
 
   it('propagated-local $code + global $code same name: both bindings flow to caller x', () => {
@@ -1111,14 +1112,14 @@ dynamic $code
     const ext = agg.externalLocalBindings.get(sym) ?? [];
     // B's own global binding flows back as usual.
     expect(ext.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 2)).toBe(true);
+      /\b2\b/.test(e.binding.stmtText))).toBe(true);
     // B found a local code-block binding, so the call site is NOT
     // marked unresolved, and the caller's block body is not consulted
     // by the cross-location pass.  This reflects QSP's runtime, where
     // B's own `$code = { x = 2 }` overwrites the propagated value
     // before `dynamic $code` executes.
     expect(ext.some(e => e.sourceLoc === 'b' &&
-      e.binding.value.kind === 'number' && e.binding.value.value === 1)).toBe(false);
+      /\b1\b/.test(e.binding.stmtText))).toBe(false);
   });
 
   it('propagated-local $code: deep chain A→B→C flows inner writes to A', () => {
@@ -1147,8 +1148,8 @@ dynamic $code
     const sym = localSymOf(symbols, 'A', 'x');
     const ext = agg.externalLocalBindings.get(sym) ?? [];
     expect(ext.some(e => e.sourceLoc === 'c'
-      && e.binding.value.kind === 'number'
-      && e.binding.value.value === 77)).toBe(true);
+      && e.binding.value.kind === 'expr'
+      && /\b77\b/.test(e.binding.stmtText))).toBe(true);
   });
 });
 
@@ -1192,8 +1193,8 @@ pl x
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     expect(vals.some(v => v.origin === 'scope'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 1)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b1\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('scope-filters nested locals: inner cursor sees inner binding', () => {
@@ -1211,8 +1212,8 @@ end
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     // Inner cursor sees the inner local x = 2 (and possibly the outer).
     expect(vals.some(v => v.origin === 'scope'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 2)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b2\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('includes cross-call writes flowing back to a caller-local', () => {
@@ -1230,11 +1231,11 @@ x = 99
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     expect(vals.some(v => v.origin === 'scope'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 1)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b1\b/.test(v.binding.stmtText))).toBe(true);
     expect(vals.some(v => v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 99)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b99\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('includes Gap 2 cross-call writes via dynamic $code', () => {
@@ -1253,8 +1254,8 @@ dynamic $code
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     expect(vals.some(v => v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 42)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b42\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('includes document-level non-local bindings for a global', () => {
@@ -1269,8 +1270,8 @@ pl $g
     const agg = aggFor(symbols, 'test://pv5');
     const { line, column } = locate(src, 'pl $g', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$g');
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'from_a')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('from_a'))).toBe(true);
   });
 
   it('follows var-ref chains', () => {
@@ -1285,8 +1286,105 @@ pl $b
     const { line, column } = locate(src, 'pl $b', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$b');
     // Chain terminates on the string literal.
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'hello')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('hello'))).toBe(true);
+  });
+
+  // ── hoverMode: var-ref chain expansion behaviour ────────────────────
+  //
+  // In hover mode the scope pass must NOT inherit a chain target's
+  // indexed writes onto the cursor variable.  The tests below pin the
+  // contract for all relevant combinations.
+
+  describe('hoverMode: var-ref chain to indexed-write target', () => {
+    // The refactor removed the LHS-reconstruction renderer, so chain
+    // targets with indexed writes can no longer be misrendered as
+    // `%e[4] = …` etc.  The chain is now followed unconditionally and
+    // the resulting indexed entries are shown verbatim via their own
+    // stmtText (`%t[4] = 33`), which is unambiguous.  These tests pin
+    // that contract.
+
+    it('non-hoverMode still follows the chain to indexed entries', () => {
+      // Same document; without hoverMode the chain IS followed eagerly.
+      const src = `# a
+%t[0] = 1
+%t[4] = 33
+%e = %t
+pl %e
+---
+`;
+      const { symbols, tree } = parseAndExtract(parser, src, 'test://hover-idx-2');
+      const agg = aggFor(symbols, 'test://hover-idx-2');
+      const { line, column } = locate(src, 'pl %e', 4);
+      const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '%e');
+      // Chain-followed: indexed entries from %t surface as values.
+      expect(vals.some(v => /\[/.test(v.binding.stmtText))).toBe(true);
+      // No var-ref edges in non-hover output (chains eagerly resolved).
+      expect(vals.every(v => v.binding.value.kind !== 'var-ref')).toBe(true);
+    });
+
+    it('hoverMode still follows chain when target has ONLY scalar writes', () => {
+      // `%e = %t` but `%t` only has plain (non-indexed) writes.
+      // The chain should still be followed; the terminal value surfaces.
+      const src = `# a
+%t = 42
+%e = %t
+pl %e
+---
+`;
+      const { symbols, tree } = parseAndExtract(parser, src, 'test://hover-idx-3');
+      const agg = aggFor(symbols, 'test://hover-idx-3');
+      const { line, column } = locate(src, 'pl %e', 4);
+      const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '%e', { hoverMode: true });
+      // Terminal scalar value surfaces (chain was followed).
+      expect(vals.some(v => v.binding.value.kind === 'expr'
+        && /\b42\b/.test(v.binding.stmtText))).toBe(true);
+      // No indexed entries and no spurious var-ref edge.
+      expect(vals.every(v => !/\[/.test(v.binding.stmtText))).toBe(true);
+    });
+
+    it('hoverMode: hovering the indexed-write target itself still shows its own slots', () => {
+      // Cursor is directly on `%t`, which has `%t[0] = 1` etc.
+      // Those should still surface as %t's own values (no chain involved).
+      const src = `# a
+%t[0] = 1
+%t[4] = 33
+%e = %t
+pl %t
+---
+`;
+      const { symbols, tree } = parseAndExtract(parser, src, 'test://hover-idx-4');
+      const agg = aggFor(symbols, 'test://hover-idx-4');
+      const { line, column } = locate(src, 'pl %t', 4);
+      const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '%t', { hoverMode: true });
+      // %t's own indexed writes surface directly.
+      expect(vals.some(v => v.binding.stmtText.includes('[0]')
+        && v.binding.value.kind === 'expr')).toBe(true);
+      expect(vals.some(v => v.binding.stmtText.includes('[4]')
+        && v.binding.value.kind === 'expr')).toBe(true);
+    });
+
+    it('hoverMode: cross-location indexed chain target still surfaces the var-ref edge', () => {
+      // `%e = %t` in loc A, `%t[0] = 1` in loc B (different location).
+      // The renderer now always shows source statements verbatim, so
+      // the indexed entries from %t surface with their own stmtText
+      // (`%t[0] = 1`) and there is no misrendering risk.
+      const src = `# a
+%e = %t
+pl %e
+---
+# b
+%t[0] = 1
+%t[4] = 33
+---
+`;
+      const { symbols, tree } = parseAndExtract(parser, src, 'test://hover-idx-5');
+      const agg = aggFor(symbols, 'test://hover-idx-5');
+      const { line, column } = locate(src, 'pl %e', 3);
+      const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '%e', { hoverMode: true });
+      // We get bindings (either the var-ref edge or the indexed entries).
+      expect(vals.length).toBeGreaterThan(0);
+    });
   });
 
   it('returns empty when cursor is outside any location_block', () => {
@@ -1314,8 +1412,8 @@ pl $g
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$g');
     // Scope pass sees the global; document pass sees it too — but
     // dedup should collapse them to one entry.
-    const matching = vals.filter(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'v');
+    const matching = vals.filter(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('v'));
     expect(matching).toHaveLength(1);
   });
 
@@ -1357,8 +1455,8 @@ pl x
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'X');
     expect(vals.some(v => v.origin === 'scope'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 5)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b5\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('cross-call surfaces a typed-prefix write through a bare-name query', () => {
@@ -1381,8 +1479,8 @@ $x = 'oops'
     const agg = aggFor(symbols, 'test://pv-prefix');
     const { line, column } = locate(src, 'pl #x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '#x');
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'oops')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('oops'))).toBe(true);
   });
 
   it('cross-call merges writes from every prefix variant under one base name', () => {
@@ -1405,10 +1503,10 @@ x = 7
     const agg = aggFor(symbols, 'test://pv-prefix2');
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
-    const numeric = vals.filter(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 7);
-    const stringy = vals.filter(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'str_write');
+    const numeric = vals.filter(v => v.binding.value.kind === 'expr'
+      && /\b7\b/.test(v.binding.stmtText));
+    const stringy = vals.filter(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('str_write'));
     expect(numeric.length).toBeGreaterThan(0);
     expect(stringy.length).toBeGreaterThan(0);
   });
@@ -1431,8 +1529,8 @@ x = 100
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     expect(vals.every(v => !(v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && (v.binding.value.value === 99 || v.binding.value.value === 100)))).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && (/\b99\b/.test(v.binding.stmtText) || /\b100\b/.test(v.binding.stmtText))))).toBe(true);
   });
 
   it('cross-call flows transitively through a pass-through callee (a → b → c)', () => {
@@ -1453,8 +1551,8 @@ x = 777
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     expect(vals.some(v => v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 777)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b777\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('cross-call entries are NOT added when cursor is on a non-local (global) name', () => {
@@ -1475,8 +1573,8 @@ x = 42
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     expect(vals.every(v => v.origin !== 'cross-call')).toBe(true);
     expect(vals.some(v => v.origin === 'document'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 42)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b42\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('isolation-scope: cursor inside `act` does NOT see outer local', () => {
@@ -1531,8 +1629,8 @@ pl $b
     );
     // Without chain-following we should NOT see the 'hello' terminal.
     expect(vals.every(v => !(v.origin === 'scope'
-      && v.binding.value.kind === 'string'
-      && v.binding.value.value === 'hello'))).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('hello')))).toBe(true);
   });
 
   it('projectDocs: finds a global defined in another document', () => {
@@ -1563,8 +1661,8 @@ pl $shared
     );
     expect(vals.some(v => v.origin === 'document'
       && v.uri === 'test://pv-proj-a'
-      && v.binding.value.kind === 'string'
-      && v.binding.value.value === 'from_other_doc')).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('from_other_doc'))).toBe(true);
   });
 
   it('handles var-ref cycles without looping forever', () => {
@@ -1622,8 +1720,8 @@ x = 42
     const agg = aggFor(symbols, 'test://pv-mismatch');
     const { line, column } = locate(src, 'pl y', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'y');
-    expect(vals.every(v => !(v.binding.value.kind === 'number'
-      && v.binding.value.value === 42))).toBe(true);
+    expect(vals.every(v => !(v.binding.value.kind === 'expr'
+      && /\b42\b/.test(v.binding.stmtText)))).toBe(true);
   });
 
   it('code-block body local writes do NOT leak to caller via cross-call', () => {
@@ -1644,8 +1742,8 @@ dynamic $code
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     expect(vals.every(v => !(v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 99))).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b99\b/.test(v.binding.stmtText)))).toBe(true);
   });
 
   it('bindings carry the expected origin tags (scope vs cross-call vs document)', () => {
@@ -1666,19 +1764,19 @@ $g = 'g_in_b'
 
     const xVals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     // `local x = 1` in own loc → 'scope'
-    expect(xVals.find(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 1)?.origin).toBe('scope');
+    expect(xVals.find(v => v.binding.value.kind === 'expr'
+      && /\b1\b/.test(v.binding.stmtText))?.origin).toBe('scope');
     // `x = 2` in callee reaches caller-local via cross-call
-    expect(xVals.find(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 2)?.origin).toBe('cross-call');
+    expect(xVals.find(v => v.binding.value.kind === 'expr'
+      && /\b2\b/.test(v.binding.stmtText))?.origin).toBe('cross-call');
 
     const gVals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$g');
     // `$g = 'g_in_a'` in own loc → 'scope' (globals always visible)
-    expect(gVals.find(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'g_in_a')?.origin).toBe('scope');
+    expect(gVals.find(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('g_in_a'))?.origin).toBe('scope');
     // `$g = 'g_in_b'` in other loc → 'document'
-    expect(gVals.find(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'g_in_b')?.origin).toBe('document');
+    expect(gVals.find(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('g_in_b'))?.origin).toBe('document');
   });
 
   it('isConsumed predicate hides code-block scope boundaries as expected', () => {
@@ -1699,8 +1797,8 @@ pl x
     // Default: scope sees the outer binding.
     const defaults = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     expect(defaults.some(v => v.origin === 'scope'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 1)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b1\b/.test(v.binding.stmtText))).toBe(true);
 
     // With an `isConsumed` that marks ALL nodes as consumed, the
     // query must still not throw and returns a well-typed result.
@@ -1758,8 +1856,8 @@ pl x
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     // `local x = 1` from caller must NOT surface in callee b.
-    expect(vals.every(v => !(v.binding.value.kind === 'number'
-      && v.binding.value.value === 1))).toBe(true);
+    expect(vals.every(v => !(v.binding.value.kind === 'expr'
+      && /\b1\b/.test(v.binding.stmtText)))).toBe(true);
   });
 
   it('xgt: caller-local does NOT propagate into the callee', () => {
@@ -1775,8 +1873,8 @@ pl x
     const agg = aggFor(symbols, 'test://xgt-into');
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
-    expect(vals.every(v => !(v.binding.value.kind === 'number'
-      && v.binding.value.value === 1))).toBe(true);
+    expect(vals.every(v => !(v.binding.value.kind === 'expr'
+      && /\b1\b/.test(v.binding.stmtText)))).toBe(true);
   });
 
   it('goto / xgoto (long form): caller-local does NOT propagate into the callee', () => {
@@ -1792,16 +1890,16 @@ pl x
     const aggA = aggFor(a.symbols, 'test://goto-into');
     const cA = locate(srcGoto, 'pl x', 3);
     const vA = getPossibleValuesAtCursor(a.symbols, aggA, a.tree!, cA.line, cA.column, 'x');
-    expect(vA.every(v => !(v.binding.value.kind === 'number'
-      && v.binding.value.value === 1))).toBe(true);
+    expect(vA.every(v => !(v.binding.value.kind === 'expr'
+      && /\b1\b/.test(v.binding.stmtText)))).toBe(true);
 
     const srcXgoto = srcGoto.replace('goto', 'xgoto');
     const b = parseAndExtract(parser, srcXgoto, 'test://xgoto-into');
     const aggB = aggFor(b.symbols, 'test://xgoto-into');
     const cB = locate(srcXgoto, 'pl x', 3);
     const vB = getPossibleValuesAtCursor(b.symbols, aggB, b.tree!, cB.line, cB.column, 'x');
-    expect(vB.every(v => !(v.binding.value.kind === 'number'
-      && v.binding.value.value === 1))).toBe(true);
+    expect(vB.every(v => !(v.binding.value.kind === 'expr'
+      && /\b1\b/.test(v.binding.stmtText)))).toBe(true);
   });
 
   // ── BACK direction: callee write must NOT bubble to caller-local ────
@@ -1821,14 +1919,14 @@ x = 99
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     // Caller's own local stays visible.
     expect(vals.some(v => v.origin === 'scope'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 1)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b1\b/.test(v.binding.stmtText))).toBe(true);
     // Callee write to `x` (now a global, since `gt` doesn't share scope)
     // must NOT appear as a cross-call entry.  It MAY appear as a
     // 'document' entry — that's the global write surfaced by step 3.
     expect(vals.every(v => !(v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 99))).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b99\b/.test(v.binding.stmtText)))).toBe(true);
   });
 
   it('xgt: callee write does NOT bubble back as a cross-call to caller-local', () => {
@@ -1846,11 +1944,11 @@ x = 99
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     expect(vals.some(v => v.origin === 'scope'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 1)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b1\b/.test(v.binding.stmtText))).toBe(true);
     expect(vals.every(v => !(v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 99))).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b99\b/.test(v.binding.stmtText)))).toBe(true);
   });
 
   // ── Mixed: gs alongside gt — only gs propagates ─────────────────────
@@ -1874,12 +1972,12 @@ x = 99
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     // gs-callee write reaches caller-local as cross-call.
     expect(vals.some(v => v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 22)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b22\b/.test(v.binding.stmtText))).toBe(true);
     // gt-callee write does NOT reach caller-local as cross-call.
     expect(vals.every(v => !(v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 99))).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b99\b/.test(v.binding.stmtText)))).toBe(true);
   });
 
   // ── externalLocalBindings should be empty for the goto-only callee ──
@@ -1958,10 +2056,10 @@ pl x
     const agg = aggFor(symbols, 'test://cbl-1');
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 0)).toBe(true);
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 42)).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b0\b/.test(v.binding.stmtText))).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b42\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('per-call-site resolution: two scope-separate local $code each write different values', () => {
@@ -1984,10 +2082,10 @@ pl x
     const agg = aggFor(symbols, 'test://cbl-2');
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 100)).toBe(true);
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 200)).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b100\b/.test(v.binding.stmtText))).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b200\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('var-ref chain through local aliasing: $alias = $code; dynamic $alias', () => {
@@ -2003,8 +2101,8 @@ pl x
     const agg = aggFor(symbols, 'test://cbl-3');
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 7)).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b7\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('reassigned local $code picks up ALL reachable block bodies (ambiguity)', () => {
@@ -2043,8 +2141,8 @@ z = dyneval($c, 5)
     const { line, column } = locate(src, 'x + 1');
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x', { hoverMode: true });
     expect(vals.some(v => v.origin === 'scope'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 10)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b10\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('caller local read inside block body of a local $code invoked via dynamic $code', () => {
@@ -2063,8 +2161,8 @@ dynamic $code
     const column = before.length - (before.lastIndexOf('\n') + 1);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x', { hoverMode: true });
     expect(vals.some(v => v.origin === 'scope'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 42)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b42\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   // ── (b) dynamic/dyneval with direct literal + extra positional args ──
@@ -2084,8 +2182,8 @@ dynamic { pl x }, 1, 2
     const column = before.length - (before.lastIndexOf('\n') + 1);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     expect(vals.some(v => v.origin === 'scope'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 5)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b5\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('dyneval({ literal }, 1) propagates caller local into the block body', () => {
@@ -2102,8 +2200,8 @@ y = dyneval({ pl x }, 1)
     const column = before.length - (before.lastIndexOf('\n') + 1);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     expect(vals.some(v => v.origin === 'scope'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 10)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b10\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('dynamic {literal}, extras: writes in the block mutate outer local', () => {
@@ -2117,10 +2215,10 @@ pl x
     const agg = aggFor(symbols, 'test://da-3');
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 0)).toBe(true);
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 99)).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b0\b/.test(v.binding.stmtText))).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b99\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('dyneval({literal}, extras): writes in the block mutate outer local', () => {
@@ -2134,8 +2232,8 @@ pl x
     const agg = aggFor(symbols, 'test://da-4');
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 11)).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b11\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('extra positional args to dynamic are not treated as named locals', () => {
@@ -2156,10 +2254,10 @@ dynamic { pl x }, 99, 100
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     // Only the caller-local `x = 1` should surface — NOT the extra `99`
     // or `100` which are positional args unrelated to `x`.
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 1)).toBe(true);
-    expect(vals.every(v => !(v.binding.value.kind === 'number'
-      && (v.binding.value.value === 99 || v.binding.value.value === 100)))).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b1\b/.test(v.binding.stmtText))).toBe(true);
+    expect(vals.every(v => !(v.binding.value.kind === 'expr'
+      && (/\b99\b/.test(v.binding.stmtText) || /\b100\b/.test(v.binding.stmtText))))).toBe(true);
   });
 
   it('cross-location: local $code in caller, dynamic $code in callee with extras', () => {
@@ -2179,8 +2277,8 @@ dynamic $code, 99
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     // Write MUST flow back to caller local via cross-call.
     expect(vals.some(v => v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 777)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b777\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('cross-location dyneval with extras: local $c, dyneval($c, …) in callee', () => {
@@ -2199,8 +2297,8 @@ y = dyneval($c, 1, 2)
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     expect(vals.some(v => v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 5)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b5\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('nested deferred blocks: outer caller-local reaches an inner block`s read', () => {
@@ -2233,8 +2331,8 @@ dynamic $outer
     // Result must be well-formed; must not contain any false values
     // that aren't present in the source.
     for (const v of vals) {
-      if (v.binding.value.kind === 'number') {
-        expect(v.binding.value.value).toBe(3);
+      if (v.binding.value.kind === 'expr') {
+        expect(/\b3\b/.test(v.binding.stmtText)).toBe(true);
       }
     }
   });
@@ -2251,8 +2349,8 @@ pl x
     const agg = aggFor(symbols, 'test://cbl-global');
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 10)).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b10\b/.test(v.binding.stmtText))).toBe(true);
     // All entries must carry the global (non-local) flag.
     expect(vals.every(v => !v.binding.isLocal)).toBe(true);
   });
@@ -2281,10 +2379,10 @@ end
     const column = before.length - (before.lastIndexOf('\n') + 1);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x', { hoverMode: true });
     // Must see the first arm's `x = 1`, NOT the sibling arm's `x = 2`.
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 1)).toBe(true);
-    expect(vals.every(v => !(v.binding.value.kind === 'number'
-      && v.binding.value.value === 2))).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b1\b/.test(v.binding.stmtText))).toBe(true);
+    expect(vals.every(v => !(v.binding.value.kind === 'expr'
+      && /\b2\b/.test(v.binding.stmtText)))).toBe(true);
   });
 
   // ── Reassignment chains (RHS is another variable) ──────────────────
@@ -2311,8 +2409,8 @@ pl $b
     const agg = aggFor(symbols, 'test://rc-1');
     const { line, column } = locate(src, 'pl $b', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$b');
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'A')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('A'))).toBe(true);
   });
 
   it('reassign chain: local-from-global same-location (local $b = $g)', () => {
@@ -2326,8 +2424,8 @@ pl $b
     const agg = aggFor(symbols, 'test://rc-2');
     const { line, column } = locate(src, 'pl $b', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$b');
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'G')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('G'))).toBe(true);
   });
 
   it('reassign chain: global-from-global non-local write (long chain)', () => {
@@ -2343,8 +2441,8 @@ pl $d
     const agg = aggFor(symbols, 'test://rc-3');
     const { line, column } = locate(src, 'pl $d', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$d');
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'ROOT')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('ROOT'))).toBe(true);
   });
 
   it('reassign chain: global-from-local ($b = $a where $a is local)', () => {
@@ -2361,8 +2459,8 @@ pl $b
     const agg = aggFor(symbols, 'test://rc-4');
     const { line, column } = locate(src, 'pl $b', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$b');
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'A')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('A'))).toBe(true);
   });
 
   it('reassign chain: numeric-prefix crossing (local y = #n)', () => {
@@ -2379,8 +2477,8 @@ pl y
     const agg = aggFor(symbols, 'test://rc-5');
     const { line, column } = locate(src, 'pl y', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'y');
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 5)).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b5\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('reassign chain: non-local reassignment of a local (both writes surface)', () => {
@@ -2396,10 +2494,10 @@ pl $b
     const agg = aggFor(symbols, 'test://rc-6');
     const { line, column } = locate(src, 'pl $b', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$b');
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'first')).toBe(true);
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'second')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('first'))).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('second'))).toBe(true);
   });
 
   it('reassign chain: all-local multi-hop (x → y → z)', () => {
@@ -2414,8 +2512,8 @@ pl z
     const agg = aggFor(symbols, 'test://rc-7');
     const { line, column } = locate(src, 'pl z', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'z');
-    expect(vals.some(v => v.binding.value.kind === 'number'
-      && v.binding.value.value === 10)).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && /\b10\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('reassign chain: mid-chain reassignment fans out to BOTH originals', () => {
@@ -2433,10 +2531,10 @@ pl $b
     const agg = aggFor(symbols, 'test://rc-8');
     const { line, column } = locate(src, 'pl $b', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$b');
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'first')).toBe(true);
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'second')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('first'))).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('second'))).toBe(true);
   });
 
   it('reassign chain: bare `local $b` declaration then separate assignment', () => {
@@ -2453,8 +2551,8 @@ pl $b
     const agg = aggFor(symbols, 'test://rc-9');
     const { line, column } = locate(src, 'pl $b', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$b');
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'later')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('later'))).toBe(true);
   });
 
   it('reassign chain: overwriting a global with another global aliasing', () => {
@@ -2471,10 +2569,10 @@ pl $b
     const agg = aggFor(symbols, 'test://rc-10');
     const { line, column } = locate(src, 'pl $b', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$b');
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'B')).toBe(true);
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'A')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('B'))).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('A'))).toBe(true);
   });
 
   it('reassign chain: cross-location global reached via local alias (single write bridged)', () => {
@@ -2500,8 +2598,8 @@ $g = 'G'
     expect(vals.every(v => v.binding.value.kind !== 'var-ref')).toBe(true);
     // The bridge surfaces the single terminal write as 'document'.
     expect(vals.some(v => v.origin === 'document'
-      && v.binding.value.kind === 'string'
-      && v.binding.value.value === 'G')).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('G'))).toBe(true);
   });
 
   it('reassign chain: cross-location multi-write global surfaces chain edge for renderer summary', () => {
@@ -2525,8 +2623,8 @@ $g = 'G2'
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$b', { hoverMode: true });
     // Individual terminal writes must NOT be enumerated through the
     // local chain — that's the whole point of the summary collapse.
-    expect(vals.every(v => !(v.binding.value.kind === 'string'
-      && (v.binding.value.value === 'G1' || v.binding.value.value === 'G2')))).toBe(true);
+    expect(vals.every(v => !(v.binding.value.kind === 'expr'
+      && (v.binding.stmtText.includes('G1') || v.binding.stmtText.includes('G2'))))).toBe(true);
     // Exactly one entry surfaces: the local's own var-ref edge,
     // marked 'scope' so the renderer treats it as a chain to expand.
     const varRefs = vals.filter(v => v.binding.value.kind === 'var-ref');
@@ -2579,11 +2677,11 @@ pl $g
     const { line, column } = locate(src, 'pl $g', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$g', { hoverMode: true });
     // Chain-flattened RHS surfaces the global write of $other.
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'OTHER_VAL')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('OTHER_VAL'))).toBe(true);
     // The shadowed outer $g write must NOT surface.
-    expect(vals.every(v => !(v.binding.value.kind === 'string'
-      && v.binding.value.value === 'OUTER_G'))).toBe(true);
+    expect(vals.every(v => !(v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('OUTER_G')))).toBe(true);
   });
 
   it('reassign chain: compound ops (+=) do NOT produce a var-ref alias', () => {
@@ -2606,10 +2704,10 @@ pl $b
       && v.binding.value.varBaseName === '$a'))).toBe(true);
     // Compound-op binding IS included in possible values so the hover
     // renderer can display it as e.g. `$b + 'extra'`.
-    expect(vals.some(v => v.binding.writeOp?.includes('='))).toBe(true);
+    expect(vals.some(v => v.binding.compoundOp !== undefined)).toBe(true);
     // The plain assignment ($b = 'B') is still shown.
-    expect(vals.some(v => v.binding.value.kind === 'string'
-      && v.binding.value.value === 'B')).toBe(true);
+    expect(vals.some(v => v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('B'))).toBe(true);
   });
 });
 
@@ -2656,7 +2754,12 @@ local x = x
     expect(entries[0].isLocal).toBe(true);
   });
 
-  it('classifies `$a = $a` (non-local self-noop) as a self-var-ref edge', () => {
+  it('classifies `$a = $a` (non-local self-noop) as a compound `other` op — no chain edge', () => {
+    // `$a = $a` is a self-referential plain `=` assignment: under the
+    // shared "compound" semantics it's a read-then-write of the same
+    // slot, equivalent to `$a += '' `.  The binding is recorded with
+    // `compoundOp: 'other'` and `value.kind === 'expr'` — no chain
+    // edge that would let the resolver loop back through itself.
     const src = `# test
 $a = 'hi'
 $a = $a
@@ -2666,11 +2769,10 @@ $a = $a
     const loc = symbols.locations.get('test')!;
     const entries = loc.variableBindings.get('a')!;
     expect(entries).toHaveLength(2);
-    expect(entries[0].value.kind).toBe('string');
-    expect(entries[1].value.kind).toBe('var-ref');
-    if (entries[1].value.kind === 'var-ref') {
-      expect(entries[1].value.varBaseName).toBe('a');
-    }
+    expect(entries[0].value.kind).toBe('expr');
+    expect(entries[0].compoundOp).toBeUndefined();
+    expect(entries[1].value.kind).toBe('expr');
+    expect(entries[1].compoundOp).toBe('other');
   });
 
   it('surfaces the global value through a self-shadowing local', () => {
@@ -2691,8 +2793,8 @@ pl x
     expect(vals.every(v => v.binding.value.kind !== 'var-ref')).toBe(true);
     // The document pass surfaces the single global write of `x`.
     expect(vals.some(v => v.origin === 'document'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 7)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b7\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('surfaces the caller-propagated local through a self-shadowing local', () => {
@@ -2713,8 +2815,8 @@ pl x
     // Caller's `local x = 99` reaches the callee via the reverse call
     // graph; reported as 'cross-call' origin.
     expect(vals.some(v => v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 99)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b99\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('surfaces BOTH caller-local and global when both exist', () => {
@@ -2736,11 +2838,11 @@ x = 7
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x', { hoverMode: true });
     // Caller local (cross-call) + global (document) — both visible.
     expect(vals.some(v => v.origin === 'cross-call'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 99)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b99\b/.test(v.binding.stmtText))).toBe(true);
     expect(vals.some(v => v.origin === 'document'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 7)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b7\b/.test(v.binding.stmtText))).toBe(true);
   });
 
   it('surfaces every caller-local when multiple callers propagate the same name', () => {
@@ -2762,10 +2864,10 @@ pl x
     const { line, column } = locate(src, 'pl x', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x', { hoverMode: true });
     const numVals = vals
-      .filter(v => v.origin === 'cross-call' && v.binding.value.kind === 'number')
-      .map(v => (v.binding.value as { kind: 'number'; value: number }).value)
+      .filter(v => v.origin === 'cross-call' && v.binding.value.kind === 'expr')
+      .map(v => v.binding.stmtText)
       .sort();
-    expect(numVals).toEqual([1, 2]);
+    expect(numVals).toEqual(['local x = 1', 'local x = 2']);
   });
 
   it('honours type prefix: `local $s = $s` picks up caller `local $s = ...`', () => {
@@ -2783,8 +2885,8 @@ pl $s
     const { line, column } = locate(src, 'pl $s', 3);
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, '$s', { hoverMode: true });
     expect(vals.some(v => v.origin === 'cross-call'
-      && v.binding.value.kind === 'string'
-      && v.binding.value.value === 'alpha')).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && v.binding.stmtText.includes('alpha'))).toBe(true);
   });
 
   it('does NOT inject caller-locals when the callee is not a self-shadow', () => {
@@ -2805,11 +2907,11 @@ pl x
     const vals = getPossibleValuesAtCursor(symbols, agg, tree!, line, column, 'x');
     // Only the local = 5 value is visible.
     expect(vals.some(v => v.origin === 'scope'
-      && v.binding.value.kind === 'number'
-      && v.binding.value.value === 5)).toBe(true);
+      && v.binding.value.kind === 'expr'
+      && /\b5\b/.test(v.binding.stmtText))).toBe(true);
     // The caller's 99 must NOT leak in.
-    expect(vals.every(v => !(v.binding.value.kind === 'number'
-      && v.binding.value.value === 99))).toBe(true);
+    expect(vals.every(v => !(v.binding.value.kind === 'expr'
+      && /\b99\b/.test(v.binding.stmtText)))).toBe(true);
   });
 });
 
@@ -2941,7 +3043,7 @@ local $a = $b
 // opaque (kind='other', no rhsTypePrefix) — see bindingCollector.
 // ──────────────────────────────────────────────────────────────────────
 
-describe('variableBindings: indexed writes capture indexText', () => {
+describe('variableBindings: indexed writes are captured verbatim in stmtText', () => {
   const parser = new QspTreeSitterParser();
   beforeAll(() => initParser(parser));
 
@@ -2954,28 +3056,28 @@ describe('variableBindings: indexed writes capture indexText', () => {
   it('captures simple identifier index', () => {
     const bs = bindingsFor(`# main\nqqq[test] = 6\n---\n`, 'main', 'qqq');
     expect(bs).toHaveLength(1);
-    expect(bs[0].indexText).toBe('test');
-    expect(bs[0].value.kind).toBe('other');
+    expect(bs[0].stmtText).toContain('[test]');
+    expect(bs[0].value.kind).toBe('expr');
     expect(bs[0].writePrefix).toBe('#');
   });
 
   it('captures numeric literal index', () => {
     const bs = bindingsFor(`# main\narr[0] = 5\n---\n`, 'main', 'arr');
     expect(bs).toHaveLength(1);
-    expect(bs[0].indexText).toBe('0');
+    expect(bs[0].stmtText).toContain('[0]');
   });
 
   it('captures string-key index', () => {
     const bs = bindingsFor(`# main\n$arr['k'] = 'v'\n---\n`, 'main', 'arr');
     expect(bs).toHaveLength(1);
-    expect(bs[0].indexText).toBe("'k'");
+    expect(bs[0].stmtText).toContain("['k']");
     expect(bs[0].writePrefix).toBe('$');
   });
 
   it('captures empty bracket as empty string', () => {
     const bs = bindingsFor(`# main\narr[] = 99\n---\n`, 'main', 'arr');
     expect(bs).toHaveLength(1);
-    expect(bs[0].indexText).toBe('');
+    expect(bs[0].stmtText).toContain('[]');
   });
 
   it('captures multi-arg index preserving interior spaces', () => {
@@ -2983,75 +3085,66 @@ describe('variableBindings: indexed writes capture indexText', () => {
     // are collapsed.  Author's `[1,  2]` survives as `1,  2`.
     const bs = bindingsFor(`# main\narr[1,  2] = 5\n---\n`, 'main', 'arr');
     expect(bs).toHaveLength(1);
-    expect(bs[0].indexText).toBe('1,  2');
+    expect(bs[0].stmtText).toContain('[1,  2]');
   });
 
-  it('non-indexed write does not set indexText', () => {
+  it('non-indexed write does not introduce a bracket suffix', () => {
     const bs = bindingsFor(`# main\narr = 5\n---\n`, 'main', 'arr');
     expect(bs).toHaveLength(1);
-    expect(bs[0].indexText).toBeUndefined();
+    expect(bs[0].stmtText).not.toContain('[');
   });
 
   it('captures index expression using a variable read', () => {
     // The index expression itself reads `test` — that read is tracked
     // by the symbolWalker independently; here we only check that the
-    // binding's indexText preserves the source text.
+    // binding's stmtText preserves the source text.
     const bs = bindingsFor(`# main\nqqq[test+1] = 6\n---\n`, 'main', 'qqq');
     expect(bs).toHaveLength(1);
-    expect(bs[0].indexText).toBe('test+1');
+    expect(bs[0].stmtText).toContain('[test+1]');
   });
 
-  it("captures setvar's third positional arg as indexText", () => {
-    // `setvar 'q', 5, 3` — the third arg is the index (not embedded
-    // in the name string).  The binding records `q` as the var, with
-    // indexText='3' and writeOp='setvar'.
+  it("captures setvar's third positional arg in stmtText", () => {
+    // `setvar 'q', 5, 3` — the index lives in the source statement,
+    // surfaced verbatim via stmtText.
     const bs = bindingsFor(`# main\nsetvar 'q', 5, 3\n---\n`, 'main', 'q');
     expect(bs).toHaveLength(1);
-    expect(bs[0].indexText).toBe('3');
-    expect(bs[0].writeOp).toBe('setvar');
+    expect(bs[0].stmtText).toContain("setvar 'q', 5, 3");
     expect(bs[0].writePrefix).toBe('#');
   });
 
-  it('setvar without the optional index leaves indexText undefined', () => {
+  it('setvar without the optional index still binds the var', () => {
     const bs = bindingsFor(`# main\nsetvar 'q', 5\n---\n`, 'main', 'q');
     expect(bs).toHaveLength(1);
-    expect(bs[0].indexText).toBeUndefined();
-    expect(bs[0].writeOp).toBe('setvar');
+    expect(bs[0].stmtText).toContain("setvar 'q', 5");
   });
 
-  it("setvar with prefixed name keeps prefix and captures index", () => {
+  it("setvar with prefixed name keeps prefix", () => {
     const bs = bindingsFor(`# main\nsetvar '$q', 'hi', 0\n---\n`, 'main', 'q');
     expect(bs).toHaveLength(1);
-    expect(bs[0].indexText).toBe('0');
+    expect(bs[0].stmtText).toContain("setvar '$q', 'hi', 0");
     expect(bs[0].writePrefix).toBe('$');
   });
 
-  it('setvar captures the value arg text alongside the index', () => {
-    // `setvar 'q', 5, 3` — value `5` is recorded as `value.text` so
-    // hovers can show `#q[3] = 5 *(set by setvar)*`.
+  it('setvar captures the value and index arg text', () => {
+    // `setvar 'q', 5, 3` — the surrounding source statement is captured
+    // in `stmtText`; hovers render it verbatim.
     const bs = bindingsFor(`# main\nsetvar 'q', 5, 3\n---\n`, 'main', 'q');
     expect(bs).toHaveLength(1);
-    const v = bs[0].value as { kind: 'other'; text?: string };
-    expect(v.kind).toBe('other');
-    expect(v.text).toBe('5');
-    expect(bs[0].indexText).toBe('3');
-    expect(bs[0].writeOp).toBe('setvar');
+    expect(bs[0].value.kind).toBe('expr');
+    expect(bs[0].stmtText).toContain("setvar 'q', 5, 3");
   });
 
   it('setvar without an index still captures the value arg text', () => {
     const bs = bindingsFor(`# main\nsetvar 'q', 'hi'\n---\n`, 'main', 'q');
     expect(bs).toHaveLength(1);
-    const v = bs[0].value as { kind: 'other'; text?: string };
-    expect(v.text).toBe("'hi'");
-    expect(bs[0].indexText).toBeUndefined();
+    expect(bs[0].stmtText).toContain("'hi'");
   });
 
   it('setvar captures complex expression value text (whitespace-collapsed)', () => {
     const bs = bindingsFor(`# main\nsetvar 'q',  a + b * 2,  idx\n---\n`, 'main', 'q');
     expect(bs).toHaveLength(1);
-    const v = bs[0].value as { kind: 'other'; text?: string };
-    expect(v.text).toBe('a + b * 2');
-    expect(bs[0].indexText).toBe('idx');
+    expect(bs[0].stmtText).toContain('a + b * 2');
+    expect(bs[0].stmtText).toContain('idx');
   });
 
   // ── Dynamic name args ─────────────────────────────────────────
@@ -3090,8 +3183,7 @@ describe('variableBindings: indexed writes capture indexText', () => {
   it('still records a binding for constant-string setvar inside parens', () => {
     const bs = bindingsFor(`# main\nsetvar('q', 5, 3)\n---\n`, 'main', 'q');
     expect(bs).toHaveLength(1);
-    expect(bs[0].indexText).toBe('3');
-    expect((bs[0].value as { text?: string }).text).toBe('5');
+    expect(bs[0].stmtText).toContain("setvar('q', 5, 3)");
   });
 });
 
@@ -3149,10 +3241,10 @@ describe('variableBindings: indexed-write rhsTypePrefix inference', () => {
     expect(bs).toHaveLength(0); // sanity: not stored under '$arr'
   });
 
-  it('records writeOp for compound-op indexed writes', () => {
+  it('records compoundOp for compound-op indexed writes', () => {
     const bs = bindingsFor(`# main\narr[0] += 1\n---\n`, 'main', 'arr');
-    expect(bs[0].writeOp).toBe('+=');
-    expect(bs[0].indexText).toBe('0');
+    expect(bs[0].compoundOp).toBe('+=');
+    expect(bs[0].stmtText).toContain('[0]');
     expect(bs[0].rhsTypePrefix).toBe('#');
   });
 
@@ -3174,7 +3266,7 @@ describe('variableBindings: indexed-write rhsTypePrefix inference', () => {
     // `arr[i] = b` reads one slot — we must not propagate `b`'s value
     // to the whole `arr` chain.  The binding stays opaque kind='other'.
     const bs = bindingsFor(`# main\narr[0] = b\n---\n`, 'main', 'arr');
-    expect(bs[0].value.kind).toBe('other');
+    expect(bs[0].value.kind).toBe('expr');
     // Sanity: `b` itself has no aliased binding from this site either.
     const bBs = bindingsFor(`# main\narr[0] = b\n---\n`, 'main', 'b');
     expect(bBs).toHaveLength(0);
@@ -3183,7 +3275,337 @@ describe('variableBindings: indexed-write rhsTypePrefix inference', () => {
   it('plain assignment from indexed read does NOT create var-ref alias', () => {
     // `$x = b[0]` reads one slot, so we don't alias $x → b.
     const bs = bindingsFor(`# main\n$x = b[0]\n---\n`, 'main', 'x');
-    expect(bs[0].value.kind).toBe('other');
-    expect(bs[0].value.kind === 'other' && bs[0].value.text).toBe('b[0]');
+    expect(bs[0].value.kind).toBe('expr');
+    expect(bs[0].stmtText).toContain('b[0]');
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────
+// Tuple unpacking — comprehensive case matrix
+//
+// QSP packs all RHS values into a single tuple, then assigns
+// element-wise onto the LHS list — with one twist: the LAST LHS
+// greedily absorbs the entire RHS tail.  The three equivalent RHS
+// surface forms (comma list, `[…]`, `(…)`) are all expanded to the
+// same element sequence; opaque `%`-typed RHS (`%f`, `arrpack(…)`)
+// whose element count is statically unknown takes a separate,
+// conservative path.
+//
+//   `a, b = 1, 2`      → a=1, b=2         (tail len 1, scalar)
+//   `a, b = 1, 2, 3`   → a=1, b=(2,3)     (tail ≥2  → tuple)
+//   `a, %t = 1, 2`     → a=1, %t=[2]      (singleton wraps for %)
+//   `a, %t = 1`        → a=1, %t empty    (no tail → unassigned)
+//   `a, b, c = 1, 2`   → a=1, b=2, c empty (head short)
+//   `a, b = ()` / `[]` → both unassigned   (empty literal)
+//   `a = 1, 2, 3`      → a=(1,2,3)        (single LHS absorbs all)
+//
+// For a non-`%` LHS receiving a tail of ≥2 elements the binding gets
+// `rhsTypePrefix='%'` so the existing `typeMismatch` pass flags
+// "assignment of a tuple value to a `$`/`#` variable".
+//
+// Sections below:
+//   A — arity match (element-wise zip)
+//   B — RHS shorter than LHS (extras on LHS)
+//   C — RHS longer than LHS (tail absorption)
+//   D — opaque `%`-typed RHS
+//   E — indexed LHS slots
+//   F — compound ops (no tail synthesis)
+//   G — resolved-literal unpack (separate `describe` block below)
+// ──────────────────────────────────────────────────────────────────────
+
+describe('variableBindings: tuple unpacking', () => {
+  const parser = new QspTreeSitterParser();
+  beforeAll(() => initParser(parser));
+
+  function bindingsFor(src: string, locName: string, varBase: string) {
+    const { symbols } = parseAndExtract(parser, src, 'test://unpack');
+    const loc = getLoc(symbols, locName);
+    return loc.variableBindings.get(varBase) ?? [];
+  }
+
+  // The three RHS surface forms (comma list, `[…]`, `(…)`) expand to
+  // an identical element sequence — every test that varies the form
+  // builds its sources via this helper to keep coverage compact.
+  const rhsForms = (lhs: string, elems: string[]) => [
+    `${lhs} = ${elems.join(', ')}`,
+    `${lhs} = [${elems.join(', ')}]`,
+    `${lhs} = (${elems.join(', ')})`,
+  ];
+
+  // ── A.  Arity match: LHS count == RHS element count ──────────────
+  // Every LHS gets a regular scalar binding with `rhsTypePrefix`
+  // derived from its paired RHS element (not from the whole tuple).
+  describe('arity match — element-wise zip', () => {
+    it('all three RHS forms × local/non-local produce identical scalar bindings', () => {
+      const sources: string[] = [];
+      for (const lhs of ['a, b, c', 'local a, b, c']) {
+        sources.push(...rhsForms(lhs, ['1', '2', '3']));
+      }
+      for (const src of sources) {
+        const full = `# main\n${src}\n---\n`;
+        for (const name of ['a', 'b', 'c']) {
+          const bs = bindingsFor(full, 'main', name);
+          expect(bs[0].value).toEqual({ kind: 'expr' });
+          expect(bs[0].rhsTypePrefix).toBe('#');
+        }
+      }
+    });
+
+    it('per-slot `rhsTypePrefix` tracks each RHS element type', () => {
+      // String / numeric / tuple slots in one statement.
+      const src = `# main\n$a, b, %c = 'x', 1, [2, 3]\n---\n`;
+      expect(bindingsFor(src, 'main', 'a')[0].rhsTypePrefix).toBe('$');
+      expect(bindingsFor(src, 'main', 'b')[0].rhsTypePrefix).toBe('#');
+      expect(bindingsFor(src, 'main', 'c')[0].rhsTypePrefix).toBe('%');
+    });
+  });
+
+  // ── B.  LHS too long: trailing slots receive no value ────────────
+  // Under `local`, trailing slots get a declaration-only binding so
+  // `uninitializedVariables` can flag subsequent reads.  Under
+  // non-local, no binding entry is created (the runtime simply never
+  // writes those globals).  An empty literal `()` / `[]` is treated
+  // as a zero-element RHS — every LHS slot follows the same rule.
+  describe('arity mismatch — RHS shorter than LHS', () => {
+    it('local: trailing slots are declaration-only across all three RHS forms', () => {
+      for (const src of rhsForms('local a, b, c', ['1', '2'])) {
+        const full = `# main\n${src}\n---\n`;
+        expect(bindingsFor(full, 'main', 'a')[0].isValueBearing).toBe(true);
+        expect(bindingsFor(full, 'main', 'b')[0].isValueBearing).toBe(true);
+        expect(bindingsFor(full, 'main', 'c')[0].isValueBearing).toBe(false);
+      }
+    });
+
+    it('non-local: trailing slots have no binding entry across all three RHS forms', () => {
+      for (const src of rhsForms('a, b, c', ['1', '2'])) {
+        const full = `# main\n${src}\n---\n`;
+        expect(bindingsFor(full, 'main', 'a')).toHaveLength(1);
+        expect(bindingsFor(full, 'main', 'b')).toHaveLength(1);
+        expect(bindingsFor(full, 'main', 'c')).toHaveLength(0);
+      }
+    });
+
+    it('empty literal `[]` / `()` leaves every LHS without a value (local + non-local)', () => {
+      for (const empty of ['[]', '()']) {
+        const lSrc = `# main\nlocal a, b = ${empty}\n---\n`;
+        expect(bindingsFor(lSrc, 'main', 'a')[0].isValueBearing).toBe(false);
+        expect(bindingsFor(lSrc, 'main', 'b')[0].isValueBearing).toBe(false);
+        const gSrc = `# main\na, b = ${empty}\n---\n`;
+        expect(bindingsFor(gSrc, 'main', 'a')).toHaveLength(0);
+        expect(bindingsFor(gSrc, 'main', 'b')).toHaveLength(0);
+      }
+    });
+
+    it('`%`-tail with empty tail records as declaration-only', () => {
+      // `local a, %t = 1` — `%t` has no tail elements to absorb.
+      // Treated as unassigned (runtime would store an empty tuple).
+      const src = `# main\nlocal a, %t = 1\n---\n`;
+      expect(bindingsFor(src, 'main', 'a')[0].isValueBearing).toBe(true);
+      expect(bindingsFor(src, 'main', 't')[0].isValueBearing).toBe(false);
+    });
+  });
+
+  // ── C.  LHS too short: last LHS absorbs the RHS tail ─────────────
+  // The last LHS receives `elems[lastIdx..]`.  When the tail is ≥2
+  // elements the value is a synthesized tuple — recorded with
+  // `rhsTypePrefix='%'` so `typeMismatch` flags a non-`%` LHS as
+  // "tuple → scalar".  A singleton tail keeps the element type for
+  // non-`%` LHS; a `%`-LHS auto-wraps the singleton to a tuple.
+  describe('arity mismatch — RHS longer than LHS (tail absorption)', () => {
+    it('non-`%` last LHS with ≥2-element tail records rhsTypePrefix="%"', () => {
+      // Full matrix: 2 LHS prefixes (#, $) × 2 locality × 3 RHS forms.
+      for (const { lhs, name, writePrefix } of [
+        { lhs: 'a, b', name: 'b', writePrefix: '#' as const },
+        { lhs: '$a, $b', name: 'b', writePrefix: '$' as const },
+      ]) {
+        for (const lp of ['', 'local ']) {
+          for (const src of rhsForms(`${lp}${lhs}`, ['1', '2', '3'])) {
+            const full = `# main\n${src}\n---\n`;
+            const last = bindingsFor(full, 'main', name);
+            expect(last).toHaveLength(1);
+            expect(last[0].writePrefix).toBe(writePrefix);
+            expect(last[0].rhsTypePrefix).toBe('%');
+            expect(last[0].value).toEqual({ kind: 'expr' });
+          }
+        }
+      }
+    });
+
+    it('`%`-last LHS with ≥2-element tail records rhsTypePrefix="%" (well-typed)', () => {
+      for (const lp of ['', 'local ']) {
+        for (const src of rhsForms(`${lp}a, %t`, ['1', '2', '3'])) {
+          const full = `# main\n${src}\n---\n`;
+          const t = bindingsFor(full, 'main', 't');
+          expect(t[0].writePrefix).toBe('%');
+          expect(t[0].rhsTypePrefix).toBe('%');
+        }
+      }
+    });
+
+    it('non-`%` last LHS with singleton tail keeps its element type (no tuple wrap)', () => {
+      // `a, b = 1, 2` — tail is a single element; binding is scalar.
+      const b = bindingsFor(`# main\na, b = 1, 2\n---\n`, 'main', 'b');
+      expect(b[0].writePrefix).toBe('#');
+      expect(b[0].rhsTypePrefix).toBe('#');
+    });
+
+    it('`%`-last LHS with singleton tail wraps to a tuple', () => {
+      // `a, %t = 1, 2` → a=1, %t=[2].  rhsTypePrefix='%' so the
+      // numeric element doesn't spuriously fire a typeMismatch.
+      const t = bindingsFor(`# main\na, %t = 1, 2\n---\n`, 'main', 't');
+      expect(t[0].writePrefix).toBe('%');
+      expect(t[0].rhsTypePrefix).toBe('%');
+    });
+
+    it('single LHS with multi-element RHS absorbs all into a tuple', () => {
+      // `a = 1, 2, 3` → typeMismatch via rhsTypePrefix='%'.
+      const a = bindingsFor(`# main\na = 1, 2, 3\n---\n`, 'main', 'a');
+      expect(a).toHaveLength(1);
+      expect(a[0].writePrefix).toBe('#');
+      expect(a[0].rhsTypePrefix).toBe('%');
+      // Well-typed `%`-LHS variant.
+      const z = bindingsFor(`# main\nlocal %z = 1, 2, 6, 7\n---\n`, 'main', 'z');
+      expect(z[0].writePrefix).toBe('%');
+      expect(z[0].rhsTypePrefix).toBe('%');
+    });
+  });
+
+  // ── D.  Opaque RHS — element count statically unknown ────────────
+  // A single `%`-typed RHS expression (`%f`, `arrpack(…)`, …) whose
+  // element count can't be determined.  Every LHS gets an opaque
+  // binding with `rhsTypePrefix` suppressed so element-level type
+  // checks don't fire on unknown extractions.
+  describe('opaque `%`-typed RHS', () => {
+    it('every LHS records `kind:"expr"` with rhsTypePrefix undefined', () => {
+      for (const lhs of ['local a, b', 'a, b', 'local a, %t', 'a, %t']) {
+        const src = `# main\n${lhs} = %f\n---\n`;
+        const first = bindingsFor(src, 'main', 'a');
+        const last = bindingsFor(src, 'main', lhs.includes('%t') ? 't' : 'b');
+        for (const x of [first, last]) {
+          expect(x[0].value).toEqual({ kind: 'expr' });
+          expect(x[0].rhsTypePrefix).toBeUndefined();
+        }
+      }
+    });
+
+    it('built-in `arrpack(…)` is recognised as opaque-`%`', () => {
+      const src = `# main\nlocal a, b = arrpack('x', 0, 3)\n---\n`;
+      expect(bindingsFor(src, 'main', 'a')[0].rhsTypePrefix).toBeUndefined();
+      expect(bindingsFor(src, 'main', 'b')[0].rhsTypePrefix).toBeUndefined();
+    });
+  });
+
+  // ── E.  Indexed LHS slots ────────────────────────────────────────
+  // `a[i]` / `b['k']` slots flow through the same rules as plain LHS,
+  // and each binding's `stmtText` preserves the slot expression
+  // verbatim so slot-level lookups still see the write.
+  describe('indexed LHS', () => {
+    it('zips element-wise across indexed slots (local + non-local)', () => {
+      for (const src of [
+        `# main\na[0], b['x'] = 2, 6\n---\n`,
+        `# main\nlocal a[0], b['x'] = 2, 6\n---\n`,
+      ]) {
+        const a = bindingsFor(src, 'main', 'a');
+        const b = bindingsFor(src, 'main', 'b');
+        expect(a[0].stmtText).toContain('[0]');
+        expect(b[0].stmtText).toContain("['x']");
+      }
+    });
+
+    it('indexed last LHS triggers tail absorption when RHS is longer', () => {
+      // `a, b[0] = 1, 2, 3` — b[0]'s tail is `2, 3` → rhsTypePrefix='%'.
+      const b = bindingsFor(`# main\na, b[0] = 1, 2, 3\n---\n`, 'main', 'b');
+      expect(b[0].rhsTypePrefix).toBe('%');
+      expect(b[0].stmtText).toContain('[0]');
+    });
+
+    it('opaque RHS with indexed head LHS records the slot verbatim (no drop)', () => {
+      // Regression: previously `a[0]` was silently dropped on opaque RHS.
+      const src = `# main\na[0], b = %f\n---\n`;
+      const a = bindingsFor(src, 'main', 'a');
+      expect(a).toHaveLength(1);
+      expect(a[0].stmtText).toContain('[0]');
+      expect(a[0].rhsTypePrefix).toBeUndefined();
+    });
+
+    it('indexed head + `%`-tail preserves slot text on every binding', () => {
+      const src = `# main\na[0], %t = 1, 2, 3\n---\n`;
+      const a = bindingsFor(src, 'main', 'a');
+      const t = bindingsFor(src, 'main', 't');
+      expect(a[0].stmtText).toContain('[0]');
+      expect(t[0].writePrefix).toBe('%');
+      expect(t[0].rhsTypePrefix).toBe('%');
+    });
+  });
+
+  // ── F.  Compound ops never participate in tail absorption ────────
+  // Compound assignment semantics are opaque for value propagation;
+  // the multi-LHS form is a plain element-wise zip with no tuple
+  // synthesis on the last LHS.
+  describe('compound assignment ops', () => {
+    it('compound op never synthesises a tuple `rhsTypePrefix`', () => {
+      const b = bindingsFor(`# main\nb += 1\n---\n`, 'main', 'b');
+      expect(b[0].compoundOp).toBe('+=');
+      // Even with a comma-RHS the collector must NOT synthesize '%'.
+      const a = bindingsFor(`# main\na += 1, 2\n---\n`, 'main', 'a');
+      if (a.length > 0) {
+        expect(a[0].rhsTypePrefix).not.toBe('%');
+      }
+    });
+  });
+
+  // Resolved-literal unpack — when a %-var RHS was previously assigned
+  // a known tuple literal in the same location, the collector resolves
+  // the unpack element-wise at bind time (no var-ref indirection needed).
+  describe('resolved-literal unpack (`a, b, c = %t` when `%t = [1,2,3]` is known)', () => {
+    it('resolves head elements from a known tuple literal', () => {
+      // %t = [1, 2, 3] precedes a, b, c = %t in the same location.
+      const src = `# main\n%t = [1, 2, 3]\na, b, c = %t\n---\n`;
+      expect(bindingsFor(src, 'main', 'a')[0].value).toEqual({ kind: 'expr' });
+      expect(bindingsFor(src, 'main', 'b')[0].value).toEqual({ kind: 'expr' });
+      expect(bindingsFor(src, 'main', 'c')[0].value).toEqual({ kind: 'expr' });
+    });
+
+    it('resolves head + tail from a known tuple literal', () => {
+      // a gets 1, %b collects [2, 3]
+      const src = `# main\n%t = [1, 2, 3]\na, %b = %t\n---\n`;
+      expect(bindingsFor(src, 'main', 'a')[0].value).toEqual({ kind: 'expr' });
+      expect(bindingsFor(src, 'main', 'b')[0].value).toEqual({ kind: 'expr' });
+    });
+
+    it('resolves local unpack from a local tuple literal', () => {
+      const src = `# main\nlocal %t = [10, 20]\nlocal a, b = %t\n---\n`;
+      expect(bindingsFor(src, 'main', 'a')[0].value).toEqual({ kind: 'expr' });
+      expect(bindingsFor(src, 'main', 'b')[0].value).toEqual({ kind: 'expr' });
+    });
+
+    it('falls back to stmt binding when %t has no known literal in this location', () => {
+      // %f is not assigned a literal here so the unpack stays opaque.
+      const src = `# main\na, b = %f\n---\n`;
+      expect(bindingsFor(src, 'main', 'a')[0].value).toEqual({ kind: 'expr' });
+      expect(bindingsFor(src, 'main', 'b')[0].value).toEqual({ kind: 'expr' });
+    });
+
+    it('clears the literal cache when %t is reassigned a non-literal', () => {
+      // After `%t = x` (non-literal), the old [1,2,3] is stale.
+      // a, b = %t should fall back to a stmt binding.
+      const src = `# main\n%t = [1, 2, 3]\n%t = x\na, b = %t\n---\n`;
+      expect(bindingsFor(src, 'main', 'a')[0].value).toEqual({ kind: 'expr' });
+    });
+
+    it('uses the most recent literal when %t is reassigned', () => {
+      // Second assignment wins.
+      const src = `# main\n%t = [1, 2]\n%t = [10, 20]\na, b = %t\n---\n`;
+      expect(bindingsFor(src, 'main', 'a')[0].value).toEqual({ kind: 'expr' });
+      expect(bindingsFor(src, 'main', 'b')[0].value).toEqual({ kind: 'expr' });
+    });
+
+    it('resolved tail is `[]` when literal is shorter than head LHS count', () => {
+      // [1] has only one element; a gets 1, %b gets []
+      const src = `# main\n%t = [1]\na, %b = %t\n---\n`;
+      expect(bindingsFor(src, 'main', 'a')[0].value).toEqual({ kind: 'expr' });
+      expect(bindingsFor(src, 'main', 'b')[0].value).toEqual({ kind: 'expr' });
+    });
+  });
+});
+

@@ -2674,14 +2674,24 @@ pl x
 // Renderer: buildPossibleValuesLines shape tests
 // ──────────────────────────────────────────────────────────────────────
 //
-// These tests exercise the rendering layer in isolation by feeding
-// synthetic `CursorValueEntry[]` arrays into `buildPossibleValuesLines`.
-// They verify HOW the renderer formats hints — origin tags, grouping
-// order, var-ref expansion shapes (single/multi/unresolved), value
-// truncation, overflow, and cross-file `[basename]` annotation —
-// without coupling to QSP parsing or resolver semantics.  Scenario
-// coverage (what the resolver decides to surface for each variable
-// shape) lives in test/variableBindings.test.ts.
+// Synthetic tests for the rendering layer in isolation.  The renderer
+// now formats `binding.stmtText` verbatim inside a code span — there
+// is no LHS reconstruction, no compound-op formatting, no indexed
+// write formatting, no side-effect tagging.  Everything the user sees
+// is sourced from the captured statement text, which `bindingCollector`
+// populates from the original source line.
+//
+// Concerns covered here:
+//   • `*(expr)*` fallback for empty stmtText
+//   • origin grouping (scope → cross-call → document)
+//   • `*(local)*` / `*(local via call)*` tags
+//   • var-ref chain expansion (single / multi / unresolved / dedup)
+//   • MAX_HOVER_VALUES overflow ("…and N more")
+//   • MAX_HOVER_LOCATIONS_PER_VALUE per-value tail
+//   • cross-file [basename] annotation
+//
+// Scenario coverage — what the resolver decides to surface for each
+// variable shape — lives in test/variableBindings.test.ts.
 
 describe('buildPossibleValuesLines (renderer shape)', () => {
   type Origin = CursorValueEntry['origin'];
@@ -2695,6 +2705,7 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
       locationName?: string;
       line?: number;
       isLocal?: boolean;
+      stmtText?: string;
     } = {},
   ): CursorValueEntry {
     const origin = opts.origin ?? 'scope';
@@ -2707,6 +2718,7 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
     return {
       binding: {
         value,
+        stmtText: opts.stmtText ?? '',
         stmtLoc,
         // cross-call entries are always local writes (propagated from callee)
         isLocal: opts.isLocal ?? (origin !== 'document'),
@@ -2719,44 +2731,26 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
     } as CursorValueEntry;
   }
 
-  /** Convenience: a string-literal entry. */
-  const str = (v: string, opts?: Parameters<typeof entry>[1]) =>
-    entry({ kind: 'string', value: v }, opts);
-  /** Convenience: a number-literal entry. */
-  const num = (v: number, opts?: Parameters<typeof entry>[1]) =>
-    entry({ kind: 'number', value: v }, opts);
+  /** Convenience: an opaque expression entry whose source is `stmtText`. */
+  const expr = (stmtText: string | undefined, opts?: Parameters<typeof entry>[1]) =>
+    entry({ kind: 'expr' }, { ...opts, stmtText: stmtText ?? '' });
   /** Convenience: a var-ref edge entry (the chain hop, not its target). */
   const ref = (target: string, opts?: Parameters<typeof entry>[1]) =>
-    entry({ kind: 'var-ref', varBaseName: target, readPrefix: '$' }, opts);
+    entry({ kind: 'var-ref', varBaseName: target },
+          { ...opts, stmtText: opts?.stmtText ?? `$${target}` });
   /** Convenience: a code-block entry. */
   const block = (opts?: Parameters<typeof entry>[1]) => entry(
     { kind: 'code-block', blockRange: { line: 0, column: 0, endLine: 0, endColumn: 1 } as never },
-    opts,
+    { ...opts, stmtText: opts?.stmtText ?? '{ … }' },
   );
-  /** Convenience: an opaque expression entry (with optional captured text). */
-  const expr = (text: string | undefined, opts?: Parameters<typeof entry>[1]) =>
-    entry({ kind: 'other', text }, opts);
-
-  /** Convenience: a compound-assignment entry (`+=`, `-=`, `*=`, `/=`). */
-  function compound(
-    op: '+=' | '-=' | '*=' | '/=',
-    rhsText: string,
-    writePrefix: '' | '$' | '#' | '%' = '#',
-    opts?: Parameters<typeof entry>[1],
-  ): CursorValueEntry {
-    const e = entry({ kind: 'other', text: rhsText }, opts);
-    return {
-      ...e,
-      binding: { ...e.binding, writeOp: op, writePrefix: writePrefix || '#' },
-    } as CursorValueEntry;
-  }
 
   /** Build a `PossibleValueEntry[]` list of synthetic chain children. */
-  function children(...items: { value: string; loc?: string; line?: number; uri?: string }[]):
+  function children(...items: { stmtText: string; loc?: string; line?: number; uri?: string }[]):
     PossibleValueEntry[] {
     return items.map(i => ({
       binding: {
-        value: { kind: 'string', value: i.value },
+        value: { kind: 'expr' },
+        stmtText: i.stmtText,
         stmtLoc: {
           line: i.line ?? 1, column: 0,
           endLine: i.line ?? 1, endColumn: 1,
@@ -2772,323 +2766,77 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
 
   // ── Empty input ─────────────────────────────────────────────────
 
-  it('returns [] when given no entries (caller should omit the section)', () => {
+  it('returns [] when given no entries', () => {
     expect(buildPossibleValuesLines([], 'test://hover.qsps')).toEqual([]);
   });
 
-  // ── Header & basic terminal lines ──────────────────────────────
+  // ── Header & terminal lines ─────────────────────────────────────
 
-  it('emits the bold "**Possible values:**" header followed by entries', () => {
-    const out = buildPossibleValuesLines([num(42, { locationName: 'a', line: 1, isLocal: false })], 'test://hover.qsps');
+  it('emits the bold header followed by one entry per row', () => {
+    const out = buildPossibleValuesLines(
+      [expr('42', { locationName: 'a', line: 1, isLocal: false })],
+      'test://hover.qsps',
+    );
     expect(out[0]).toBe('');
     expect(out[1]).toBe('**Possible values:**');
     expect(out[2]).toBe('- `42` — `a` line 2');
   });
 
-  it('renders a string-literal terminal in single-quoted backticks', () => {
-    const out = buildPossibleValuesLines([str('hi', { locationName: 'a', line: 0, isLocal: false })], 'test://hover.qsps')
-      .join('\n');
+  it('renders stmtText verbatim inside a code span', () => {
+    const out = buildPossibleValuesLines(
+      [expr("'hi'", { locationName: 'a', line: 0, isLocal: false })],
+      'test://hover.qsps',
+    ).join('\n');
     expect(out).toContain("- `'hi'` — `a` line 1");
   });
 
-  it('renders a code-block terminal as `{ … }`', () => {
-    const out = buildPossibleValuesLines([block({ locationName: 'a' })], 'test://hover.qsps').join('\n');
-    expect(out).toContain('`{ … }`');
+  it('falls back to *(expr)* when stmtText is empty', () => {
+    const out = buildPossibleValuesLines(
+      [expr(undefined, { locationName: 'a', isLocal: false })],
+      'test://hover.qsps',
+    ).join('\n');
+    expect(out).toContain('*(expr)*');
   });
 
-  it('renders an opaque expression with captured RHS text verbatim', () => {
-    const out = buildPossibleValuesLines([expr('$a + $b', { locationName: 'a' })], 'test://hover.qsps')
-      .join('\n');
+  it('renders an arbitrary source-line statement verbatim', () => {
+    const out = buildPossibleValuesLines(
+      [expr('$a + $b', { locationName: 'a', isLocal: false })],
+      'test://hover.qsps',
+    ).join('\n');
     expect(out).toContain('`$a + $b`');
     expect(out).not.toContain('*(expr)*');
   });
 
-  it('falls back to the `*(expr)*` placeholder when an opaque entry has no captured text', () => {
-    const out = buildPossibleValuesLines([expr(undefined, { locationName: 'a' })], 'test://hover.qsps')
-      .join('\n');
-    expect(out).toContain('*(expr)*');
-  });
-
-  // ── Terminal entries with `assignedVarName` (LHS-rendered form) ─
-
-  it('renders a number terminal as `prefix+name = literal` when assignedVarName is provided', () => {
-    const e = num(42, { locationName: 'a', line: 0, isLocal: false });
-    const we: CursorValueEntry = { ...e, binding: { ...e.binding, writePrefix: '#' } } as CursorValueEntry;
-    const out = buildPossibleValuesLines([we], 'test://hover.qsps', { assignedVarName: 'x' }).join('\n');
-    expect(out).toContain('`#x = 42`');
-  });
-
-  it('renders a string terminal as `prefix+name = \'literal\'` when assignedVarName is provided', () => {
-    const e = str('hi', { locationName: 'a', line: 0, isLocal: false });
-    const we: CursorValueEntry = { ...e, binding: { ...e.binding, writePrefix: '$' } } as CursorValueEntry;
-    const out = buildPossibleValuesLines([we], 'test://hover.qsps', { assignedVarName: 's' }).join('\n');
-    expect(out).toContain("`$s = 'hi'`");
-  });
-
-  it('renders a code-block terminal as `prefix+name = { … }` when assignedVarName is provided', () => {
-    const e = block({ locationName: 'a', isLocal: false });
-    const we: CursorValueEntry = { ...e, binding: { ...e.binding, writePrefix: '$' } } as CursorValueEntry;
-    const out = buildPossibleValuesLines([we], 'test://hover.qsps', { assignedVarName: 'expr' }).join('\n');
-    expect(out).toContain('`$expr = { … }`');
-  });
-
-  it('renders an unexpanded var-ref terminal as `→ rhs` when no varBaseName is given', () => {
-    // No `expandVarRef`, no `assignedVarName` — the renderer falls
-    // back to the arrow form pointing at the chain target.
-    const out = buildPossibleValuesLines(
-      [ref('g', { locationName: 'a', line: 0, isLocal: false })],
-      'test://hover.qsps',
-    ).join('\n');
-    expect(out).toContain('→ `$g`');
-  });
-
-  it('renders an unexpanded var-ref terminal as `prefix+name = $rhs` when assignedVarName is given', () => {
-    const e = ref('g', { locationName: 'a', line: 0, isLocal: false });
-    const we: CursorValueEntry = { ...e, binding: { ...e.binding, writePrefix: '$' } } as CursorValueEntry;
-    const out = buildPossibleValuesLines([we], 'test://hover.qsps', { assignedVarName: 'b' }).join('\n');
-    expect(out).toContain('`$b = $g`');
-    // The arrow form must not also leak through.
-    expect(out).not.toContain('→ `$g`');
-  });
-
-  // ── Side-effect writes without assignedVarName ──────────────────
-
-  it('renders a side-effect write without assignedVarName but with captured text as `rhs *(set by stmt)*`', () => {
-    const e = expr('5', { locationName: 'a', line: 0, isLocal: false });
-    const sv: CursorValueEntry = {
-      ...e, binding: { ...e.binding, writePrefix: '#', writeOp: 'setvar' },
-    } as CursorValueEntry;
-    const out = buildPossibleValuesLines([sv], 'test://hover.qsps').join('\n');
-    expect(out).toContain('`5` *(set by setvar)*');
-  });
-
-  it('renders a side-effect write without assignedVarName and without text as bare `*(set by stmt)*`', () => {
-    const e = expr(undefined, { locationName: 'a', line: 0, isLocal: false });
-    const sv: CursorValueEntry = {
-      ...e, binding: { ...e.binding, writePrefix: '#', writeOp: 'killvar' },
-    } as CursorValueEntry;
-    // Note: in production, `killvar` writes have isValueBearing:false
-    // and are filtered out earlier; this synthetic test still exercises
-    // the renderer's bare-tag branch directly.
-    const sv2: CursorValueEntry = {
-      ...sv, binding: { ...sv.binding, isValueBearing: true },
-    } as CursorValueEntry;
-    const out = buildPossibleValuesLines([sv2], 'test://hover.qsps').join('\n');
-    expect(out).toContain('*(set by killvar)*');
-    expect(out).not.toContain('``');  // no empty code span
-  });
-
-  it('renders compound += as `prefix+name op rhs` when varBaseName is provided', () => {
-    const out = buildPossibleValuesLines(
-      [compound('+=', "'more'", '$', { locationName: 'a' })],
-      'test://hover.qsps',
-      { assignedVarName: 'x' },
-    ).join('\n');
-    expect(out).toContain("`$x += 'more'`");
-  });
-
-  it('renders compound -= with numeric rhs', () => {
-    const out = buildPossibleValuesLines(
-      [compound('-=', '5', '#', { locationName: 'a' })],
-      'test://hover.qsps',
-      { assignedVarName: 'count' },
-    ).join('\n');
-    expect(out).toContain('`#count -= 5`');
-  });
-
-  it('falls back to raw rhs snippet for compound when varBaseName is absent', () => {
-    const out = buildPossibleValuesLines(
-      [compound('+=', '5', '#', { locationName: 'a' })],
-      'test://hover.qsps',
-    ).join('\n');
-    expect(out).toContain('`5`');
-    expect(out).not.toMatch(/#\w+ \+/);
-  });
-
-  // ── Indexed writes ─────────────────────────────────────────────
-
-  /**
-   * Synthetic indexed-write entry: kind='other' with `indexText` set,
-   * matching what `bindingCollector` produces for `arr[idx] = rhs`.
-   */
-  function indexed(
-    indexText: string,
-    rhsText: string | undefined,
-    writePrefix: '' | '$' | '#' | '%' = '#',
-    opts?: Parameters<typeof entry>[1],
-  ): CursorValueEntry {
-    const e = entry({ kind: 'other', text: rhsText }, opts);
-    return {
-      ...e,
-      binding: { ...e.binding, indexText, writePrefix: writePrefix || '#' },
-    } as CursorValueEntry;
-  }
-
-  it('renders indexed write as `prefixname[idx] = rhs` when varBaseName is provided', () => {
-    // writePrefix is preserved (matching the compound-op convention)
-    // — `#` shows for the default numeric prefix.
-    const out = buildPossibleValuesLines(
-      [indexed('test', '6', '#', { locationName: 'a' })],
-      'test://hover.qsps',
-      { assignedVarName: 'qqq' },
-    ).join('\n');
-    expect(out).toContain('`#qqq[test] = 6`');
-    // Should NOT show the bare value, which would be misleading for arrays.
-    expect(out).not.toMatch(/- `6` /);
-  });
-
-  it('renders indexed string-array write with $ prefix', () => {
-    const out = buildPossibleValuesLines(
-      [indexed("'k'", "'hello'", '$', { locationName: 'a' })],
-      'test://hover.qsps',
-      { assignedVarName: 'arr' },
-    ).join('\n');
-    expect(out).toContain("`$arr['k'] = 'hello'`");
-  });
-
-  it('renders empty-bracket indexed write as `name[] = rhs`', () => {
-    // QSP idiom `arr[] = x` appends to the array.
-    const out = buildPossibleValuesLines(
-      [indexed('', '99', '#', { locationName: 'a' })],
-      'test://hover.qsps',
-      { assignedVarName: 'arr' },
-    ).join('\n');
-    expect(out).toContain('`#arr[] = 99`');
-  });
-
-  it('renders multi-arg indexed write as `name[a, b] = rhs`', () => {
-    const out = buildPossibleValuesLines(
-      [indexed('1, 2', '5', '#', { locationName: 'a' })],
-      'test://hover.qsps',
-      { assignedVarName: 'arr' },
-    ).join('\n');
-    expect(out).toContain('`#arr[1, 2] = 5`');
-  });
-
-  it('falls back to `name[idx] = …` placeholder for indexed write with no captured rhs', () => {
-    const out = buildPossibleValuesLines(
-      [indexed('0', undefined, '#', { locationName: 'a' })],
-      'test://hover.qsps',
-      { assignedVarName: 'arr' },
-    ).join('\n');
-    expect(out).toContain('`#arr[0] = …`');
-  });
-
-  it('renders indexed compound-op write as `name[idx] += rhs`', () => {
-    // `arr[5] += 1` should preserve the full operator and the index.
-    const e = entry({ kind: 'other', text: '1' }, { locationName: 'a' });
-    const ce: CursorValueEntry = {
-      ...e,
-      binding: {
-        ...e.binding, indexText: '5', writePrefix: '#', writeOp: '+=',
-      },
-    } as CursorValueEntry;
-    const out = buildPossibleValuesLines([ce], 'test://hover.qsps', {
-      assignedVarName: 'arr',
-    }).join('\n');
-    expect(out).toContain('`#arr[5] += 1`');
-    // Must NOT collapse to `=` or to a bare `+`.
-    expect(out).not.toContain('`#arr[5] = 1`');
-    expect(out).not.toContain('`#arr[5] + 1`');
-  });
-
-  it('renders indexed compound-op write with no rhs as placeholder', () => {
-    const e = entry({ kind: 'other' }, { locationName: 'a' });
-    const ce: CursorValueEntry = {
-      ...e,
-      binding: {
-        ...e.binding, indexText: '0', writePrefix: '$', writeOp: '*=',
-      },
-    } as CursorValueEntry;
-    const out = buildPossibleValuesLines([ce], 'test://hover.qsps', {
-      assignedVarName: 'arr',
-    }).join('\n');
-    expect(out).toContain('`$arr[0] *= …`');
-  });
-
-  it('renders setvar-with-index and no captured value as `name[idx]` *(set by setvar)*', () => {
-    // Defensive case: an entry without `value.text` falls back to
-    // showing only the LHS slot.  In practice `setvar` always
-    // captures the value text — see the next test.
-    const e = entry({ kind: 'other' }, { locationName: 'a' });
-    const sv: CursorValueEntry = {
-      ...e,
-      binding: {
-        ...e.binding, indexText: '3', writePrefix: '#', writeOp: 'setvar',
-      },
-    } as CursorValueEntry;
-    const out = buildPossibleValuesLines([sv], 'test://hover.qsps', {
-      assignedVarName: 'q',
-    }).join('\n');
-    expect(out).toContain('`#q[3]` *(set by setvar)*');
-  });
-
-  it('renders setvar-with-index and a captured value as `name[idx] = val` *(set by setvar)*', () => {
-    // `setvar 'q', 5, 3` captures `5` as `value.text` so the hover
-    // reflects the actual write — mirroring `q[3] = 5`.
-    const e = entry({ kind: 'other', text: '5' }, { locationName: 'a' });
-    const sv: CursorValueEntry = {
-      ...e,
-      binding: {
-        ...e.binding, indexText: '3', writePrefix: '#', writeOp: 'setvar',
-      },
-    } as CursorValueEntry;
-    const out = buildPossibleValuesLines([sv], 'test://hover.qsps', {
-      assignedVarName: 'q',
-    }).join('\n');
-    expect(out).toContain('`#q[3] = 5` *(set by setvar)*');
-  });
-
-  it('renders setvar-without-index and a captured value as `name = val` *(set by setvar)*', () => {
-    // `setvar 'q', 'hi'` (no index) — non-indexed branch must also
-    // include the captured value, not collapse to a bare annotation.
-    const e = entry({ kind: 'other', text: "'hi'" }, { locationName: 'a' });
-    const sv: CursorValueEntry = {
-      ...e,
-      binding: {
-        ...e.binding, writePrefix: '$', writeOp: 'setvar',
-      },
-    } as CursorValueEntry;
-    const out = buildPossibleValuesLines([sv], 'test://hover.qsps', {
-      assignedVarName: 'q',
-    }).join('\n');
-    expect(out).toContain("`$q = 'hi'` *(set by setvar)*");
-  });
-
   // ── Origin tags ─────────────────────────────────────────────────
 
-  it('tags scope-origin LOCAL entries with *(local)*', () => {
-    // isLocal defaults to true when origin === 'scope'
-    const out = buildPossibleValuesLines([str('S', { origin: 'scope', locationName: 'a', line: 0 })],
-      'test://hover.qsps').join('\n');
+  it('tags scope-origin local entries with *(local)*', () => {
+    const out = buildPossibleValuesLines(
+      [expr("'S'", { origin: 'scope', locationName: 'a', line: 0 })],
+      'test://hover.qsps',
+    ).join('\n');
     expect(out).toMatch(/^- `'S'` \*\(local\)\* — `a` line 1$/m);
     expect(out).not.toContain('*(local via call)*');
   });
 
-  it('leaves scope-origin GLOBAL entries untagged', () => {
-    // A global variable write that happens to be flow-reachable in the
-    // current scope (e.g. `y7 = 42` in room3 while hovering y7 there)
-    // carries no tag — global writes are the unremarkable default.
+  it('leaves scope-origin global entries untagged', () => {
     const out = buildPossibleValuesLines(
-      [str('42', { origin: 'scope', isLocal: false, locationName: 'room3', line: 0 })],
+      [expr('42', { origin: 'scope', isLocal: false, locationName: 'room3', line: 0 })],
       'test://hover.qsps',
     ).join('\n');
-    expect(out).toMatch(/^- `'42'` — `room3` line 1$/m);
+    expect(out).toMatch(/^- `42` — `room3` line 1$/m);
   });
 
-  it('tags cross-call-origin LOCAL entries with *(local via call)*', () => {
-    // isLocal defaults to true for cross-call (real propagated locals are always local)
+  it('tags cross-call-origin local entries with *(local via call)*', () => {
     const out = buildPossibleValuesLines(
-      [num(99, { origin: 'cross-call', locationName: 'b', line: 4 })],
+      [expr('99', { origin: 'cross-call', locationName: 'b', line: 4 })],
       'test://hover.qsps',
     ).join('\n');
     expect(out).toMatch(/^- `99` \*\(local via call\)\* — `b` line 5$/m);
   });
 
   it('leaves document-origin entries untagged', () => {
-    // document-origin entries are always global (isLocal=false by default)
     const out = buildPossibleValuesLines(
-      [str('G', { origin: 'document', locationName: 'init', line: 1 })],
+      [expr("'G'", { origin: 'document', locationName: 'init', line: 1 })],
       'test://hover.qsps',
     ).join('\n');
     expect(out).toMatch(/^- `'G'` — `init` line 2$/m);
@@ -3098,9 +2846,9 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
 
   it('groups entries deterministically: scope → cross-call → document', () => {
     const out = buildPossibleValuesLines([
-      str('D', { origin: 'document', locationName: 'g',  line: 1 }),
-      str('C', { origin: 'cross-call', locationName: 'b', line: 2 }),
-      str('S', { origin: 'scope', locationName: 'a', line: 3 }),
+      expr("'D'", { origin: 'document', locationName: 'g',  line: 1 }),
+      expr("'C'", { origin: 'cross-call', locationName: 'b', line: 2 }),
+      expr("'S'", { origin: 'scope', locationName: 'a', line: 3 }),
     ], 'test://hover.qsps');
     const idxScope    = out.findIndex(l => l.includes("`'S'`"));
     const idxCrossCall = out.findIndex(l => l.includes("`'C'`"));
@@ -3110,24 +2858,22 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
     expect(idxDocument).toBeGreaterThan(idxCrossCall);
   });
 
-  // ── Var-ref expansion (chain flattening) ───────────────────────
+  // ── Var-ref chain expansion ─────────────────────────────────────
 
-  it('flattens a single-write var-ref without tags (chain target is a global write)', () => {
-    const expandVarRef = () => children({ value: 'GLOBAL', loc: 'init', line: 1 });
+  it('flattens a single-write var-ref to the chain target stmtText', () => {
+    const expandVarRef = () => children({ stmtText: "g = 'GLOBAL'", loc: 'init', line: 1 });
     const out = buildPossibleValuesLines(
       [ref('g', { origin: 'scope', locationName: 'a', line: 4 })],
       'test://hover.qsps',
       { expandVarRef },
     ).join('\n');
-    // Children render as `<chainTarget> = '<value>'` (the new richer
-    // format that shows the actual write site, not just the bare value).
     expect(out).toMatch(/^- `g = 'GLOBAL'` — `init` line 2$/m);
     // The bare var-ref placeholder is suppressed in favor of the flat line.
-    expect(out).not.toContain('→ `$g`');
+    expect(out).not.toContain('`$g`');
   });
 
-  it('chain-flattened cross-call var-ref carries no tag (chain target is global)', () => {
-    const expandVarRef = () => children({ value: 'X', loc: 'init', line: 1 });
+  it('flattens a cross-call var-ref without origin tags (target is global)', () => {
+    const expandVarRef = () => children({ stmtText: "g = 'X'", loc: 'init', line: 1 });
     const out = buildPossibleValuesLines(
       [ref('g', { origin: 'cross-call', locationName: 'callee', line: 6 })],
       'test://hover.qsps',
@@ -3137,10 +2883,10 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
     expect(out).not.toContain('*(local via call)*');
   });
 
-  it('expands a multi-write var-ref into individual value lines', () => {
+  it('expands a multi-write var-ref into one row per chain target', () => {
     const expandVarRef = () => children(
-      { value: 'A', loc: 'init1', line: 1 },
-      { value: 'B', loc: 'init2', line: 1 },
+      { stmtText: "g = 'A'", loc: 'init1', line: 1 },
+      { stmtText: "g = 'B'", loc: 'init2', line: 1 },
     );
     const out = buildPossibleValuesLines(
       [ref('g', { origin: 'scope', locationName: 'a', line: 1 })],
@@ -3151,70 +2897,48 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
     expect(out).toMatch(/^- `g = 'B'` — `init2` line 2$/m);
   });
 
-  it('keeps an unresolved var-ref edge as `→ \\`$name\\`` tagged *(unresolved)*', () => {
+  it('tags an unresolved var-ref edge with *(unresolved)*', () => {
     const expandVarRef = () => [];
     const out = buildPossibleValuesLines(
       [ref('missing', { origin: 'scope', locationName: 'a', line: 1 })],
       'test://hover.qsps',
       { expandVarRef },
     ).join('\n');
-    expect(out).toMatch(/^- → `\$missing` \*\(unresolved\)\* — /m);
+    expect(out).toMatch(/^- `\$missing` \*\(unresolved\)\* — `a` line 2$/m);
   });
 
   it('dedups var-ref expansion when multiple entries alias the same target', () => {
     let calls = 0;
-    const expandVarRef = () => { calls++; return children({ value: 'X', loc: 'init', line: 1 }); };
+    const expandVarRef = () => {
+      calls++;
+      return children({ stmtText: "g = 'X'", loc: 'init', line: 1 });
+    };
     const out = buildPossibleValuesLines([
       ref('g', { origin: 'scope', locationName: 'a', line: 1 }),
       ref('g', { origin: 'scope', locationName: 'a', line: 2 }),
     ], 'test://hover.qsps', { expandVarRef });
-    // The chain is expanded once; the second entry is a no-op.
     expect(calls).toBe(1);
     const flat = out.filter(l => l.includes("`g = 'X'`"));
     expect(flat.length).toBe(1);
   });
 
-  it('does NOT flatten var-ref entries when no expandVarRef callback is supplied', () => {
-    // Without a chain resolver, the renderer leaves var-ref edges
-    // verbatim — useful for the bare-formatter integration where
-    // the caller decides whether to wire chain expansion.
+  it('renders var-ref entries verbatim when no expandVarRef callback is supplied', () => {
+    // Without a chain resolver, the renderer falls through to the
+    // standard stmtText path.
     const out = buildPossibleValuesLines(
       [ref('g', { origin: 'scope', locationName: 'a', line: 1 })],
       'test://hover.qsps',
     ).join('\n');
-    expect(out).toContain('→ `$g`');
+    expect(out).toContain('`$g`');
     expect(out).not.toContain('*(unresolved)*');
   });
 
-  // ── Truncation ──────────────────────────────────────────────────
+  // ── Overflow caps ───────────────────────────────────────────────
 
-  it('truncates an overlong opaque expression with an ellipsis', () => {
-    const longText = 'a + ' + Array.from({ length: 100 }, (_, i) => `v${i}`).join(' + ');
-    const out = buildPossibleValuesLines(
-      [expr(longText, { locationName: 'a', line: 0 })],
-      'test://hover.qsps',
-    ).join('\n');
-    expect(out).toContain('…');
-    expect(out.length).toBeLessThan(longText.length + 200);
-  });
-
-  it('truncates an overlong string literal with an ellipsis', () => {
-    const longStr = 'x'.repeat(200);
-    const out = buildPossibleValuesLines(
-      [str(longStr, { locationName: 'a', line: 0 })],
-      'test://hover.qsps',
-    ).join('\n');
-    expect(out).toContain('…');
-    // 70 consecutive `x` would mean no truncation occurred.
-    expect(out).not.toContain('x'.repeat(70));
-  });
-
-  // ── Overflow cap ────────────────────────────────────────────────
-
-  it('caps visible entries at MAX_HOVER_VALUES (10) and emits `*…and N more*`', () => {
+  it('caps visible distinct values at MAX_HOVER_VALUES (10) with "…and N more"', () => {
     const entries: CursorValueEntry[] = [];
     for (let i = 0; i < 14; i++) {
-      entries.push(str(`v${i}`, { origin: 'document', locationName: `loc${i}`, line: i }));
+      entries.push(expr(`'v${i}'`, { origin: 'document', locationName: `loc${i}`, line: i }));
     }
     const out = buildPossibleValuesLines(entries, 'test://hover.qsps');
     const valueLines = out.filter(l => l.startsWith('- `'));
@@ -3223,23 +2947,17 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
   });
 
   it('caps inline locations per value at MAX_HOVER_LOCATIONS_PER_VALUE (20)', () => {
-    // 25 separate writes of the SAME value collapse into one row whose
-    // citation list is truncated after 20 entries with a tail marker.
     const entries: CursorValueEntry[] = [];
     for (let i = 0; i < 25; i++) {
-      entries.push(num(42, { origin: 'document', locationName: `l${i}`, line: i }));
+      entries.push(expr('42', { origin: 'document', locationName: `l${i}`, line: i }));
     }
     const out = buildPossibleValuesLines(entries, 'test://hover.qsps');
     const valueLines = out.filter(l => l.startsWith('- `'));
-    // All collapse onto a single value row.
     expect(valueLines).toHaveLength(1);
     const row = valueLines[0];
-    // Tail marker present with the correct overflow count.
     expect(row).toContain('*…and 5 more*');
-    // First citation appears, last (l24) does NOT — it was truncated.
     expect(row).toContain('`l0` line 1');
     expect(row).not.toContain('`l24` line 25');
-    // Exactly 20 of the locN tokens precede the tail marker.
     const beforeTail = row.split('*…and')[0];
     const matches = beforeTail.match(/`l\d+` line \d+/g) ?? [];
     expect(matches).toHaveLength(20);
@@ -3248,7 +2966,7 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
   it('does not add a per-value tail marker when locations fit exactly at the cap', () => {
     const entries: CursorValueEntry[] = [];
     for (let i = 0; i < 20; i++) {
-      entries.push(num(7, { origin: 'document', locationName: `l${i}`, line: i }));
+      entries.push(expr('7', { origin: 'document', locationName: `l${i}`, line: i }));
     }
     const out = buildPossibleValuesLines(entries, 'test://hover.qsps');
     const row = out.find(l => l.startsWith('- `'))!;
@@ -3259,9 +2977,9 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
 
   // ── Cross-file annotation ──────────────────────────────────────
 
-  it('annotates entries from a foreign URI with `[basename]`', () => {
+  it('annotates entries from a foreign URI with [basename]', () => {
     const out = buildPossibleValuesLines(
-      [str('CROSS', { origin: 'document', locationName: 'init', line: 1, uri: 'file:///tmp/other.qsps' })],
+      [expr("'CROSS'", { origin: 'document', locationName: 'init', line: 1, uri: 'file:///tmp/other.qsps' })],
       'file:///tmp/own.qsps',
     ).join('\n');
     expect(out).toContain('[other.qsps]');
@@ -3270,7 +2988,7 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
 
   it('does NOT annotate entries from the hover URI with [basename]', () => {
     const out = buildPossibleValuesLines(
-      [str('LOCAL', { origin: 'document', locationName: 'init', line: 1, uri: 'file:///tmp/own.qsps' })],
+      [expr("'LOCAL'", { origin: 'document', locationName: 'init', line: 1, uri: 'file:///tmp/own.qsps' })],
       'file:///tmp/own.qsps',
     ).join('\n');
     expect(out).not.toMatch(/\[own\.qsps\]/);
@@ -3278,7 +2996,7 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
 
   it('annotates flattened var-ref children from a foreign URI with [basename]', () => {
     const expandVarRef = () => children({
-      value: 'CROSS', loc: 'init', line: 1, uri: 'file:///tmp/other.qsps',
+      stmtText: "g = 'CROSS'", loc: 'init', line: 1, uri: 'file:///tmp/other.qsps',
     });
     const out = buildPossibleValuesLines(
       [ref('g', { origin: 'scope', locationName: 'a', line: 1 })],
@@ -3289,102 +3007,27 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
     expect(out).toContain("`g = 'CROSS'`");
   });
 
-  // ── Tuple capture (delegates to formatBindingValue) ────────────
+  // ── Code-block bindings render their captured source ────────────
 
-  it('renders a tuple-literal RHS as captured text without the *(expr)* placeholder', () => {
+  it('renders a code-block binding using its stmtText', () => {
     const out = buildPossibleValuesLines(
-      [expr('[1, 2, 3]', { locationName: 'a', line: 1 })],
+      [block({ locationName: 'a', isLocal: false, stmtText: "$f = { gs 'do' }" })],
       'test://hover.qsps',
     ).join('\n');
-    expect(out).toContain('`[1, 2, 3]`');
-    expect(out).not.toContain('*(expr)*');
+    expect(out).toContain("`$f = { gs 'do' }`");
   });
 
-  // ── Side-effect statement names (set by setvar / scanstr / …) ──
+  // ── isValueBearing:false entries are filtered ──────────────────
 
-  /** Convenience: an entry whose value was written by a side-effect statement. */
-  function sideEffect(
-    stmtName: string,
-    opts?: Parameters<typeof entry>[1],
-  ): CursorValueEntry {
-    const e = entry({ kind: 'other', text: undefined }, opts);
-    return {
+  it('omits entries where binding.isValueBearing is false', () => {
+    const e = expr('42', { locationName: 'a', line: 0, isLocal: false });
+    const filtered: CursorValueEntry = {
       ...e,
-      binding: { ...e.binding, writeOp: stmtName, isValueBearing: true },
+      binding: { ...e.binding, isValueBearing: false },
     } as CursorValueEntry;
-  }
-
-  it('renders setvar write as *(set by setvar)* for a global variable', () => {
-    const out = buildPossibleValuesLines(
-      [sideEffect('setvar', { origin: 'document', locationName: 'init', line: 1, isLocal: false })],
-      'test://hover.qsps',
-    ).join('\n');
-    expect(out).toContain('*(set by setvar)*');
-    expect(out).not.toContain('*(expr)*');
-  });
-
-  it('renders scanstr write as *(set by scanstr)* for a global variable', () => {
-    const out = buildPossibleValuesLines(
-      [sideEffect('scanstr', { origin: 'document', locationName: 'init', line: 2, isLocal: false })],
-      'test://hover.qsps',
-    ).join('\n');
-    expect(out).toContain('*(set by scanstr)*');
-  });
-
-  it('renders unpackarr write as *(set by unpackarr)* for a global variable', () => {
-    const out = buildPossibleValuesLines(
-      [sideEffect('unpackarr', { origin: 'document', locationName: 'init', line: 3, isLocal: false })],
-      'test://hover.qsps',
-    ).join('\n');
-    expect(out).toContain('*(set by unpackarr)*');
-  });
-
-  it('renders copyarr write as *(set by copyarr)* for a global variable', () => {
-    const out = buildPossibleValuesLines(
-      [sideEffect('copyarr', { origin: 'document', locationName: 'init', line: 4, isLocal: false })],
-      'test://hover.qsps',
-    ).join('\n');
-    expect(out).toContain('*(set by copyarr)*');
-  });
-
-  it('renders setvar write as *(set by setvar)* for a local variable', () => {
-    // A local written via setvar inside a gosub — should appear with *(local)* tag.
-    const out = buildPossibleValuesLines(
-      [sideEffect('setvar', { origin: 'scope', locationName: 'helper', line: 1, isLocal: true })],
-      'test://hover.qsps',
-    ).join('\n');
-    expect(out).toContain('*(set by setvar)*');
-    expect(out).toContain('*(local)*');
-  });
-
-  it('renders scanstr write as *(set by scanstr)* for a local variable (cross-call)', () => {
-    const out = buildPossibleValuesLines(
-      [sideEffect('scanstr', { origin: 'cross-call', locationName: 'helper', line: 5, isLocal: true })],
-      'test://hover.qsps',
-    ).join('\n');
-    expect(out).toContain('*(set by scanstr)*');
-    expect(out).toContain('*(local via call)*');
-  });
-
-  it('side-effect entry appears in **Possible values:** section header', () => {
-    const lines = buildPossibleValuesLines(
-      [sideEffect('setvar', { origin: 'document', locationName: 'init', line: 1, isLocal: false })],
-      'test://hover.qsps',
-    );
-    expect(lines.some(l => l === '**Possible values:**')).toBe(true);
-  });
-
-  it('multiple side-effect writes from different statements all appear', () => {
-    const out = buildPossibleValuesLines(
-      [
-        sideEffect('setvar',    { origin: 'document', locationName: 'a', line: 1, isLocal: false }),
-        sideEffect('scanstr',   { origin: 'document', locationName: 'b', line: 2, isLocal: false }),
-        sideEffect('unpackarr', { origin: 'document', locationName: 'c', line: 3, isLocal: false }),
-      ],
-      'test://hover.qsps',
-    ).join('\n');
-    expect(out).toContain('*(set by setvar)*');
-    expect(out).toContain('*(set by scanstr)*');
-    expect(out).toContain('*(set by unpackarr)*');
+    const kept = expr("'kept'", { locationName: 'b', line: 1, isLocal: false });
+    const out = buildPossibleValuesLines([filtered, kept], 'test://hover.qsps').join('\n');
+    expect(out).not.toContain('`42`');
+    expect(out).toContain("`'kept'`");
   });
 });

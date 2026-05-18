@@ -200,7 +200,7 @@ pl x
       expect(diags.some(d => d.message === "Variable 'x' is assigned but never read")).toBe(false);
     });
 
-    it('flags a global write when only compound ops follow (no pure read)', () => {
+    it('flags a global write when only compound ops follow (compound LHS is not a read)', () => {
       const diags = run(
         `# a
 x = 5
@@ -225,7 +225,7 @@ pl x
       expect(diags.some(d => d.message === "Variable 'x' is assigned but never read")).toBe(false);
     });
 
-    it('flags a local write when only compound ops follow (no pure read)', () => {
+    it('flags a local write when only compound ops follow (compound LHS is not a read)', () => {
       const diags = run(
         `# a
 local x = 5
@@ -235,6 +235,26 @@ x += 3
         { unusedVariables: true },
       );
       expect(diags.some(d => d.message === "Variable 'x' is assigned but never read")).toBe(true);
+    });
+
+    it('flags a global write when only a self-ref `=` follows (`x = x + 1` is compound, not a read)', () => {
+      // `x = x + 1` is treated as `compoundOp: 'other'` — the LHS is
+      // neither a proper read nor a proper write.  The RHS read of `x`
+      // IS a proper read though, so `x` is "read" — but only by a
+      // compound op that doesn't itself constitute a new definition
+      // either.  The original `x = 5` write has no PURE read following,
+      // so it stays flagged as unused.
+      const diags = run(
+        `# a
+x = 5
+x = x + 1
+---
+`,
+        { unusedVariables: true },
+      );
+      expect(diags.some(d => d.message === "Variable 'x' is assigned but never read")).toBe(false);
+      // (`x` has a proper read on the RHS, so it's NOT unused — the
+      // self-ref RHS counts as a real read of the prior value.)
     });
 
     it('still flags a global write when only killvar follows (no pure read)', () => {
@@ -529,6 +549,208 @@ x += 3
       expect(diags.filter(d => d.message.includes("'x'"))).toEqual([]);
     });
 
+    it('flags every reference after a compound op acts as the only "write" (compound is not a definition)', () => {
+      // `hp += 100` is not a definition, so the later `pl hp` is also
+      // a read of an uninitialised variable.  Both references warn.
+      const diags = run(
+        `# a
+hp += 100
+pl hp
+---
+`,
+        { uninitializedVariables: true },
+      );
+      const hpWarns = diags.filter(d => d.message === "Variable 'hp' is used but never assigned");
+      expect(hpWarns.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('flags a compound op on a bare `local x` declaration (declaration alone is not value-bearing)', () => {
+      // `local x` without an initial value declares the slot but does
+      // not assign a value; `x += 1` is then a read-then-write of an
+      // uninitialised value.
+      const diags = run(
+        `# a
+local x
+x += 1
+pl x
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.some(d => d.message === "Variable 'x' is used but never assigned")).toBe(true);
+    });
+
+    // ── self-referential plain `=` (compound op `'other'`) ─────────
+    it('flags `hp = hp + 5` alone as uninitialized (self-ref `=` is compound, not a definition)', () => {
+      // `hp = hp + 5` is semantically `hp += 5` — read-then-write of
+      // the same slot.  Both the LHS (compound, no chain) and the RHS
+      // read see no prior value-bearing binding → uninit warns.
+      const diags = run(
+        `# a
+hp = hp + 5
+pl hp
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.some(d => d.message === "Variable 'hp' is used but never assigned")).toBe(true);
+    });
+
+    it('flags `hp = min(hp + 20, 100)` alone as uninitialized (self-ref through nested call)', () => {
+      const diags = run(
+        `# a
+hp = min(hp + 20, 100)
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.some(d => d.message === "Variable 'hp' is used but never assigned")).toBe(true);
+    });
+
+    it('does not flag `hp = hp + 5` when hp was previously assigned', () => {
+      const diags = run(
+        `# a
+hp = 100
+hp = hp + 5
+pl hp
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.filter(d => d.message.includes("'hp'"))).toEqual([]);
+    });
+
+    it('does not flag `$s = $s + ".txt"` when $s was previously assigned', () => {
+      const diags = run(
+        `# a
+$s = 'file'
+$s = $s + '.txt'
+pl $s
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.filter(d => d.message.includes("'s'"))).toEqual([]);
+    });
+
+    it('flags `hp = hp, 5` alone as uninitialized (multi-RHS self-ref is compound, not a definition)', () => {
+      // `hp = hp, 5` is single-LHS plain `=` whose RHS tuple contains
+      // `hp` — semantically read-then-write of the same slot, just
+      // like `hp += …`.  With no prior assignment, both the LHS and
+      // the RHS read see an uninitialized variable.
+      const diags = run(
+        `# a
+hp = hp, 5
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.some(d => d.message === "Variable 'hp' is used but never assigned")).toBe(true);
+    });
+
+    it('does not flag `hp = hp, 5` when hp was previously assigned', () => {
+      const diags = run(
+        `# a
+hp = 100
+hp = hp, 5
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.filter(d => d.message.includes("used but never assigned"))).toEqual([]);
+    });
+
+    it('detects element-wise self-ref in multi-LHS positional zip (`a, b = a, 1` → a is compound)', () => {
+      // Under positional zip, `a, b = a, 1` is `a = a` (self-ref,
+      // compound) and `b = 1` (definition).  With no prior assignment
+      // of `a`, the self-ref read warns uninit; `b` is fine.
+      const diags = run(
+        `# a
+a, b = a, 1
+pl b
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.some(d => d.message === "Variable 'a' is used but never assigned")).toBe(true);
+      expect(diags.filter(d => d.message.includes("'b'"))).toEqual([]);
+    });
+
+    it('does not flag `a, b = a, 1` when a was previously assigned', () => {
+      const diags = run(
+        `# a
+a = 10
+a, b = a, 1
+pl a
+pl b
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.filter(d => d.message.includes("used but never assigned"))).toEqual([]);
+    });
+
+    it('treats a swap `a, b = b, a` as definitions on both sides (not self-ref under positional zip)', () => {
+      // `a, b = b, a` reads outer `b`/`a` and writes them swapped.
+      // With no prior assignments, both reads warn uninit, but the
+      // LHS positions are normal definitions, not compound ops.
+      const diags = run(
+        `# a
+a = 1
+b = 2
+a, b = b, a
+pl a
+pl b
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.filter(d => d.message.includes("used but never assigned"))).toEqual([]);
+    });
+
+    it('detects last-LHS tail-absorption self-ref (`a, b = 1, b + 2` → b is compound)', () => {
+      // Under positional zip the last LHS absorbs every remaining
+      // tail element: here `b` pairs with `b + 2` → self-ref.
+      const diags = run(
+        `# a
+a, b = 1, b + 2
+pl a
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.some(d => d.message === "Variable 'b' is used but never assigned")).toBe(true);
+      expect(diags.filter(d => d.message.includes("'a'"))).toEqual([]);
+    });
+
+    it('detects tail-absorption self-ref into a `%` LHS (`a, %t = 1, %t, 3` → %t is compound)', () => {
+      // `%t` absorbs the tail `(%t, 3)` — a tuple containing `%t`
+      // is read-then-written.
+      const diags = run(
+        `# a
+a, %t = 1, %t, 3
+pl a
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.some(d => d.message === "Variable 't' is used but never assigned")).toBe(true);
+    });
+
+    it('detects indexed self-ref (`arr[0] = arr[0] + 1` → compound, flags uninit)', () => {
+      // `arr[0] = arr[0] + 1` reads arr (slot 0), adds 1, writes back.
+      // The base name `arr` matches between LHS and RHS → compound;
+      // with no prior assignment the read warns uninit.
+      const diags = run(
+        `# a
+arr[0] = arr[0] + 1
+---
+`,
+        { uninitializedVariables: true },
+      );
+      expect(diags.some(d => d.message === "Variable 'arr' is used but never assigned")).toBe(true);
+    });
+
     // ── desc / @@ propagation ──────────────────────────────────────
     it('desc-called location reading a caller local is NOT uninitialized', () => {
       const diags = run(
@@ -745,6 +967,20 @@ result += 1
         { missingResultInFunctionCall: true },
       );
       expect(diags.some(d => d.message.includes(NEEDLE))).toBe(false);
+    });
+
+    it('warns when target only compound-assigns result (compound LHS is not a definition)', () => {
+      const diags = run(
+        `# a
+y = func('b')
+---
+# b
+result += 1
+---
+`,
+        { missingResultInFunctionCall: true },
+      );
+      expect(diags.some(d => d.message.includes(NEEDLE))).toBe(true);
     });
 
     it('warns when target only delegates to a callee via gs (gs gets a fresh result)', () => {
@@ -3116,6 +3352,27 @@ dynamic $never
       expect(mismatch(`# a\n$x = [1, 2, 3]\n---\n`)).toHaveLength(1);
     });
 
+    // ── tuple unpacking — element types are unknown, no flag ─────
+    it('does not flag tuple-unpacking `local a, $b, #c = %t` (opaque %-typed RHS)', () => {
+      expect(mismatch(`# a\nlocal a, $b, #c = %t\n---\n`)).toHaveLength(0);
+    });
+
+    it('does not flag opaque tuple-unpacking `$a, #b = %f` (no local)', () => {
+      expect(mismatch(`# a\n$a, #b = %f\n---\n`)).toHaveLength(0);
+    });
+
+    // Arity-matched tuple literals spread element-wise (equivalent to
+    // the comma form `$a, #b = 1, 2`), so element-level type-mismatches
+    // ARE flagged — this is the correct, more-precise behavior.
+    it('flags element-wise mismatch in spread `$a, #b = [1, 2]` (== `$a = 1`)', () => {
+      // $a = 1 is a number-into-string mismatch; #b = 2 is fine.
+      expect(mismatch(`# a\n$a, #b = [1, 2]\n---\n`)).toHaveLength(1);
+    });
+
+    it('flags element-wise mismatch in comma form `$a, #b = 1, 2` (same as spread)', () => {
+      expect(mismatch(`# a\n$a, #b = 1, 2\n---\n`)).toHaveLength(1);
+    });
+
     // ── valid assignments — no flag ────────────────────────────────
     it('does not flag number to numeric variable', () => {
       expect(mismatch(`# a\nx = 42\n---\n`)).toHaveLength(0);
@@ -3155,6 +3412,18 @@ dynamic $never
 
     it('flags compound += with string variable RHS into numeric variable', () => {
       expect(mismatch(`# a\n#x += $y\n---\n`)).toHaveLength(1);
+    });
+
+    it('flags compound += with tuple literal RHS into numeric variable', () => {
+      expect(mismatch(`# a\n#x += [1, 2]\n---\n`)).toHaveLength(1);
+    });
+
+    it('flags compound += with tuple variable RHS into numeric variable', () => {
+      expect(mismatch(`# a\n#x += %t\n---\n`)).toHaveLength(1);
+    });
+
+    it('does NOT flag `%x += 3` (tuple variable accepts any RHS)', () => {
+      expect(mismatch(`# a\n%x += 3\n---\n`)).toHaveLength(0);
     });
 
     it('flags compound -= with string literal into numeric variable', () => {

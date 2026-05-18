@@ -129,6 +129,103 @@ pl y
     expect(warns.some(w => w.varName.toLowerCase() === 'y')).toBe(true);
   });
 
+  // ── Multi-LHS tuple-unpacking diagnostics ──────────────────────────
+  //   `a, b, c = 1, 2, 3` / `[1, 2, 3]` / `(1, 2, 3)` and their
+  //   `local` forms all share the same positional-zip semantics.
+  //   Opaque RHS (`%f`, `arrpack(…)`) silences per-element checks,
+  //   and a `%`-prefixed tail LHS packs the remainder.
+  describe('multi-LHS tuple-unpacking', () => {
+    it('does NOT flag any LHS for opaque RHS `local a, b, c = %f`', () => {
+      const warns = findUninitializedVars(`# test
+%f = [1, 2, 3]
+local a, b, c = %f
+pl a
+pl b
+pl c
+---
+`);
+      expect(warns.some(w => ['a', 'b', 'c'].includes(w.varName.toLowerCase()))).toBe(false);
+    });
+
+    it('does NOT flag arity-matched non-local `a, b = [1, 2]`', () => {
+      const warns = findUninitializedVars(`# test
+a, b = [1, 2]
+pl a
+pl b
+---
+`);
+      expect(warns.some(w => ['a', 'b'].includes(w.varName.toLowerCase()))).toBe(false);
+    });
+
+    it('flags extra LHS slot across all three forms (local)', () => {
+      // `a, b, c = 1, 2` / `[1, 2]` / `(1, 2)` — a/b bound, c unbound.
+      for (const src of [
+        `# test\nlocal a, b, c = 1, 2\npl a\npl b\npl c\n---\n`,
+        `# test\nlocal a, b, c = [1, 2]\npl a\npl b\npl c\n---\n`,
+        `# test\nlocal a, b, c = (1, 2)\npl a\npl b\npl c\n---\n`,
+      ]) {
+        const warns = findUninitializedVars(src);
+        expect(warns.some(w => w.varName.toLowerCase() === 'a')).toBe(false);
+        expect(warns.some(w => w.varName.toLowerCase() === 'b')).toBe(false);
+        expect(warns.some(w => w.varName.toLowerCase() === 'c')).toBe(true);
+      }
+    });
+
+    it('flags extra LHS slot in non-local `a, b = 12` (same as local form)', () => {
+      const warns = findUninitializedVars(`# test\na, b = 12\npl a\npl b\n---\n`);
+      expect(warns.some(w => w.varName.toLowerCase() === 'a')).toBe(false);
+      expect(warns.some(w => w.varName.toLowerCase() === 'b')).toBe(true);
+    });
+
+    it('flags all LHS when RHS is empty literal `[]` / `()` (local + non-local)', () => {
+      for (const src of [
+        `# test\nlocal a, b = []\npl a\npl b\n---\n`,
+        `# test\nlocal a, b = ()\npl a\npl b\n---\n`,
+        `# test\na, b = []\npl a\npl b\n---\n`,
+        `# test\na, b = ()\npl a\npl b\n---\n`,
+      ]) {
+        const warns = findUninitializedVars(src);
+        expect(warns.some(w => w.varName.toLowerCase() === 'a')).toBe(true);
+        expect(warns.some(w => w.varName.toLowerCase() === 'b')).toBe(true);
+      }
+    });
+
+    it('flags tuple-tail `%t` when there is no tail to absorb (`local a, %t = 1`)', () => {
+      // Under tail-absorption semantics %t receives elems[1..], which
+      // is empty here — runtime stores an empty tuple, statically we
+      // surface it as unassigned so the subsequent `pl %t` warns.
+      const warns = findUninitializedVars(`# test
+local a, %t = 1
+pl a
+pl %t
+---
+`);
+      expect(warns.some(w => w.varName.toLowerCase() === 'a')).toBe(false);
+      expect(warns.some(w => w.varName.toLowerCase() === 't')).toBe(true);
+    });
+
+    it('does NOT flag tuple-tail `%t` when a tail exists (`local a, %t = 1, 2`)', () => {
+      const warns = findUninitializedVars(`# test
+local a, %t = 1, 2
+pl a
+pl %t
+---
+`);
+      expect(warns.some(w => ['a', 't'].includes(w.varName.toLowerCase()))).toBe(false);
+    });
+
+    it('does NOT flag tuple-tail LHS `local a, b, %t = 1, 2, 3, 4`', () => {
+      const warns = findUninitializedVars(`# test
+local a, b, %t = 1, 2, 3, 4
+pl a
+pl b
+pl %t
+---
+`);
+      expect(warns.some(w => ['a', 'b', 't'].includes(w.varName.toLowerCase()))).toBe(false);
+    });
+  });
+
   it('does NOT flag bare local that is assigned later in the same scope', () => {
     const warns = findUninitializedVars(`# test
 local x
@@ -439,7 +536,9 @@ describe('unused variable detection', () => {
     expect(diagnosticsMatching(diags, 'assigned but never read')).toHaveLength(0);
   });
 
-  it('compound assignment (+=) counts as both read and write — not unused', () => {
+  it('compound assignment (+=) does not flag unused when a pure read follows', () => {
+    // `x += 2` is neither a proper read nor a proper write, but the
+    // trailing `pl x` IS a proper read — so `x` is not unused.
     const unused = findUnusedVariables(`# main\nx = 1\nx += 2\npl x\n---\n`);
     expect(unused).toHaveLength(0);
   });
@@ -651,8 +750,10 @@ describe('integration: unused vars with statement/function string args', () => {
     expect(unused.some(u => u.varName.toLowerCase() === 'x')).toBe(true);
   });
 
-  it('compound-assignment-only reads are unused (compound write is not a proper read)', () => {
-    // `x = 1` is the definition; `x += 2` mutates but doesn't count as a read.
+  it('compound-assignment-only reads are unused (compound LHS is neither read nor write)', () => {
+    // `x = 1` is the proper write; `x += 2` is a compound op (neither
+    // a proper read nor a proper write), so x stays flagged as
+    // "assigned but never read".
     const unused = findUnusedVariables(`# main\nx = 1\nx += 2\n---\n`);
     expect(unused).toHaveLength(1);
     expect(unused[0].varName.toLowerCase()).toBe('x');
@@ -2698,10 +2799,8 @@ $name = 'hello'
     const entries = loc.variableBindings.get('name');
     expect(entries).toBeDefined();
     expect(entries).toHaveLength(1);
-    expect(entries![0].value.kind).toBe('string');
-    if (entries![0].value.kind === 'string') {
-      expect(entries![0].value.value).toBe('hello');
-    }
+    expect(entries![0].value.kind).toBe('expr');
+    expect(entries![0].stmtText).toContain("'hello'");
   });
 
   it('records number literal binding in variableBindings store', () => {
@@ -2714,10 +2813,8 @@ $name = 'hello'
     const entries = loc.variableBindings.get('count');
     expect(entries).toBeDefined();
     expect(entries).toHaveLength(1);
-    expect(entries![0].value.kind).toBe('number');
-    if (entries![0].value.kind === 'number') {
-      expect(entries![0].value.value).toBe(42);
-    }
+    expect(entries![0].value.kind).toBe('expr');
+    expect(entries![0].stmtText).toContain('42');
   });
 
   it('classifies interpolated strings as other, not string', () => {
@@ -2730,7 +2827,7 @@ $greeting = 'hi <<x>>'
     const loc = symbols.getLocation('test')!;
     const entries = loc.variableBindings.get('greeting');
     expect(entries).toBeDefined();
-    expect(entries![0].value.kind).toBe('other');
+    expect(entries![0].value.kind).toBe('expr');
   });
 
   it('marks local assignments in variableBindings', () => {
@@ -2762,21 +2859,18 @@ $s += 'more'
     const loc = symbols.getLocation('test')!;
     const strEntries = loc.variableBindings.get('s')!;
     expect(strEntries).toHaveLength(2);
-    expect(strEntries[0].value.kind).toBe('string');   // plain `=`
-    expect(strEntries[1].value.kind).toBe('other');    // `+=`
+    expect(strEntries[0].value.kind).toBe('expr');   // plain `=`
+    expect(strEntries[1].value.kind).toBe('expr');    // `+=`
     const numEntries = loc.variableBindings.get('n')!;
     expect(numEntries).toHaveLength(4);
-    expect(numEntries[0].value.kind).toBe('number');   // plain `=`
-    expect(numEntries[1].value.kind).toBe('other');    // `-=`
-    expect(numEntries[2].value.kind).toBe('other');    // `*=`
-    expect(numEntries[3].value.kind).toBe('other');    // `/=`
+    expect(numEntries[0].value.kind).toBe('expr');   // plain `=`
+    expect(numEntries[1].value.kind).toBe('expr');    // `-=`
+    expect(numEntries[2].value.kind).toBe('expr');    // `*=`
+    expect(numEntries[3].value.kind).toBe('expr');    // `/=`
   });
 
   it('captures RHS source snippet on opaque (other) bindings', () => {
-    // Tuple literals, arithmetic, function calls and interpolated
-    // strings all fall into the `other` kind; the extractor must
-    // capture the source snippet so hover can surface the expression
-    // instead of an opaque placeholder.
+    // Every binding carries the full source statement in `stmtText`.
     const tree = parser.parse('test://vb-other-text', `# test
 x = [1, 2, 3]
 $y = ['hi', 'there']
@@ -2788,20 +2882,18 @@ $greet = 'hi <<name>>'
 `);
     const { symbols } = extractSymbols(tree!, 'test://vb-other-text');
     const loc = symbols.getLocation('test')!;
-    const assertOtherText = (key: string, expected: string) => {
+    const assertStmtText = (key: string, expectedSubstring: string) => {
       const entries = loc.variableBindings.get(key);
       expect(entries, `missing binding for ${key}`).toBeDefined();
-      expect(entries![0].value.kind).toBe('other');
-      if (entries![0].value.kind === 'other') {
-        expect(entries![0].value.text).toBe(expected);
-      }
+      expect(entries![0].value.kind).toBe('expr');
+      expect(entries![0].stmtText).toContain(expectedSubstring);
     };
-    assertOtherText('x', '[1, 2, 3]');
-    assertOtherText('y', "['hi', 'there']");
-    assertOtherText('z', '(10, 20)');
-    assertOtherText('w', '()');
-    assertOtherText('sum', 'a + b');
-    assertOtherText('greet', "'hi <<name>>'");
+    assertStmtText('x', '[1, 2, 3]');
+    assertStmtText('y', "['hi', 'there']");
+    assertStmtText('z', '(10, 20)');
+    assertStmtText('w', '()');
+    assertStmtText('sum', 'a + b');
+    assertStmtText('greet', "'hi <<name>>'");
   });
 
   it('captures RHS snippet on compound-operator bindings', () => {
@@ -2815,22 +2907,18 @@ $s += 'more'
     const { symbols } = extractSymbols(tree!, 'test://vb-compound-text');
     const loc = symbols.getLocation('test')!;
     const sEntries = loc.variableBindings.get('s')!;
-    expect(sEntries[1].value.kind).toBe('other');
-    if (sEntries[1].value.kind === 'other') {
-      expect(sEntries[1].value.text).toBe("'more'");
-    }
+    expect(sEntries[1].value.kind).toBe('expr');
+    expect(sEntries[1].stmtText).toContain("'more'");
     const nEntries = loc.variableBindings.get('n')!;
-    expect(nEntries[1].value.kind).toBe('other');
-    if (nEntries[1].value.kind === 'other') {
-      expect(nEntries[1].value.text).toBe('3');
-    }
+    expect(nEntries[1].value.kind).toBe('expr');
+    expect(nEntries[1].stmtText).toContain('3');
   });
 
   it('collapses line breaks and caps overlong snippets', () => {
-    // Tuple spread across multiple lines + an intentionally huge
-    // literal: line breaks become single spaces (interior spaces /
-    // indentation preserved verbatim) and the result must be
-    // length-capped with an ellipsis.
+    // Multi-line tuple literal and a huge tuple — both now produce
+    // kind:'tuple' with per-element BindingValues. The binding stores
+    // elements structurally (no text-based length cap); capping happens
+    // in the hover renderer.
     const big = Array.from({ length: 60 }, (_, i) => i).join(', ');
     const tree = parser.parse('test://vb-snippet-cap', `# test
 multi = [
@@ -2844,17 +2932,19 @@ huge = [${big}]
     const { symbols } = extractSymbols(tree!, 'test://vb-snippet-cap');
     const loc = symbols.getLocation('test')!;
     const multi = loc.variableBindings.get('multi')![0].value;
-    expect(multi.kind).toBe('other');
-    if (multi.kind === 'other') {
-      // Each `\n` becomes one space; the original two-space indent on
-      // each line is preserved verbatim.
-      expect(multi.text).toBe('[   1,   2,   3 ]');
+    expect(multi.kind).toBe('expr');
+    if (multi.kind === 'tuple') {
+      expect(multi.elements).toEqual([
+        { kind: 'number', value: 1 },
+        { kind: 'number', value: 2 },
+        { kind: 'number', value: 3 },
+      ]);
     }
     const huge = loc.variableBindings.get('huge')![0].value;
-    expect(huge.kind).toBe('other');
-    if (huge.kind === 'other') {
-      expect(huge.text!.length).toBeLessThanOrEqual(80);
-      expect(huge.text!.endsWith('…')).toBe(true);
+    expect(huge.kind).toBe('expr');
+    if (huge.kind === 'tuple') {
+      // All 60 elements are stored (no cap at collection time).
+      expect(huge.elements).toHaveLength(60);
     }
   });
 
@@ -2876,7 +2966,7 @@ dynamic $other
     // $other's binding is opaque.
     const otherEntries = loc.variableBindings.get('other')!;
     expect(otherEntries).toHaveLength(1);
-    expect(otherEntries[0].value.kind).toBe('other');
+    expect(otherEntries[0].value.kind).toBe('expr');
   });
 
   it('scope-aware: local in act block is not visible from sibling act block', () => {
@@ -3049,12 +3139,12 @@ $name = 'bob'
     const countEntries = symbols.globalBindings.get('count')!;
     expect(countEntries).toHaveLength(1);
     expect(countEntries[0].locationName).toBe('loc_a');
-    expect(countEntries[0].binding.value.kind).toBe('number');
+    expect(countEntries[0].binding.value.kind).toBe('expr');
     // $name exists only in loc_b.
     const nameEntries = symbols.globalBindings.get('name')!;
     expect(nameEntries).toHaveLength(1);
     expect(nameEntries[0].locationName).toBe('loc_b');
-    expect(nameEntries[0].binding.value.kind).toBe('string');
+    expect(nameEntries[0].binding.value.kind).toBe('expr');
   });
 
   it('globalBindings: excludes local bindings', () => {
@@ -3094,7 +3184,7 @@ setvar '$fn', 'hello'
     const loc = symbols.getLocation('test')!;
     const entries = loc.variableBindings.get('fn')!;
     expect(entries).toHaveLength(1);
-    expect(entries[0].value.kind).toBe('other');
+    expect(entries[0].value.kind).toBe('expr');
     expect(entries[0].isLocal).toBe(false);
   });
 
@@ -3111,7 +3201,7 @@ scanstr '$fn', 'foo'
     // still tracked on `sym.prefixes` for diagnostic purposes.
     const entries = loc.variableBindings.get('fn')!;
     expect(entries).toHaveLength(1);
-    expect(entries[0].value.kind).toBe('other');
+    expect(entries[0].value.kind).toBe('expr');
     // Nothing should land in the typed-prefixed bucket.
     expect(loc.variableBindings.get('$fn')).toBeUndefined();
   });
@@ -3168,7 +3258,7 @@ unpackarr 'arr', 1, 2, 3
     const loc = symbols.getLocation('test')!;
     const entries = loc.variableBindings.get('arr')!;
     expect(entries).toHaveLength(1);
-    expect(entries[0].value.kind).toBe('other');
+    expect(entries[0].value.kind).toBe('expr');
   });
 
   it('side-effect: copyarr destination records an other-kind binding', () => {
@@ -3180,7 +3270,7 @@ copyarr 'dst', 'src'
     const loc = symbols.getLocation('test')!;
     const dst = loc.variableBindings.get('dst')!;
     expect(dst).toHaveLength(1);
-    expect(dst[0].value.kind).toBe('other');
+    expect(dst[0].value.kind).toBe('expr');
     // Source is also recorded (it's read-not-written, but `copyarr`
     // counts both sides as side-effect writes only on dest).  Source
     // should NOT appear in variableBindings.
@@ -3196,7 +3286,7 @@ sortarr 'arr'
     const loc = symbols.getLocation('test')!;
     const entries = loc.variableBindings.get('arr')!;
     expect(entries).toHaveLength(1);
-    expect(entries[0].value.kind).toBe('other');
+    expect(entries[0].value.kind).toBe('expr');
   });
 
   it('side-effect: killvar records an other-kind binding with isValueBearing=false', () => {
@@ -3208,7 +3298,7 @@ killvar 'arr'
     const loc = symbols.getLocation('test')!;
     const entries = loc.variableBindings.get('arr')!;
     expect(entries).toHaveLength(1);
-    expect(entries[0].value.kind).toBe('other');
+    expect(entries[0].value.kind).toBe('expr');
     // killvar does not produce a value — hover must not show it.
     expect(entries[0].isValueBearing).toBe(false);
   });
@@ -3244,7 +3334,7 @@ setvar 'arr[0]', 'value'
     // The binding is recorded against the base name (no [0]).
     const entries = loc.variableBindings.get('arr')!;
     expect(entries).toHaveLength(1);
-    expect(entries[0].value.kind).toBe('other');
+    expect(entries[0].value.kind).toBe('expr');
   });
 
   it('side-effect: side-effect writes co-exist with direct assignments', () => {
@@ -3258,8 +3348,8 @@ setvar '$fn', 'runtime'
     const entries = loc.variableBindings.get('fn')!;
     expect(entries).toHaveLength(2);
     // Order = source order.
-    expect(entries[0].value.kind).toBe('string');
-    expect(entries[1].value.kind).toBe('other');
+    expect(entries[0].value.kind).toBe('expr');
+    expect(entries[1].value.kind).toBe('expr');
   });
 
   it('side-effect: surfaces in document-wide globalBindings index', () => {
@@ -3270,7 +3360,7 @@ setvar '$fn', 'hello'
     const { symbols } = extractSymbols(tree!, 'test://se-glob');
     const entries = symbols.globalBindings.get('fn')!;
     expect(entries).toHaveLength(1);
-    expect(entries[0].binding.value.kind).toBe('other');
+    expect(entries[0].binding.value.kind).toBe('expr');
     expect(entries[0].locationName).toBe('test');
   });
 
@@ -3298,7 +3388,7 @@ dynamic $fn
     const entries = loc.variableBindings.get('fn');
     expect(entries).toHaveLength(2);
     const kinds = entries!.map(e => e.value.kind).sort();
-    expect(kinds).toEqual(['code-block', 'string']);
+    expect(kinds).toEqual(['code-block', 'expr']);
   });
 
   it('two globally-assigned code-blocks ARE still ambiguous even if mixed with literals', () => {
@@ -3323,7 +3413,7 @@ $a, $b = { pl 1 }, 'hello'
     const { symbols } = extractSymbols(tree!, 'test://vb-par');
     const loc = symbols.getLocation('test')!;
     expect(loc.variableBindings.get('a')![0].value.kind).toBe('code-block');
-    expect(loc.variableBindings.get('b')![0].value.kind).toBe('string');
+    expect(loc.variableBindings.get('b')![0].value.kind).toBe('expr');
   });
 
   // ── var-ref bindings (reassignments between variables) ──

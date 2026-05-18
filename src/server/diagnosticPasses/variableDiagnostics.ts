@@ -17,7 +17,6 @@ import {
   type TypePrefix,
   type CursorValueEntry,
   getPossibleValuesAtCursor,
-  COMPOUND_OPS,
   ARGS_VAR_NAME,
   CALL_FRAME_BUILTINS,
 } from '../../parser';
@@ -45,9 +44,9 @@ const RUNTIME_INITIALIZED_VAR_NAMES = new Set([ARGS_VAR_NAME]);
  *  Re-exported from the parser layer for single-source-of-truth. */
 
 const ASSIGN_TYPE_RULES: Record<TypePrefix, Record<string, readonly TypePrefix[]>> = {
-  '$': { '=': ['$'], '+=': ['$'], '-=': [], '*=': [], '/=': [] },
-  '%': { '=': ['%'], '+=': ['$', '#', '%'], '-=': ['#', '%'], '*=': ['#', '%'], '/=': ['#', '%'] },
-  '#': { '=': ['#'], '+=': ['#'], '-=': ['#'], '*=': ['#'], '/=': ['#'] },
+  '$': { '=': ['$'], 'other': ['$'], '+=': ['$'], '-=': [], '*=': [], '/=': [] },
+  '%': { '=': ['%'], 'other': ['%'], '+=': ['$', '#', '%'], '-=': ['#', '%'], '*=': ['#', '%'], '/=': ['#', '%'] },
+  '#': { '=': ['#'], 'other': ['#'], '+=': ['#'], '-=': ['#'], '*=': ['#'], '/=': ['#'] },
 };
 
 // ── Shared resolver cache ─────────────────────────────────────────────
@@ -134,7 +133,13 @@ export function checkUninitializedVariables(
       if (resolverCache) {
         const entries = resolverCache(sym);
         if (entries) {
-          hasValueBinding = entries.some(e => e.binding.isValueBearing === true);
+          // A compound-op binding (`x += 1`) is neither a proper read
+          // nor a proper write: it does not, on its own, prove the
+          // variable was previously assigned.  Require at least one
+          // plain (`=`) value-bearing binding to suppress the warning.
+          hasValueBinding = entries.some(
+            e => e.binding.isValueBearing === true && e.binding.compoundOp === undefined,
+          );
         } else if (!sym.isLocal) {
           // No proper-usage ref to anchor the resolver — fall back to
           // project-wide set for globals assigned in another location.
@@ -262,7 +267,7 @@ export function checkTypeMismatch(
       for (const b of bindings) {
         if (!b.isValueBearing) continue;
         if (b.writePrefix === undefined || b.rhsTypePrefix === undefined) continue;
-        const op = b.writeOp && COMPOUND_OPS.has(b.writeOp) ? b.writeOp : '=';
+        const op = b.compoundOp ?? '=';
         const allowed = ASSIGN_TYPE_RULES[b.writePrefix]?.[op];
         if (!allowed || !allowed.includes(b.rhsTypePrefix)) {
           const lhsType = typeLabel(b.writePrefix);
