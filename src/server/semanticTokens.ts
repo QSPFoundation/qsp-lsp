@@ -481,7 +481,7 @@ interface ExecBodyInfo {
   /** Decoded body text (after `''`/`""` escape collapse). */
   decoded: string;
   /** Decoded→raw column shift map; `null` when no escapes were present. */
-  extra: number[] | null;
+  extra: Int32Array | null;
 }
 
 /** Scan a host string for embedded `exec:` link bodies, in source order. */

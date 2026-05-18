@@ -258,6 +258,22 @@ function processLocation(
   docUri: string,
   parseFn: (text: string) => Parser.Tree | null,
 ): void {
+  // Allocate per-host scope counter ONCE per location.  Computing the
+  // next free id by scanning `scopeParent.keys()` on every exec link
+  // (the old `allocateExecScope` did this) is O(scope_count) per
+  // link — quadratic when the same host holds many embedded execs.
+  // Here we compute the max id one time, then bump a local counter.
+  let maxScope = 0;
+  for (const s of locSymbols.scopeParent.keys()) {
+    if (s > maxScope) maxScope = s;
+  }
+  const allocScope = (): number => {
+    const id = ++maxScope;
+    locSymbols.scopeParent.set(id, 0);
+    locSymbols.isolatedScopes.add(id);
+    return id;
+  };
+
   const cursor = locBlock.walk();
   try {
     visit(cursor);
@@ -268,7 +284,7 @@ function processLocation(
   function visit(c: Parser.TreeCursor): void {
     const n = c.currentNode;
     if (n.type === 'single_quoted_string' || n.type === 'double_quoted_string') {
-      processString(n, locSymbols, docUri, parseFn);
+      processString(n, locSymbols, docUri, parseFn, allocScope);
       return; // don't descend into string content
     }
     if (c.gotoFirstChild()) {
@@ -283,6 +299,7 @@ function processString(
   locSymbols: LocationSymbols,
   docUri: string,
   parseFn: (text: string) => Parser.Tree | null,
+  allocScope: () => number,
 ): void {
   const raw = s.text;
   if (raw.length < 2 || !EXEC_PROBE_RE.test(raw)) return;
@@ -317,7 +334,7 @@ function processString(
       s, body, decodedBodyStart, extra, hostLoc,
     );
 
-    subParseAndMerge(body, translate, hostLoc, locSymbols, docUri, parseFn);
+    subParseAndMerge(body, translate, hostLoc, locSymbols, docUri, parseFn, allocScope);
   }
 }
 
@@ -340,7 +357,7 @@ function makeTranslator(
   hostNode: Parser.SyntaxNode,
   body: string,
   decodedBodyStart: number,
-  extra: number[] | null,
+  extra: Int32Array | null,
   hostLoc: SymbolLocation,
 ): LocTranslator {
   const hostStart = hostNode.startPosition;
@@ -358,10 +375,15 @@ function makeTranslator(
   //   hostStart.column        (opening quote)
   //   + 1                     (skip opening quote)
   //   + decodedBodyStart       (decoded offset of body within inner)
-  //   + extra[decodedBodyStart] (raw shift for that decoded position)
-  const innerStartCol = hostStart.column + 1;
-  const rawBodyStart = innerStartCol + decodedBodyStart
-    + (extra ? extra[decodedBodyStart] : 0);
+  //   + baseShift              (raw shift for that decoded position)
+  const baseShift = extra ? extra[decodedBodyStart] : 0;
+  const rawBodyStart = hostStart.column + 1 + decodedBodyStart + baseShift;
+  // `shiftAt(d)` returns the raw-vs-decoded offset for decoded column
+  // `d` WITHIN the body, relative to the body start (so column 0 of
+  // the body always maps to shift 0 and rawBodyStart is the anchor).
+  const shiftAt = extra
+    ? (d: number): number => extra[decodedBodyStart + d] - baseShift
+    : (_d: number): number => 0;
 
   return (subRef) => {
     // Sub-tree position: line 1 = body row 0 (because of WRAPPER_PREFIX);
@@ -370,18 +392,12 @@ function makeTranslator(
     if (subRef.line !== 1 || subRef.endLine !== 1) {
       return mergeRefMetadata(subRef, hostLoc);
     }
-    const dStart = subRef.column;          // decoded column within body
-    const dEnd = subRef.endColumn;
-    const rawStart = rawBodyStart + dStart
-      + (extra ? extra[decodedBodyStart + dStart] - (extra[decodedBodyStart] ?? 0) : 0);
-    const rawEnd = rawBodyStart + dEnd
-      + (extra ? extra[decodedBodyStart + dEnd] - (extra[decodedBodyStart] ?? 0) : 0);
     const out: SymbolLocation = {
       uri: hostLoc.uri,
       line: hostStart.row,
-      column: rawStart,
+      column: rawBodyStart + subRef.column + shiftAt(subRef.column),
       endLine: hostStart.row,
-      endColumn: rawEnd,
+      endColumn: rawBodyStart + subRef.endColumn + shiftAt(subRef.endColumn),
     };
     return mergeRefMetadata(subRef, out);
   };
@@ -401,35 +417,71 @@ function mergeRefMetadata(
   return out;
 }
 
-/** Decode QSP doubled-quote escapes (`qq` → `q` where `q` is `hostQuote`)
- *  in `raw`.  Returns the decoded text plus a `decoded → raw` shift map
- *  (`extra[d]` = number of escape pairs collapsed strictly before
- *  decoded position `d`); `extra` is `null` when no escapes were
- *  present (fast path — avoids an O(n) array of zeros). */
+/**
+ * For every named sub-symbol, invoke `add(sym, ref)` on each of its
+ * references.  Pure — kept at module scope so `mergeIntoHost` doesn't
+ * pay a per-call closure allocation.
+ */
+function forwardRefs<S extends { name: string; references: readonly SymbolLocation[] }>(
+  syms: Iterable<S>,
+  add: (sym: S, subRef: SymbolLocation) => void,
+): void {
+  for (const sym of syms) for (const subRef of sym.references) add(sym, subRef);
+}
+
+/**
+ * Decode QSP doubled-quote escapes (`qq` → `q` where `q` is `hostQuote`)
+ * in `raw`.  Returns the decoded text plus a `decoded → raw` shift map
+ * (`extra[d]` = number of escape pairs collapsed strictly before
+ * decoded position `d`); `extra` is `null` when no escapes were
+ * present (fast path — avoids an O(n) allocation).
+ *
+ * Hot path on large host strings: chunks between escapes are copied
+ * via `substring` (one V8-allocated slice each) and joined once, and
+ * `extra` is a pre-sized `Int32Array` filled by chunk rather than by
+ * per-character `push`.
+ */
 export function decodeDoubledQuotes(
   raw: string,
   hostQuote: string,
-): { text: string; extra: number[] | null } {
+): { text: string; extra: Int32Array | null } {
   const dq = hostQuote + hostQuote;
-  if (!raw.includes(dq)) return { text: raw, extra: null };
-  let text = '';
-  const extra: number[] = [0];
+  let i = raw.indexOf(dq);
+  if (i < 0) return { text: raw, extra: null };
+
+  const parts: string[] = [];
+  // `extra` has one entry per decoded position INCLUDING the
+  // sentinel at the end (length = decoded.length + 1), so callers can
+  // safely look up `extra[decoded.length]` when projecting end-of-body.
+  // Decoded length is at most `raw.length`; we size to that and slice
+  // at the end.
+  const extra = new Int32Array(raw.length + 1);
+  let start = 0;       // start of next un-copied raw chunk
+  let decLen = 0;      // current decoded length
   let escapes = 0;
-  const qCode = hostQuote.charCodeAt(0);
-  for (let i = 0; i < raw.length; i++) {
-    if (i + 1 < raw.length
-        && raw.charCodeAt(i) === qCode
-        && raw.charCodeAt(i + 1) === qCode) {
-      text += hostQuote;
-      escapes++;
-      extra.push(escapes);
-      i++;  // skip the partner quote
+  while (i >= 0) {
+    // Copy raw[start..i] verbatim, then the collapsed quote.
+    if (i > start) {
+      parts.push(raw.substring(start, i));
+      extra.fill(escapes, decLen, decLen + (i - start) + 1);
+      decLen += (i - start);
     } else {
-      text += raw[i];
-      extra.push(escapes);
+      extra[decLen] = escapes;
     }
+    parts.push(hostQuote);
+    decLen++;
+    escapes++;
+    extra[decLen] = escapes;
+    start = i + 2;
+    i = raw.indexOf(dq, start);
   }
-  return { text, extra };
+  if (start < raw.length) {
+    parts.push(raw.substring(start));
+    const tailLen = raw.length - start;
+    extra.fill(escapes, decLen, decLen + tailLen + 1);
+    decLen += tailLen;
+  }
+  return { text: parts.join(''), extra: extra.subarray(0, decLen + 1) };
 }
 
 function subParseAndMerge(
@@ -439,6 +491,7 @@ function subParseAndMerge(
   hostSyms: LocationSymbols,
   docUri: string,
   parseFn: (text: string) => Parser.Tree | null,
+  allocScope: () => number,
 ): void {
   const wrapped = WRAPPER_PREFIX + body + WRAPPER_SUFFIX;
   const subTree = parseFn(wrapped);
@@ -464,7 +517,7 @@ function subParseAndMerge(
     const subSyms = new LocationSymbols(SUB_LOC_NAME);
     walkLocationBody(subLocBlock, subSyms, docUri, /*inDeferredExecution*/ true);
 
-    mergeIntoHost(subSyms, hostSyms, translate);
+    mergeIntoHost(subSyms, hostSyms, translate, allocScope);
   } finally {
     subTree.delete();
   }
@@ -497,19 +550,18 @@ function collectEmbeddedErrors(
   // Drop errors that land in the synthetic header/footer.
   for (const e of errs) {
     if (e.startRow < 1) continue;
-    const subLoc: SymbolLocation = {
+    const m = translate({
       uri: hostLoc.uri,
       line: e.startRow,
       column: e.startCol,
       endLine: e.endRow,
       endColumn: e.endCol,
-    };
-    const mapped = translate(subLoc);
+    });
     hostSyms.embeddedExecErrors.push({
-      startRow: mapped.line,
-      startCol: mapped.column,
-      endRow: mapped.endLine,
-      endCol: mapped.endColumn,
+      startRow: m.line,
+      startCol: m.column,
+      endRow: m.endLine,
+      endCol: m.endColumn,
       message: e.message,
       inCodeBlock: e.inCodeBlock,
       inInterpolation: e.inInterpolation,
@@ -530,8 +582,9 @@ function mergeIntoHost(
   sub: LocationSymbols,
   host: LocationSymbols,
   translate: LocTranslator,
+  allocScope: () => number,
 ): void {
-  const execScope = allocateExecScope(host);
+  const execScope = allocScope();
 
   // ── Variables ──
   //
@@ -567,31 +620,25 @@ function mergeIntoHost(
   }
 
   // ── Location refs (gs/gt/func/desc/@/@@/jump-loc) ──
-  for (const [, sym] of sub.locationRefs) {
-    for (const subRef of sym.references) {
-      host.addLocationRef(sym.name, translate(subRef));
-    }
-  }
+  //
+  // The next five passes share a shape — walk every named symbol,
+  // re-emit each `SymbolLocation` via the host's add* method — handled
+  // by the module-scope {@link forwardRefs} helper.  Per-kind
+  // variation (isDef tagging, label namespace) stays explicit in the
+  // call-site lambda.
+  forwardRefs(sub.locationRefs.values(), (sym, r) => host.addLocationRef(sym.name, translate(r)));
 
   // ── Object refs (addobj/delobj/modobj/resetobj/obj) ──
   //
   // `sym.definition` (if any) points at the SymbolLocation instance
   // inside `sym.references` that was the addobj/modobj site.  Identity
   // comparison lets us tag the right ref as a def in the host.
-  for (const [, sym] of sub.objectRefs) {
-    const defLoc = sym.definition;
-    for (const subRef of sym.references) {
-      const isDef = defLoc !== undefined && subRef === defLoc;
-      host.addObjectRef(sym.name, translate(subRef), isDef);
-    }
-  }
+  forwardRefs(sub.objectRefs.values(), (sym, r) =>
+    host.addObjectRef(sym.name, translate(r), sym.definition !== undefined && r === sym.definition),
+  );
 
   // ── Action refs (delact) ──
-  for (const [, sym] of sub.actionRefs) {
-    for (const subRef of sym.references) {
-      host.addActionRef(sym.name, translate(subRef));
-    }
-  }
+  forwardRefs(sub.actionRefs.values(), (sym, r) => host.addActionRef(sym.name, translate(r)));
 
   // ── Action defs (act blocks declared inside an exec body) ──
   for (const action of sub.actions) {
@@ -605,16 +652,8 @@ function mergeIntoHost(
   // (b) the diagnostics-relevant case is unresolved-jump within the
   // body, which the collapsed bucket still detects when neither side
   // declares the label.
-  for (const lbl of sub.allLabelSymbols()) {
-    for (const subRef of lbl.references) {
-      host.addLabel(lbl.name, translate(subRef), execScope);
-    }
-  }
-  for (const lblRef of sub.allLabelRefSymbols()) {
-    for (const subRef of lblRef.references) {
-      host.addLabelRef(lblRef.name, translate(subRef), execScope);
-    }
-  }
+  forwardRefs(sub.allLabelSymbols(),    (sym, r) => host.addLabel(sym.name, translate(r), execScope));
+  forwardRefs(sub.allLabelRefSymbols(), (sym, r) => host.addLabelRef(sym.name, translate(r), execScope));
 
   // ── Lint warnings & diagnostic locations ──
   //
@@ -666,9 +705,7 @@ function mergeIntoHost(
       localNames: [...d.localNames],
     });
   }
-  for (const d of sub.untrackedDynamicVarCalls) {
-    host.untrackedDynamicVarCalls.push({ ...d, loc: translate(d.loc) });
-  }
+  mergeWithLoc(sub.untrackedDynamicVarCalls, host.untrackedDynamicVarCalls);
 
   // ── Deferred-frame dynamic var calls ──
   //
@@ -681,9 +718,7 @@ function mergeIntoHost(
   //
   // `sub.unresolvedDynamicVarCalls` stays empty in this mode and
   // requires no handling.
-  for (const d of sub.deferredDynamicVarCalls) {
-    host.deferredDynamicVarCalls.push({ ...d, loc: translate(d.loc) });
-  }
+  mergeWithLoc(sub.deferredDynamicVarCalls, host.deferredDynamicVarCalls);
 
   // ── Variable bindings (writes that target globals) ──
   //
@@ -739,21 +774,6 @@ function rewriteBindingLoc(
     };
   }
   return rewritten;
-}
-
-/**
- * Reserve a fresh isolated scope inside `host`'s scope tree to hold
- * the exec body's locals.  Marked isolated so the body's `local x`
- * neither inherits from nor leaks into the host's enclosing scopes.
- */
-function allocateExecScope(host: LocationSymbols): number {
-  let nextId = 1;
-  for (const s of host.scopeParent.keys()) {
-    if (s >= nextId) nextId = s + 1;
-  }
-  host.scopeParent.set(nextId, 0);
-  host.isolatedScopes.add(nextId);
-  return nextId;
 }
 
 function findNamedChildOfType(

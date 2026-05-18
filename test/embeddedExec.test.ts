@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { QspTreeSitterParser, extractSymbols } from '../src/parser/treeSitter';
-import { extractEmbeddedExec } from '../src/parser/embeddedExec';
+import { extractEmbeddedExec, decodeDoubledQuotes } from '../src/parser/embeddedExec';
 import type { DocumentSymbols } from '../src/parser/symbolTable';
 import { initParser } from './testHelpers';
 import { buildFileAggregates } from '../src/server/aggregation';
@@ -1297,6 +1297,96 @@ pl '<a href="exec:$gold = 34">click</a>'
       const diags = diagnose(code, { typeMismatch: true });
       const tm = diags.filter(d => d.message.startsWith('Type mismatch'));
       expect(tm.length).toBe(1);
+    });
+  });
+
+  // ── Perf-regression guards for the chunked decoder & per-host
+  //    scope allocator (both were quadratic before the rewrite).
+  describe('perf: scaling with many exec links', () => {
+    it('decodeDoubledQuotes preserves shift map for chunked decoding', () => {
+      // Mixed chunks: leading escape, middle chunk, double escape,
+      // trailing chunk.  The shift array maps decoded → raw offsets
+      // and must be off-by-zero on every boundary.
+      const raw = "''ab''''cd";       // host quote = `'`
+      const { text, extra } = decodeDoubledQuotes(raw, "'");
+      expect(text).toBe("'ab''cd");
+      expect(extra).not.toBeNull();
+      // decoded.length = 7  →  extra.length = 8 (one sentinel past end)
+      expect(extra!.length).toBe(text.length + 1);
+      // raw_pos = d + extra[d].  decoded[0]=`'` is raw[0]   → extra[0]=0;
+      //                          decoded[3]=`'` is raw[4]   → extra[3]=1;
+      //                          decoded[5]=`c` is raw[8]   → extra[5]=3;
+      expect(extra![0]).toBe(0);
+      expect(extra![3]).toBe(1);
+      expect(extra![5]).toBe(3);
+      // Sentinel: end-of-body lookup must reflect ALL escapes seen.
+      expect(extra![text.length]).toBe(3);
+    });
+
+    it('decodeDoubledQuotes returns null extra on the no-escape fast path', () => {
+      const r = decodeDoubledQuotes('plain body', "'");
+      expect(r.text).toBe('plain body');
+      expect(r.extra).toBeNull();
+    });
+
+    it('decodeDoubledQuotes handles a string that is entirely escapes', () => {
+      // `''''` → `''` (two collapsed pairs).
+      const { text, extra } = decodeDoubledQuotes("''''", "'");
+      expect(text).toBe("''");
+      expect(extra!.length).toBe(3);
+      expect(Array.from(extra!)).toEqual([0, 1, 2]);
+    });
+
+    it('handles a host string carrying hundreds of exec links without quadratic cost', () => {
+      // Build one host string with 500 `<a href="exec:gs 'target'">…</a>`
+      // anchors.  Pre-rewrite: per-link `allocateExecScope` rescanned
+      // the host's scope map, so total work was O(N²) ≈ 125 000 set
+      // probes.  We just assert correctness (every link contributes a
+      // ref) and that the run completes well under a generous budget.
+      // Host quote is `'` so the inner doubled quotes `''` decode to
+      // `'` and the resulting body is `gs 'target'`.
+      const link = `<a href="exec:gs ''target''">x</a>`;
+      const links = Array.from({ length: 500 }, () => link).join(' ');
+      const code = `# home\npl '${links}'\n---\n# target\n---\n`;
+      const t0 = Date.now();
+      const symbols = run(code);
+      const elapsedMs = Date.now() - t0;
+      const refs = symbols.getLocation('home')!.locationRefs.get('target');
+      expect(refs?.references.length).toBe(500);
+      // Generous budget — local dev box runs this in well under 1s.
+      // The point is to catch a future regression that reintroduces
+      // O(N²) scope allocation or O(n²) decoder concat.
+      expect(elapsedMs).toBeLessThan(5000);
+    });
+
+    it('allocates one fresh isolated scope per exec link with unique ids', () => {
+      // Three exec links each declaring `local x`.  Each must land in
+      // its OWN isolated scope so the locals don't shadow each other
+      // and don't leak into the host's enclosing scope.  This also
+      // pins the per-host counter contract: ids returned by allocScope
+      // must be pairwise distinct (the old `allocateExecScope` derived
+      // its id from `max(keys)+1`, which collided with concurrent
+      // sub-walks that also wrote to `scopeParent` — the per-host
+      // counter rewrite makes monotonic increments the source of truth).
+      const symbols = run(
+        `# home
+pl '<a href="exec:local x = 1">a</a>'
+pl '<a href="exec:local x = 2">b</a>'
+pl '<a href="exec:local x = 3">c</a>'
+---
+`,
+      );
+      const loc = symbols.getLocation('home')!;
+      // Find the scope id assigned to each `x` definition.  They
+      // must be three distinct isolated-scope ids.
+      const xs = [...loc.ownedVariables].filter(s => s.nameLower === 'x');
+      expect(xs).toHaveLength(3);
+      const scopeIds = new Set(xs.map(s => s.scopeId));
+      expect(scopeIds.size).toBe(3);
+      for (const id of scopeIds) {
+        expect(loc.isolatedScopes.has(id)).toBe(true);
+        expect(loc.scopeParent.get(id)).toBe(0);
+      }
     });
   });
 });
