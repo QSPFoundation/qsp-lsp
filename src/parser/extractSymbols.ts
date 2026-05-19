@@ -22,6 +22,7 @@ import { nodeLoc } from './walkHelpers';
 import { hasStructuralErrors } from './extractErrors';
 import { walkLocationBody } from './symbolWalker';
 import { extractEmbeddedExec } from './embeddedExec';
+import { extractEmbeddedInterpolations } from './embeddedInterpolation';
 
 // Re-export for backward compatibility.
 export { isVariableDefinition } from './variableUtils';
@@ -100,6 +101,7 @@ export function extractSymbols(
   }
 
   extractEmbeddedExec(tree, docUri, symbols, parseFn, reusedLocations);
+  extractEmbeddedInterpolations(tree, docUri, symbols, parseFn, reusedLocations);
 
   symbols.rebuildGlobalBindings();
   return { symbols, reusedLocations };

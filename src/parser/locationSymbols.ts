@@ -66,6 +66,18 @@ export class LocationSymbols {
   /** True when the tree-sitter location_block node contained ERROR sub-nodes. */
   public hasErrors = false;
 
+  /**
+   * Transient: host scope at the syntactic position of a
+   * `string_interpolation` node that needs post-pass decoding.
+   * Populated by {@link symbolWalker} when it skips descent into such
+   * an interpolation; consumed by `extractEmbeddedInterpolations` to
+   * route variable refs through the host's actual scope chain.
+   *
+   * Keyed by tree-sitter node id so it stays valid for the lifetime
+   * of the source tree.  Not serialized or copied across edits.
+   */
+  public readonly interpolationHostScopes = new Map<number, number>();
+
   // Scope hierarchy for local variable propagation.
   // Maps child scopeId → parent scopeId.
   public readonly scopeParent = new Map<number, number>();

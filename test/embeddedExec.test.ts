@@ -1298,6 +1298,295 @@ pl '<a href="exec:$gold = 34">click</a>'
       const tm = diags.filter(d => d.message.startsWith('Type mismatch'));
       expect(tm.length).toBe(1);
     });
+
+    // ── Diagnostic-surface coverage for the <<>> decode path.
+    //    The inline path goes through the standard symbol walker and
+    //    is already covered by other test files — we only verify
+    //    here that variable refs translated by `mergeIntoHost` still
+    //    participate in every variable-related diagnostic.
+
+    it('uninitializedVariables fires for an unassigned read inside a decoded <<>>', () => {
+      const code = `# home
+pl 'hi <<instr(''a'', $q)>>'
+---
+`;
+      const diags = diagnose(code, { uninitializedVariables: true });
+      const hits = diags.filter(d => d.message === "Variable 'q' is used but never assigned");
+      expect(hits.length).toBe(1);
+      expect(hits[0]!.range.start.line).toBe(1);
+    });
+
+    it('unresolvedLocationRefs fires for a missing desc() target inside a decoded <<>>', () => {
+      const code = `# home
+pl 'hi <<desc(''missing'')>>'
+---
+`;
+      const diags = diagnose(code, { unresolvedLocationRefs: true });
+      const hits = diags.filter(d => /Location 'missing' is not defined/i.test(d.message));
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0]!.range.start.line).toBe(1);
+    });
+
+    it('invalidBuiltinArgCount fires inside a decoded <<>>', () => {
+      const code = `# home
+pl 'hi <<len(''a'', ''b'')>>'
+---
+`;
+      const diags = diagnose(code, { invalidBuiltinArgCount: true });
+      const hits = diags.filter(d => /expects .* arguments, got/.test(d.message));
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0]!.range.start.line).toBe(1);
+    });
+
+    it('invalidFunctionPrefix fires inside a decoded <<>>', () => {
+      const code = `# home
+pl 'hi <<$len(''abc'')>>'
+---
+`;
+      const diags = diagnose(code, { invalidFunctionPrefix: true });
+      const hits = diags.filter(d => /does not support the .* prefix/.test(d.message));
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0]!.range.start.line).toBe(1);
+    });
+
+    it('unusedVariables does NOT fire when var is read via an inline <<>>', () => {
+      const code = `# home
+$a = 1
+pl 'hi <<$a>>'
+---
+`;
+      const diags = diagnose(code, { unusedVariables: true });
+      const hits = diags.filter(d => /'a' is assigned but never read/.test(d.message));
+      expect(hits).toEqual([]);
+    });
+
+    it('unusedVariables does NOT fire when var is read via a decoded <<>>', () => {
+      // Regression: `mergeRefMetadata` previously dropped `isProperUsage`
+      // on translated refs, so the decode-pass read didn't count as a
+      // proper usage and `unusedVariables` falsely flagged the var.
+      const code = `# home
+$a = 1
+pl 'hi <<instr(''x'', $a)>>'
+---
+`;
+      const diags = diagnose(code, { unusedVariables: true });
+      const hits = diags.filter(d => /'a' is assigned but never read/.test(d.message));
+      expect(hits).toEqual([]);
+    });
+
+    it('unusedVariables does NOT fire when var is read via a nested <<>> inside <<>>', () => {
+      // Outer host single-quote (inline path); inner host
+      // double-quote carries `""` doubled-quote so the inner interp
+      // goes through the decode post-pass.  `$a` is read at the
+      // innermost level.
+      const code = `# home
+$a = 1
+pl '<<len("hi <<instr(""ab"", $a)>> bye")>>'
+---
+`;
+      const diags = diagnose(code, { unusedVariables: true });
+      const hits = diags.filter(d => /'a' is assigned but never read/.test(d.message));
+      expect(hits).toEqual([]);
+    });
+  });
+
+  // ── Interpolation expressions whose inline parse is corrupted by
+  //    the host string's doubled-quote escapes.  See
+  //    `interpolationNeedsDecode` and `extractEmbeddedInterpolations`.
+  describe('interpolation decode: doubled quotes inside <<>>', () => {
+    it('extracts a variable ref through `desc(...)` inside an interpolation', () => {
+      // `desc` is a location-ref function whose 1st string arg names
+      // the target location — same machinery as `gs`/`gt`.  Using it
+      // (instead of a statement-only `gs`) keeps the body a valid
+      // QSP expression.
+      const symbols = run(
+        `# home
+$x = 'go <<desc(''target'')>>'
+---
+# target
+---
+`,
+      );
+      const home = symbols.getLocation('home')!;
+      const ref = home.locationRefs.get('target');
+      expect(ref).toBeDefined();
+      expect(ref!.references.length).toBe(1);
+      expect(ref!.references[0].line).toBe(1);
+      expect(ref!.references[0].column).toBeGreaterThan(0);
+    });
+
+    // ── Nested interpolations.  An interpolation body may itself
+    //    contain a string carrying yet another interpolation; the
+    //    decode pass must traverse the entire location subtree (not
+    //    stop at the first match) and the predicate must resolve the
+    //    correct host quote at each nesting depth.
+    it('extracts inner var through doubly-nested interp (inline+inline)', () => {
+      // Outer host `'`, inner host `"` — neither needs decode.
+      const symbols = run(
+        `# home
+$x = '<<len("hi <<$inner>> bye")>>'
+---
+`,
+      );
+      const names = [...symbols.getLocation('home')!.ownedVariables].map(v => v.name);
+      expect(names).toContain('inner');
+      expect(names).not.toContain('_r_');
+    });
+
+    it('extracts inner var through doubly-nested interp (inline+decode)', () => {
+      // Outer host `'` (inline path); inner host `"` carries `""`
+      // doubled-quote escape inside its `<<>>` so the inner interp
+      // needs the decode post-pass.
+      const symbols = run(
+        `# home
+$x = '<<len("hi <<instr(""ab"", $inner)>> bye")>>'
+---
+`,
+      );
+      const names = [...symbols.getLocation('home')!.ownedVariables].map(v => v.name);
+      expect(names).toContain('inner');
+      expect(names).not.toContain('_r_');
+    });
+
+    it('does not crash on doubly-decoded literal-string nested interp', () => {
+      // Pathological case: inner `<<""target"">>` decodes to a plain
+      // string literal `"target"` (no extractable symbols).  `desc`'s
+      // arg is dynamic (contains an interpolation) so it correctly
+      // is NOT registered as a static location ref.
+      const symbols = run(
+        `# home
+$x = '<<desc("<<""target"">>")>>'
+---
+# target
+---
+`,
+      );
+      const home = symbols.getLocation('home')!;
+      const names = [...home.ownedVariables].map(v => v.name);
+      expect(names).not.toContain('_r_');
+      // `target` is referenced only as a dynamic value, not as a
+      // static location ref.
+      expect(home.locationRefs.has('target')).toBe(false);
+    });
+
+    it('inherits host scope: act-local resolved inside doubled-quote interpolation', () => {
+      // `$name` is a LOCAL inside the `act` body.  When the
+      // interpolation is processed by the decode pass, its variable
+      // refs must inherit the scope-at-interpolation-site so the
+      // ref scope-walks up and binds to the act-local — NOT spawning
+      // a separate location-top global symbol.
+      const symbols = run(
+        `# home
+act 'show':
+  local $name
+  $name = 'world'
+  pl 'hello <<$name & instr(''ab'', $name)>>!'
+end
+---
+`,
+      );
+      const home = symbols.getLocation('home')!;
+      const nameSyms = [...home.ownedVariables].filter(v => v.name === 'name');
+      // Exactly ONE `name` symbol must exist — the act-local — and
+      // every ref (including the two inside the doubled-quote
+      // interpolation) must attach to it.  Pre-fix, the decode-pass
+      // refs spawned a separate global `name` symbol.
+      expect(nameSyms.length).toBe(1);
+      expect(nameSyms[0].isLocal).toBe(true);
+      // local decl + assignment + 2 reads inside interpolation = ≥ 4
+      expect(nameSyms[0].references.length).toBeGreaterThanOrEqual(4);
+    });
+
+    // ── Quote-nesting matrix.  An interpolation body may contain
+    //    string literals; the inner literal's quote can be either
+    //    the SAME as the host (requires doubling → decode pass) or
+    //    the OTHER quote (no escaping needed → inline parse works).
+    it("host ' / inner \" parses inline (no escape, no decode)", () => {
+      const symbols = run(
+        `# home
+$x = 'val <<instr("ab", $y)>>'
+---
+`,
+      );
+      const home = symbols.getLocation('home')!;
+      const names = [...home.ownedVariables].map(v => v.name);
+      expect(names).toContain('x');
+      expect(names).toContain('y');
+      expect(names).not.toContain('_r_');
+    });
+
+    it("host \" / inner ' parses inline (no escape, no decode)", () => {
+      const symbols = run(
+        `# home
+$x = "val <<instr('ab', $y)>>"
+---
+`,
+      );
+      const home = symbols.getLocation('home')!;
+      const names = [...home.ownedVariables].map(v => v.name);
+      expect(names).toContain('x');
+      expect(names).toContain('y');
+      expect(names).not.toContain('_r_');
+    });
+
+    it('host " / inner "" (doubled) is decoded by the post-pass', () => {
+      const symbols = run(
+        `# home
+$x = "val <<instr(""ab"", $y)>>"
+---
+`,
+      );
+      const home = symbols.getLocation('home')!;
+      const names = [...home.ownedVariables].map(v => v.name);
+      expect(names).toContain('x');
+      expect(names).toContain('y');
+      expect(names).not.toContain('_r_');
+    });
+
+    it("host ' / inner '' (doubled) is decoded by the post-pass", () => {
+      const symbols = run(
+        `# home
+$x = 'val <<instr(''ab'', $y)>>'
+---
+`,
+      );
+      const home = symbols.getLocation('home')!;
+      const names = [...home.ownedVariables].map(v => v.name);
+      expect(names).toContain('x');
+      expect(names).toContain('y');
+      expect(names).not.toContain('_r_');
+    });
+
+    // ── Syntax-error recovery.  Malformed expressions inside `<<>>`
+    //    must not crash, must not pollute host symbols with synthetic
+    //    `_r_`, and (for the decode path) should surface as diagnostics
+    //    on the host string.
+    it('inline path: malformed <<>> does not crash and does not leak _r_', () => {
+      const symbols = run(
+        `# home
+$x = 'oops <<1 +>>'
+---
+`,
+      );
+      const home = symbols.getLocation('home')!;
+      const names = [...home.ownedVariables].map(v => v.name);
+      expect(names).toContain('x');
+      expect(names).not.toContain('_r_');
+    });
+
+    it('decode path: malformed <<>> with doubled quotes does not crash and does not leak _r_', () => {
+      const symbols = run(
+        `# home
+$x = 'oops <<instr(''ab'', ) +>>'
+---
+`,
+      );
+      const home = symbols.getLocation('home')!;
+      const names = [...home.ownedVariables].map(v => v.name);
+      expect(names).toContain('x');
+      expect(names).not.toContain('_r_');
+    });
+
   });
 
   // ── Perf-regression guards for the chunked decoder & per-host

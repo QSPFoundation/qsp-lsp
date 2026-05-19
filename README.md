@@ -59,6 +59,8 @@ Full-featured [QSP (Quest Soft Player)](https://qsp.org) language support for Vi
 - **Mixed location call types** — location called as both func and gosub/goto
 - **Inconsistent local propagation** — variable behaves as local or global depending on caller
 - **Untracked dynamic calls** — `dynamic`/`dyneval` whose first argument can't be pinned to a single code block (complex expression, multiple global assignments, or multiple local code-block bindings across distinct scopes)
+- **Embedded `exec:` analysis** — full symbol extraction and lint coverage for QSP code embedded in HTML `<a href="exec:…">` links inside displayed strings
+- **Embedded `<<…>>` analysis** — interpolation bodies are parsed inline by the grammar; bodies corrupted by host doubled-quote escapes (e.g. `'<<f(''a'')>>'`) are decoded and re-parsed in a post-pass so diagnostics still fire
 - **Missing `result` in function call** — function-style call (`@loc`, `func`, or `dyneval` block) that never assigns `result`
 - **Extra args to target without `args`** — call passes extra positional arguments but the target location or inline code block never reads the `args` variable; the extras are silently discarded
 - **Shadows call-frame built-in** — `local args` / `local result` is unnecessary: both are already per-call-frame variables, so the `local` keyword has no effect at a location's top level and merely hides the outer value inside a nested scope
@@ -230,6 +232,9 @@ src/
     variableUtils.ts         #   Variable definition/classification predicates
     lintChecks.ts            #   Standalone lint checks
     extractErrors.ts         #   Tree-sitter error extraction & merged lint pass
+    embeddedExec.ts          #   `<a href="exec:…">` link scanner
+    embeddedInterpolation.ts #   Doubled-quote `<<…>>` decode pass
+    embeddedShared.ts        #   Shared sub-parse / position-translate / merge
     builtins.ts              #   Built-in statements & functions data
     blockKeywords.ts         #   Block keyword range extraction
     treeSitter.ts            #   Tree-sitter wrapper
