@@ -16,6 +16,34 @@ import {
 
 export { checkFunctionNameAsLvalue, checkReservedWordMisuse, checkPrefixWhitespace };
 
+/**
+ * True if `intp` is a `string_interpolation` whose inline tree-sitter
+ * parse is corrupted by the enclosing string's doubled-quote escapes.
+ * In that case the decoded-body pass (`extractEmbeddedInterpolations`)
+ * is responsible for reporting diagnostics with correct coordinates,
+ * so the inline walker should NOT also emit errors from the same node.
+ *
+ * Duplicated locally (not imported) to avoid a circular dependency
+ * with `embeddedInterpolation.ts`, which depends on `hasStructuralErrors`
+ * from this file.  Memoized per-tree to avoid re-materializing
+ * `intp.text` across the two call sites in this module.
+ */
+const doubledQuoteCache = new WeakMap<Parser.Tree, Map<number, boolean>>();
+function interpolationHasDoubledQuotes(intp: Parser.SyntaxNode): boolean {
+  let perTree = doubledQuoteCache.get(intp.tree);
+  if (!perTree) doubledQuoteCache.set(intp.tree, perTree = new Map());
+  const cached = perTree.get(intp.id);
+  if (cached !== undefined) return cached;
+  let p: Parser.SyntaxNode | null = intp.parent;
+  while (p && p.type !== 'single_quoted_string' && p.type !== 'double_quoted_string') {
+    p = p.parent;
+  }
+  const result = p !== null
+    && intp.text.includes(p.type === 'single_quoted_string' ? "''" : '""');
+  perTree.set(intp.id, result);
+  return result;
+}
+
 /** A syntax error extracted from the parse tree. */
 export interface SyntaxError {
   startRow: number;
@@ -23,8 +51,8 @@ export interface SyntaxError {
   endRow: number;
   endCol: number;
   message: string;
+  /** True when the error is inside a code block or <<>> string interpolation. */
   inCodeBlock?: boolean;
-  /** True when the error is inside a <<>> string interpolation. */
   inInterpolation?: boolean;
 }
 
@@ -154,6 +182,14 @@ export function extractErrors(tree: Parser.Tree): SyntaxError[] {
     if (isCodeBlock || isRawCodeBlock) codeBlockDepth++;
     if (isInterpolation) interpolationDepth++;
 
+    // Doubled-quote interpolations are handled by the decoded-body
+    // sub-parse pass; skip them here to avoid duplicate / misleading
+    // inline-parse errors at the same span.
+    if (isInterpolation && interpolationHasDoubledQuotes(node)) {
+      interpolationDepth--;
+      return;
+    }
+
     if (node.isError) {
       const { diagnostics, summarized } = refineErrorNode(node);
       if (codeBlockDepth > 0) {
@@ -242,6 +278,13 @@ function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
     const isIntp = t === 'string_interpolation';
     if (isCB) codeBlockDepth++;
     if (isIntp) interpolationDepth++;
+
+    // Doubled-quote interpolations are sub-parsed by the decode pass;
+    // their inline tree is unreliable so skip lint passes inside.
+    if (isIntp && interpolationHasDoubledQuotes(n)) {
+      interpolationDepth--;
+      return;
+    }
 
     // ── Pass 1: reserved-word misuse on variable_ref/identifier_text ──
     if (t === 'identifier_text' && n.parent?.type === 'variable_ref') {
@@ -667,6 +710,42 @@ function refineErrorNode(node: Parser.SyntaxNode): RefinedError {
 
   let firstQuoteEvidence: { child: Parser.SyntaxNode; index: number } | null = null;
   const unclosedBlocks: { child: Parser.SyntaxNode; index: number }[] = [];
+
+  // ── Failed interpolation: ERROR has an unclosed `<<` (no matching `>>`).
+  //    Tree-sitter recovery in this shape (host string's doubled-quote
+  //    escapes derailed the interp parser) spans many lines, swallows
+  //    the rest of the location, and produces misleading per-token
+  //    diagnostics (e.g. "Unclosed '('" pointing inside the interp
+  //    expression).  Emit one focused diagnostic at the unmatched `<<`.
+  //
+  //    Stack-count `<<` / `>>` anonymous tokens at the immediate-child
+  //    level so we correctly handle: a lone `<<`, a second `<<` after
+  //    a balanced pair, and a stray `>>` preceding the real opener
+  //    (the `>>` is unmatched at that point so it's discarded, and a
+  //    later unclosed `<<` still surfaces). Single pass, no allocations.
+  let openCount = 0;
+  let lastUnmatchedOpen: Parser.SyntaxNode | null = null;
+  for (let i = 0; i < node.childCount; i++) {
+    const c = node.child(i)!;
+    if (c.isNamed) continue;
+    if (c.type === '<<') {
+      openCount++;
+      lastUnmatchedOpen = c;
+    } else if (c.type === '>>' && openCount > 0) {
+      openCount--;
+      if (openCount === 0) lastUnmatchedOpen = null;
+    }
+  }
+  if (lastUnmatchedOpen) {
+    const t = lastUnmatchedOpen;
+    return { summarized: true, diagnostics: [{
+      startRow: t.startPosition.row,
+      startCol: t.startPosition.column,
+      endRow: t.startPosition.row,
+      endCol: t.endPosition.column,
+      message: "Malformed interpolation expression",
+    }] };
+  }
 
   // Find the genuinely unclosed openers (`{`, `(`, `[`) and stray closers
   // (`}`, `)`, `]`) by stack-matching across the WHOLE ERROR subtree.

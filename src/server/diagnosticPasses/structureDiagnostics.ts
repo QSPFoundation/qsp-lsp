@@ -71,7 +71,7 @@ export function checkSyntaxErrors(
     if (errs.length <= maxPerLoc) {
       for (const err of errs) {
         ctx.push(
-          (err.inCodeBlock || err.inInterpolation) ? DiagnosticSeverity.Information : DiagnosticSeverity.Error,
+          err.inCodeBlock ? DiagnosticSeverity.Information : DiagnosticSeverity.Error,
           {
             start: { line: err.startRow, character: err.startCol },
             end: { line: err.endRow, character: err.endCol },

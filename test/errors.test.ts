@@ -89,6 +89,99 @@ end
     expect(errors.length).toBeGreaterThan(0);
     expect(errors.some(e => /unclosed.*\{/i.test(e.message))).toBe(false);
   });
+
+  it('reports a focused diagnostic for a malformed <<>> with doubled quotes that derails host parsing', () => {
+    // When doubled-quote escapes inside `<<...>>` confuse tree-sitter
+    // so badly that the matching `>>` is lost and the rest of the
+    // location is swallowed into a giant ERROR, the delimiter-mismatch
+    // scan used to point at an inner `(` ("Unclosed '('") which is
+    // both wrong (the `)` exists but is hidden inside a misparsed
+    // string subtree) and misleading.  We now emit a single
+    // "Malformed interpolation expression" diagnostic anchored at the
+    // `<<` instead.
+    const tree = parser.parse('test://err-malformed-interp', `# forest
+! Demonstrates: loop, rand(), local variables, mixed call types.
+local encounters = rand(1, 3)
+local i = 0
+pl 'You step into the forest.  The path forks <<func(''forest/encounter''), 2>> times.'
+
+loop i = 1 while i <= encounters step i = i + 1:
+    gs 'forest/encounter', i
+end
+
+act 'Rest by the river':
+    hp = min(hp + 20, 100)
+end
+---
+# forest/encounter
+result = 1
+---
+`)!;
+    const errors = extractErrors(tree);
+    expect(errors.some(e => /malformed interpolation/i.test(e.message))).toBe(true);
+    // The misleading "Unclosed '('" must NOT appear for this shape.
+    expect(errors.some(e => /unclosed.*\(/i.test(e.message))).toBe(false);
+    // Diagnostic anchored at the `<<` token (line 4, col 46).
+    const hit = errors.find(e => /malformed interpolation/i.test(e.message))!;
+    expect(hit.startRow).toBe(4);
+    expect(hit.startCol).toBe(46);
+  });
+
+  // ── Stack-counting <<>> detection in refineErrorNode ──
+  // The detection loop counts `<<` opens against `>>` closes and emits
+  // "Malformed interpolation expression" at the LAST unmatched opener.
+  // These cases exercise every branch of that counter (open++/close--/
+  // stray-close-discard) and the negative case (balanced ⇒ no diag).
+  describe('malformed <<>> stack-counting cases', () => {
+    it('flags a lone unclosed `<<` at end-of-line', () => {
+      // `<<func(` with no `>>` anywhere; ERROR spans into next line.
+      const tree = parser.parse('test://mi-lone-eol', `# t\npl 'a <<func(\n---\n`)!;
+      const errs = extractErrors(tree);
+      const hit = errs.find(e => /malformed interpolation/i.test(e.message));
+      expect(hit).toBeDefined();
+      expect(hit!.startRow).toBe(1);
+      expect(hit!.startCol).toBe(6);
+    });
+
+    it('does NOT flag a balanced `<<x>>` interpolation', () => {
+      const tree = parser.parse('test://mi-balanced', `# t\npl 'a <<x>> b'\n---\n`)!;
+      const errs = extractErrors(tree);
+      expect(errs.some(e => /malformed interpolation/i.test(e.message))).toBe(false);
+    });
+
+    it('does NOT flag a stray `>>` with no preceding `<<`', () => {
+      // openCount stays 0 on `>>`, so it's discarded and no diag fires.
+      const tree = parser.parse('test://mi-stray-close', `# t\npl 'a >> b'\n---\n`)!;
+      const errs = extractErrors(tree);
+      expect(errs.some(e => /malformed interpolation/i.test(e.message))).toBe(false);
+    });
+
+    it('flags an unclosed `<<` that follows a stray `>>`', () => {
+      // The leading `>>` is discarded (openCount=0); the later `<<func(`
+      // has no matching `>>` and triggers the diagnostic at the `<<`.
+      const tree = parser.parse('test://mi-close-then-open', `# t\npl 'a >> b <<func(\n---\n`)!;
+      const errs = extractErrors(tree);
+      const hit = errs.find(e => /malformed interpolation/i.test(e.message));
+      expect(hit).toBeDefined();
+      expect(hit!.startRow).toBe(1);
+      expect(hit!.startCol).toBe(11);
+    });
+
+    it('flags a second unclosed `<<` after a balanced pair', () => {
+      // `<<x>>` cancels out; the second `<<func(` is the unmatched
+      // opener and is what the diagnostic should anchor to.
+      const tree = parser.parse(
+        'test://mi-balanced-then-unclosed',
+        `# t\npl 'a <<x>> b <<func(\nact 'y':\nend\n---\n`,
+      )!;
+      const errs = extractErrors(tree);
+      const hit = errs.find(e => /malformed interpolation/i.test(e.message));
+      expect(hit).toBeDefined();
+      expect(hit!.startRow).toBe(1);
+      expect(hit!.startCol).toBe(14);
+    });
+  });
+
   it('should report MISSING node with descriptive message', () => {
     // `act:` without a name triggers a MISSING identifier_text node
     const tree = parser.parse('test://err-missing', `# test

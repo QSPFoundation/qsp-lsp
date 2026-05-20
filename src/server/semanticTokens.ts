@@ -15,6 +15,7 @@ import {
 } from 'vscode-languageserver';
 import { isVariableDefinition } from '../parser';
 import { EXEC_PROBE_RE, EXEC_LINK_RE, decodeDoubledQuotes } from '../parser/embeddedExec';
+import { interpolationNeedsDecode } from '../parser/embeddedInterpolation';
 import { CONTROL_FLOW_STMT_NAMES } from '../parser/lookupTables';
 
 /** Sub-parser used to lift `<a href="exec:…">` link bodies out of strings. */
@@ -315,8 +316,23 @@ function emitSemanticTokens(
       // ── String interpolation ────────────────────────────
       // string_interpolation: <<expr>> with delimiters and expression children
       case 'string_interpolation': {
-        // Children: "<<" (anon), expression (named), ">>" (anon)
         const interpType = tokenType(SemanticTokenTypes.regexp);
+        // For doubled-quote interpolations (e.g. `<<''x''+1>>` inside a
+        // single-quoted host string) the inline tree-sitter parse is
+        // corrupted by the escape collapse — recursing into the named
+        // children would emit misleading tokens.  Re-parse the decoded
+        // body with the same sub-parse trick the symbol pass uses and
+        // project the tokens back to source coordinates.
+        if (parseFn && interpolationNeedsDecode(node)) {
+          emitDoubledQuoteInterpolation(node, parseFn, emit, gotoTargets);
+          // Emit `<<` / `>>` delimiters explicitly since we didn't recurse.
+          for (let i = 0; i < node.childCount; i++) {
+            const child = node.child(i)!;
+            if (!child.isNamed) push(child, interpType);
+          }
+          return;
+        }
+        // Children: "<<" (anon), expression (named), ">>" (anon)
         for (let i = 0; i < node.childCount; i++) {
           const child = node.child(i)!;
           if (child.isNamed) {
@@ -565,6 +581,67 @@ function emitExecBodyForInfo(
       const d2 = Math.min(char + length, decoded.length);
       const srcCol = startCol + char + (extra ? extra[char] : 0);
       const srcEnd = startCol + d2   + (extra ? extra[d2]   : 0);
+      if (srcEnd > srcCol) emit(row, srcCol, srcEnd - srcCol, type, modifiers);
+    };
+    emitSemanticTokens(subTree, project, gotoTargets);
+  } finally {
+    subTree.delete();
+  }
+}
+
+/**
+ * Sub-parse a doubled-quote `<<…>>` interpolation body and emit
+ * semantic tokens at the original source positions.
+ *
+ * Mirrors `emitExecBodyForInfo`: wraps the decoded body so it parses
+ * as a single expression, runs the same token emitter, then projects
+ * back through the `extra` shift map produced by `decodeDoubledQuotes`.
+ *
+ * Single-line bodies only; multi-line interpolations are exceedingly
+ * rare in practice and fall back to the (corrupted) inline tokens.
+ */
+function emitDoubledQuoteInterpolation(
+  intp: Parser.SyntaxNode,
+  parseFn: SemanticParseFn,
+  emit: TokenSink,
+  gotoTargets: ReadonlySet<string> | undefined,
+): void {
+  // Need single-line body so column projection is straightforward.
+  if (intp.startPosition.row !== intp.endPosition.row) return;
+  const raw = intp.text;
+  if (raw.length < 4) return; // need at least `<<>>`
+  const innerBody = raw.slice(2, -2);
+  if (innerBody.length === 0) return;
+
+  // Host quote char dictates which doubled-quote sequence is the
+  // escape. (predicate guaranteed an ancestor exists)
+  let host: Parser.SyntaxNode | null = intp.parent;
+  while (host && host.type !== 'single_quoted_string' && host.type !== 'double_quoted_string') {
+    host = host.parent;
+  }
+  if (!host) return;
+  const hostQuote = host.type === 'single_quoted_string' ? "'" : '"';
+
+  const { text: decoded, extra } = decodeDoubledQuotes(innerBody, hostQuote);
+
+  // Wrap as an expression (LHS of an assignment) so it parses cleanly.
+  // Matches the structure used by extractEmbeddedInterpolations so the
+  // sub-tree's body sits at (line=1, column=PREFIX_LEN).
+  const PREFIX = '_r_=(';
+  const wrapped = '# __intp__\n' + PREFIX + decoded + ')\n---\n';
+  const subTree = parseFn(wrapped);
+  if (!subTree) return;
+  try {
+    const row = intp.startPosition.row;
+    // Source column of body byte 0 = column of `<<` + 2.
+    const bodyStartCol = intp.startPosition.column + 2;
+    const project: TokenSink = (line, char, length, type, modifiers) => {
+      if (line !== 1) return;
+      const c0 = char - PREFIX.length;
+      if (c0 < 0 || c0 > decoded.length) return;
+      const c1 = Math.min(c0 + length, decoded.length);
+      const srcCol = bodyStartCol + c0 + (extra ? extra[c0] : 0);
+      const srcEnd = bodyStartCol + c1 + (extra ? extra[c1] : 0);
       if (srcEnd > srcCol) emit(row, srcCol, srcEnd - srcCol, type, modifiers);
     };
     emitSemanticTokens(subTree, project, gotoTargets);

@@ -1314,6 +1314,9 @@ pl 'hi <<instr(''a'', $q)>>'
       const hits = diags.filter(d => d.message === "Variable 'q' is used but never assigned");
       expect(hits.length).toBe(1);
       expect(hits[0]!.range.start.line).toBe(1);
+      // Diagnostics inside `<<>>` must surface at their natural severity
+      // (Warning here), not downgraded to Information.
+      expect(hits[0]!.severity).not.toBe(3);
     });
 
     it('unresolvedLocationRefs fires for a missing desc() target inside a decoded <<>>', () => {
@@ -1387,6 +1390,55 @@ pl '<<len("hi <<instr(""ab"", $a)>> bye")>>'
       const diags = diagnose(code, { unusedVariables: true });
       const hits = diags.filter(d => /'a' is assigned but never read/.test(d.message));
       expect(hits).toEqual([]);
+    });
+
+    // ── Subexpression syntax errors inside <<>>.  Malformed bodies
+    //    must surface diagnostics on the host string and must NOT
+    //    trigger spurious `missingResultInFunctionCall` warnings for
+    //    any phantom location names that appear inside the broken body.
+    //    (No-crash / no-`_r_`-leak invariants are covered in the
+    //    `interpolation decode` describe block below.)
+
+    it("reports a diagnostic for <<''>> (decoded body collapses to a lone unclosed quote)", () => {
+      // `<<''>>` inside a single-quoted host decodes to the body `'`
+      // which produces a sub-parse with no `location_block` at all —
+      // only an ERROR node.  The decode pass must still surface a
+      // diagnostic so the user sees the problem.
+      const code = `# home
+pl 'forks <<''>>'
+---
+`;
+      const diags = diagnose(code, {});
+      const lineText = code.split('\n')[1]!;
+      const start = lineText.indexOf('<<');
+      const end = lineText.lastIndexOf('>>') + 2;
+      const hits = diags.filter(d =>
+        d.severity === 1
+        && d.range.start.line === 1
+        && d.range.start.character >= start
+        && d.range.start.character < end,
+      );
+      expect(hits.length).toBeGreaterThan(0);
+    });
+
+    it('does NOT raise `missingResultInFunctionCall` for phantom names that appear inside a broken <<>>', () => {
+      // Defensive: a malformed body must not leak fake location refs
+      // into the host that would then be flagged as never-assigning
+      // `result`.  (`unresolvedLocationRefs` is the right diagnostic
+      // for any genuinely unresolved ref; this test guards against
+      // double-reporting.)
+      const code = `# home
+pl 'oops <<func(''nowhere'') +>>'
+---
+`;
+      const diags = diagnose(code, {
+        missingResultInFunctionCall: true,
+        unresolvedLocationRefs: true,
+      });
+      const missingResult = diags.filter(d =>
+        d.message.includes("never assigns 'result'"),
+      );
+      expect(missingResult).toEqual([]);
     });
   });
 

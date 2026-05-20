@@ -187,11 +187,14 @@ export function checkMissingResultInFunctionCall(
   ctx: DiagnosticCtx,
   symbols: DocumentSymbols,
   agg: SymbolAggregates,
+  allLocationDefs: ReadonlyMap<string, unknown>,
 ): void {
   const writers = agg.locationsWritingResult;
   for (const [, locSyms] of symbols.locations) {
     if (locSyms.hasErrors) continue;
     for (const [targetKey, ref] of locSyms.locationRefs) {
+      // Unresolved targets are already flagged by `unresolvedLocationRefs`.
+      if (!allLocationDefs.has(targetKey)) continue;
       if (writers.has(targetKey)) continue;
       for (const r of ref.references) {
         if (r.callType !== 'func') continue;
@@ -436,7 +439,7 @@ function formatExtraArgsMessage(
   if (v.kind === 'never') {
     const valueWord = argCount === 1 ? 'value is' : 'values are';
     return `${subject} is called with ${argCount} extra ${argWord}`
-      + ` but never reads 'args'`
+      + ` but they aren't read`
       + ` — the extra ${valueWord} discarded`;
   }
   // partial
@@ -477,7 +480,7 @@ export function checkPropagation(
   }
 
   if (ctx.settings.missingResultInFunctionCall) {
-    checkMissingResultInFunctionCall(ctx, symbols, agg);
+    checkMissingResultInFunctionCall(ctx, symbols, agg, allLocationDefs);
     checkMissingResultInDyneval(ctx, symbols, agg);
   }
 

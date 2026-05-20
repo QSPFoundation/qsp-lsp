@@ -58,29 +58,41 @@ const INTP_SKIP_VARS: ReadonlySet<string> = new Set([INTP_SYNTHETIC_LHS]);
 // ── Predicate ────────────────────────────────────────────────────────
 
 /**
+ * Per-tree memo for {@link interpolationNeedsDecode}.  The predicate
+ * is invoked from three passes (symbol walker, semantic tokens, this
+ * module) on the same nodes; without a cache each call re-materializes
+ * `intp.text` (UTF-8→UTF-16 allocation across the whole interpolation
+ * span).  Keyed on `Tree` so entries are auto-released when the tree
+ * is GC'd; keyed on stable per-tree `node.id` within.
+ */
+const decodeCache = new WeakMap<Parser.Tree, Map<number, boolean>>();
+
+/**
  * True if `intp` is a `string_interpolation` whose inline parse is
- * corrupted by the enclosing string's doubled-quote escapes.  Fast
- * `indexOf` check on the interpolation's text — no tree traversal.
- *
- * The enclosing string's quote character is recovered by walking up
- * the parent chain to the first `single_quoted_string` /
- * `double_quoted_string` ancestor.
+ * corrupted by the enclosing string's doubled-quote escapes.  The
+ * enclosing string's quote character is recovered by walking up the
+ * parent chain to the first `single_quoted_string` /
+ * `double_quoted_string` ancestor.  Result is memoized per tree.
  */
 export function interpolationNeedsDecode(
   intp: Parser.SyntaxNode,
 ): boolean {
   if (intp.type !== 'string_interpolation') return false;
-  // Walk up to enclosing host string.
+  let perTree = decodeCache.get(intp.tree);
+  if (!perTree) decodeCache.set(intp.tree, perTree = new Map());
+  const cached = perTree.get(intp.id);
+  if (cached !== undefined) return cached;
   let p: Parser.SyntaxNode | null = intp.parent;
   while (p && p.type !== 'single_quoted_string' && p.type !== 'double_quoted_string') {
     p = p.parent;
   }
-  if (!p) return false;
-  const hostQuote = p.type === 'single_quoted_string' ? "'" : '"';
   // Check for the doubled-quote escape ANYWHERE in the interpolation
-  // text (which includes the `<<` / `>>` delimiters — those can't
-  // contain `''` so it's the same as checking just the body).
-  return intp.text.includes(hostQuote + hostQuote);
+  // text — `<<` / `>>` delimiters cannot contain `''`, so scanning
+  // the whole node text is equivalent to scanning the body.
+  const result = p !== null
+    && intp.text.includes(p.type === 'single_quoted_string' ? "''" : '""');
+  perTree.set(intp.id, result);
+  return result;
 }
 
 // ── Public entry point ───────────────────────────────────────────────
@@ -135,6 +147,13 @@ function processLocationInterpolations(
   docUri: string,
   parseFn: (text: string) => Parser.Tree | null,
 ): void {
+  // Fast path: if the symbol walker didn't tag any interpolation in
+  // this location as needing decode, there's nothing to do.  Most
+  // documents have zero doubled-quote interpolations so this skips
+  // the whole cursor walk.
+  const hostScopes = locSymbols.interpolationHostScopes;
+  if (hostScopes.size === 0) return;
+
   // Same per-host scope allocator strategy as exec — needed because
   // {@link mergeIntoHost} unconditionally allocates a scope, even
   // though for interpolations no locals end up bound to it.
@@ -149,14 +168,15 @@ function processLocationInterpolations(
 
   function visit(c: Parser.TreeCursor): void {
     const n = c.currentNode;
-    if (n.type === 'string_interpolation' && interpolationNeedsDecode(n)) {
-      // Look up the host scope captured by `symbolWalker` when it
-      // skipped descent here.  Falls back to 0 (location top) if the
-      // walker didn't visit this node — should not happen for
-      // well-formed inputs but keeps behaviour predictable.
-      const hostScope = locSymbols.interpolationHostScopes.get(n.id) ?? 0;
-      processInterpolation(n, locSymbols, docUri, parseFn, allocScope, hostScope);
-      return; // do not descend — sub-parse handled it
+    if (n.type === 'string_interpolation') {
+      // Authoritative source for "needs decode" is the symbol walker's
+      // tag — same predicate, but recorded once at walk time so we
+      // don't re-materialize `intp.text` here.
+      const hostScope = hostScopes.get(n.id);
+      if (hostScope !== undefined) {
+        processInterpolation(n, locSymbols, docUri, parseFn, allocScope, hostScope);
+        return; // do not descend — sub-parse handled it
+      }
     }
     if (c.gotoFirstChild()) {
       do { visit(c); } while (c.gotoNextSibling());
@@ -206,12 +226,15 @@ function processInterpolation(
   );
 
   try {
+    // Surface syntax errors from the decoded body so users see
+    // diagnostics for malformed interpolation expressions.  Run this
+    // BEFORE the structural / location_block checks so even bodies so
+    // broken that no `location_block` is produced (e.g. `<<''>>` →
+    // decoded body `'`, an unclosed string) still get error feedback.
+    collectEmbeddedErrors(subTree, translate, hostLoc, locSymbols);
+
     const subLocBlock = findNamedChildOfType(subTree.rootNode, 'location_block');
     if (!subLocBlock) return;
-
-    // Surface syntax errors from the decoded body so users see
-    // diagnostics for malformed interpolation expressions.
-    collectEmbeddedErrors(subTree, translate, hostLoc, locSymbols);
 
     if (hasStructuralErrors(subLocBlock)) return;
 

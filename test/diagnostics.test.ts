@@ -948,6 +948,23 @@ $result = 'hi'
       expect(diags.some(d => d.message.includes(NEEDLE))).toBe(false);
     });
 
+    it('does NOT warn when the target location does not exist (unresolved ref owns that case)', () => {
+      // `func('nowhere')` with no `# nowhere` location must not produce
+      // a "never assigns 'result'" warning — that's the job of
+      // `unresolvedLocationRefs`. Otherwise the user gets two
+      // diagnostics for the same root cause.
+      const diags = run(
+        `# a
+y = func('nowhere')
+---
+`,
+        { missingResultInFunctionCall: true, unresolvedLocationRefs: true },
+      );
+      expect(diags.some(d => d.message.includes(NEEDLE))).toBe(false);
+      // Sanity: the unresolved-ref diagnostic IS the one that fires.
+      expect(diags.some(d => /Location 'nowhere' is not defined/i.test(d.message))).toBe(true);
+    });
+
     it('does NOT warn when target compound-assigns result after an initial value-bearing assignment', () => {
       // `result += 1` alone is a read-then-write of an uninitialised
       // value (compound LHS is not a definition); the user must seed
@@ -1392,11 +1409,26 @@ y = dyneval($d)
       );
       expect(diags.some(d => d.message.toLowerCase().includes('dyneval') && d.message.includes(NEEDLE))).toBe(false);
     });
+
+    it('does NOT warn when the target location is not defined anywhere', () => {
+      // Unresolved targets are already reported by `unresolvedLocationRefs`;
+      // they trivially don't write `result` but emitting a second warning
+      // about a phantom location would be noise.
+      const diags = run(
+        `# a
+y = func('nope')
+y2 = @nope
+---
+`,
+        { missingResultInFunctionCall: true },
+      );
+      expect(diags.some(d => d.message.includes(NEEDLE))).toBe(false);
+    });
   });
 
   // ── extraArgsToTargetWithoutArgs ──────────────────────────────────
   describe('extraArgsToTargetWithoutArgs', () => {
-    const TAG = "never reads 'args'";
+    const TAG = "but they aren't read";
 
     it('warns on gs with extra args when target has no args', () => {
       const diags = run(
