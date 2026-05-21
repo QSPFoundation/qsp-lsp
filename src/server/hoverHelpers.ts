@@ -30,16 +30,38 @@ export type { BuildPossibleValuesOptions };
 // Text formatting helpers
 // ──────────────────────────────────────────────────────────────────────
 
-/** Max possible-value entries to render in a hover, to keep tooltips small. */
-const MAX_HOVER_VALUES = 10;
-/** Max location/line citations to render per distinct value before collapsing. */
-const MAX_HOVER_LOCATIONS_PER_VALUE = 20;
-/** Cap on the number of globals to render in the hover. */
-const MAX_HOVER_GLOBALS = 25;
+/**
+ * Default cap on bullet/line items rendered per hover section
+ * (possible values, locations per value, globals, callers, jumpers,
+ * propagated-from/to, also-defined-in, etc.).  Overridden per-call
+ * via the `maxItems` parameter — `ctx.settings.hover.maxItemsPerCategory`
+ * supplies the user-configurable value in production.
+ *
+ * Overflow is summarised with a `*…and N more*` tail entry so the
+ * user knows the list was truncated.
+ */
+export const DEFAULT_HOVER_MAX_ITEMS = 20;
 
 /** Wrap `s` in a backtick code span, escaping interior backticks. */
 function codeSpan(s: string): string {
   return '`' + s.replace(/`/g, '\\`') + '`';
+}
+
+/**
+ * Inject a `(N <unit>)` count annotation into a section header.
+ *
+ * Headers passed by callers look like `'**Called from:**'` — we strip
+ * the trailing `:**`, append the count parenthetical, and re-close.
+ * Singular/plural is handled by stripping a trailing `s` when `n === 1`.
+ * Headers without the trailing `:**` get the parenthetical appended
+ * before any final punctuation as a fallback.
+ */
+function annotateHeader(header: string, n: number, unit: string): string {
+  const singular = n === 1 && unit.endsWith('s') ? unit.slice(0, -1) : unit;
+  const annot = ` (${n} ${singular})`;
+  if (header.endsWith(':**')) return header.slice(0, -3) + annot + ':**';
+  if (header.endsWith(':')) return header.slice(0, -1) + annot + ':';
+  return header + annot;
 }
 
 /**
@@ -77,6 +99,7 @@ export function buildPossibleValuesLines(
   options: BuildPossibleValuesOptions = {},
 ): string[] {
   if (entries.length === 0) return [];
+  const maxItems = options.maxItems ?? DEFAULT_HOVER_MAX_ITEMS;
 
   const order: CursorValueEntry['origin'][] = ['scope', 'cross-call', 'document'];
   const grouped = new Map<CursorValueEntry['origin'], CursorValueEntry[]>();
@@ -145,19 +168,20 @@ export function buildPossibleValuesLines(
     locs.push(item.locationStr);
   }
 
-  // Render, capped at MAX_HOVER_VALUES distinct values; per value,
-  // cap the inline location list at MAX_HOVER_LOCATIONS_PER_VALUE.
-  const lines: string[] = ['', '**Possible values:**'];
+  // Render, capped at `maxItems` distinct values; per value,
+  // cap the inline location list at `maxItems` too.
+  if (byValue.size === 0) return [];
+  const lines: string[] = ['', annotateHeader('**Possible values:**', byValue.size, 'definitions')];
   let shown = 0;
   let overflow = 0;
   for (const [valueStr, locs] of byValue) {
-    if (shown >= MAX_HOVER_VALUES) { overflow++; continue; }
+    if (shown >= maxItems) { overflow++; continue; }
     let locStr: string;
-    if (locs.length <= MAX_HOVER_LOCATIONS_PER_VALUE) {
+    if (locs.length <= maxItems) {
       locStr = locs.join(', ');
     } else {
-      const extra = locs.length - MAX_HOVER_LOCATIONS_PER_VALUE;
-      locStr = locs.slice(0, MAX_HOVER_LOCATIONS_PER_VALUE).join(', ')
+      const extra = locs.length - maxItems;
+      locStr = locs.slice(0, maxItems).join(', ')
         + `, *…and ${extra} more*`;
     }
     lines.push('- ' + valueStr + ' — ' + locStr);
@@ -194,6 +218,7 @@ function buildLocationCallerSection(
   out: string[],
   accept: ReadonlySet<CallType>,
   includePropagatedLocals: boolean,
+  maxItems: number = DEFAULT_HOVER_MAX_ITEMS,
 ): void {
   type Site = { line: number; texts: string[]; locals: Set<string> };
   const callers = new Map<string, { uri: string; defLine: number | undefined; sites: Site[] }>();
@@ -239,18 +264,30 @@ function buildLocationCallerSection(
   }
   if (callers.size === 0) return;
   out.push('');
-  out.push(header);
+  out.push(annotateHeader(header, callers.size, 'locations'));
+  let shown = 0;
   for (const [callerName, info] of callers) {
+    if (shown >= maxItems) {
+      out.push(`- *…and ${callers.size - shown} more*`);
+      break;
+    }
     const lineInfo = info.defLine !== undefined ? ` (line ${info.defLine + 1})` : '';
     const fInfo = info.uri !== hoverUri ? ` [${basename(info.uri)}]` : '';
     out.push(`- \`${callerName}\`${lineInfo}${fInfo}`);
+    let siteShown = 0;
     for (const s of info.sites) {
+      if (siteShown >= maxItems) {
+        out.push(`  - *…and ${info.sites.length - siteShown} more*`);
+        break;
+      }
       const calls = s.texts.map(t => `\`${t}\``).join(CALL_SEP);
       const localsSuffix = s.locals.size > 0
         ? ' (passes locals: ' + [...s.locals].sort().map(l => `\`${l}\``).join(', ') + ')'
         : '';
       out.push(`  - line ${s.line}: ${calls}${localsSuffix}`);
+      siteShown++;
     }
+    shown++;
   }
 }
 
@@ -285,10 +322,11 @@ export function buildCallerLines(
   header: string,
   hoverUri: string,
   out: string[],
+  maxItems: number = DEFAULT_HOVER_MAX_ITEMS,
 ): void {
   buildLocationCallerSection(
     documentStates, targetKey, header, hoverUri, out,
-    RETURNING_CALLS, /* includePropagatedLocals */ true,
+    RETURNING_CALLS, /* includePropagatedLocals */ true, maxItems,
   );
 }
 
@@ -306,10 +344,11 @@ export function buildJumperLines(
   header: string,
   hoverUri: string,
   out: string[],
+  maxItems: number = DEFAULT_HOVER_MAX_ITEMS,
 ): void {
   buildLocationCallerSection(
     documentStates, targetKey, header, hoverUri, out,
-    NAVIGATE_CALLS, /* includePropagatedLocals */ false,
+    NAVIGATE_CALLS, /* includePropagatedLocals */ false, maxItems,
   );
 }
 
@@ -362,7 +401,7 @@ export function buildConsumedLocalsLine(
   if (names.size === 0) return;
   out.push('');
   out.push(
-    `${label} `
+    `${annotateHeader(label, names.size, 'variables')} `
     + [...names].map(n => `\`${n}\``).join(', '),
   );
 }
@@ -387,6 +426,7 @@ export function buildUsedGlobalsSection(
   targetKey: string,
   header: string,
   out: string[],
+  maxItems: number = DEFAULT_HOVER_MAX_ITEMS,
 ): void {
   // Resolve the target's LocationSymbols from any open document — the
   // location may live in a sibling file in project mode.
@@ -400,39 +440,42 @@ export function buildUsedGlobalsSection(
 
   type Entry = {
     name: string;
-    defLine?: number;
-    readCount: number;
+    defCount: number;
+    usageCount: number;
   };
   const entries: Entry[] = [];
   for (const sym of locSyms.ownedVariables) {
     if (sym.isLocal) continue;
     if (propagated?.has(sym.nameLower)) continue;
     if (CALL_FRAME_BUILTINS.has(sym.nameLower)) continue;
-    const refCount = sym.references.length;
-    const readCount = refCount - (sym.definition ? 1 : 0);
-    entries.push({
-      name: sym.name,
-      defLine: sym.definition?.line,
-      readCount: Math.max(0, readCount),
-    });
+    // Partition references into definitions vs usages.  Definitions
+    // are plain `=` LHS and `local` declarations.  Everything else
+    // (reads + compound-op LHS like `x += 1` / `hp = hp + 5`) counts
+    // as a usage — compound ops *use* the existing value.
+    let defCount = 0;
+    let usageCount = 0;
+    for (const r of sym.references) {
+      if (r.isDefinition) defCount++;
+      else usageCount++;
+    }
+    entries.push({ name: sym.name, defCount, usageCount });
   }
   if (entries.length === 0) return;
 
   out.push('');
-  out.push(header);
+  out.push(annotateHeader(header, entries.length, 'variables'));
   let shown = 0;
   for (const e of entries) {
-    if (shown >= MAX_HOVER_GLOBALS) {
+    if (shown >= maxItems) {
       out.push(`- *…and ${entries.length - shown} more*`);
       break;
     }
     const parts: string[] = [];
-    // Globals are always value-bearing when defined — there's no bare
-    // `global x` declaration form.  A missing `defLine` simply means
-    // the location only reads the variable.
-    if (e.defLine !== undefined) parts.push(`assigned line ${e.defLine + 1}`);
-    if (e.readCount > 0) {
-      parts.push(`${e.readCount} read${e.readCount !== 1 ? 's' : ''}`);
+    if (e.defCount > 0) {
+      parts.push(`${e.defCount} definition${e.defCount !== 1 ? 's' : ''}`);
+    }
+    if (e.usageCount > 0) {
+      parts.push(`${e.usageCount} usage${e.usageCount !== 1 ? 's' : ''}`);
     }
     const annot = parts.length > 0 ? ` — ${parts.join(', ')}` : '';
     out.push(`- \`${e.name}\`${annot}`);

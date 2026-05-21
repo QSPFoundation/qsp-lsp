@@ -54,7 +54,7 @@ function makeFixture(code: string, uri = 'test://file.qsps'): Fixture {
   const documentStates = new Map<string, DocumentState>([[uri, state]]);
   const ctx = {
     documentStates,
-    settings: { project: { enabled: false }, semanticHighlighting: { enabled: true }, hover: { possibleValues: true } },
+    settings: { project: { enabled: false }, semanticHighlighting: { enabled: true }, hover: { possibleValues: true, maxItemsPerCategory: 20 } },
     projectAggregates: null,
     projectFileUris: new Set<string>(),
   } as unknown as ServerContext;
@@ -114,7 +114,7 @@ function makeProjectFixture(files: { uri: string; code: string }[]): {
   }
   const ctx = {
     documentStates: states,
-    settings: { project: { enabled: true }, semanticHighlighting: { enabled: true }, hover: { possibleValues: true } },
+    settings: { project: { enabled: true }, semanticHighlighting: { enabled: true }, hover: { possibleValues: true, maxItemsPerCategory: 20 } },
     projectAggregates,
     projectFileUris,
   } as unknown as ServerContext;
@@ -1814,7 +1814,7 @@ x = 1
     const { ctx, uri } = makeFixture(code);
     const out: string[] = [];
     buildCallerLines(ctx.documentStates, 'target', '**Called from:**', uri, out);
-    expect(out).toContain('**Called from:**');
+    expect(out.join('\n')).toMatch(/\*\*Called from \(\d+ locations?\):\*\*/);
     const text = out.join('\n');
     expect(text).toContain('main');
     expect(text).toContain('fn_caller');
@@ -2010,6 +2010,36 @@ x = 1
     const text = out.join('\n');
     expect(text).toMatch(/`main` \(line 1\) \[a\.qsps\]\n  - line 2: `gs 'target'`/);
   });
+
+  it('caps the caller list at MAX_HOVER_LIST_ITEMS (20) with "…and N more" tail', () => {
+    // 25 distinct caller locations all calling `target`.
+    const callers = Array.from({ length: 25 }, (_, i) => `# caller_${i.toString().padStart(2, '0')}\ngs 'target'\n---\n`).join('');
+    const code = callers + `# target\nx = 1\n---\n`;
+    const { ctx, uri } = makeFixture(code);
+    const out: string[] = [];
+    buildCallerLines(ctx.documentStates, 'target', '**Called from:**', uri, out);
+    const callerLines = out.filter(l => /^- `caller_/.test(l));
+    expect(callerLines).toHaveLength(20);
+    expect(out).toContain('- *…and 5 more*');
+  });
+
+  it('caps per-caller sites at MAX_HOVER_LIST_ITEMS (20) with "…and N more" tail', () => {
+    // One caller with 25 distinct call-site lines.
+    const sites = Array.from({ length: 25 }, () => `gs 'target'`).join('\n');
+    const code = `# many_sites
+${sites}
+---
+# target
+x = 1
+---
+`;
+    const { ctx, uri } = makeFixture(code);
+    const out: string[] = [];
+    buildCallerLines(ctx.documentStates, 'target', '**Called from:**', uri, out);
+    const siteLines = out.filter(l => /^  - line /.test(l));
+    expect(siteLines).toHaveLength(20);
+    expect(out).toContain('  - *…and 5 more*');
+  });
 });
 
 describe('buildJumperLines', () => {
@@ -2030,7 +2060,7 @@ x = 1
     const { ctx, uri } = makeFixture(code);
     const out: string[] = [];
     buildJumperLines(ctx.documentStates, 'target', '**Navigated from:**', uri, out);
-    expect(out).toContain('**Navigated from:**');
+    expect(out.join('\n')).toMatch(/\*\*Navigated from \(\d+ locations?\):\*\*/);
     const text = out.join('\n');
     expect(text).toContain('jumper_a');
     expect(text).toContain('jumper_b');
@@ -2284,7 +2314,7 @@ pl x
     const out: string[] = [];
     buildConsumedLocalsLine(ctx.documentStates, agg, 'worker', 'Consumes locals:', out);
     const text = out.join('\n');
-    expect(text).toContain('Consumes locals:');
+    expect(text).toMatch(/Consumes locals \(\d+ variables?\):/);
     expect(text).toContain('`x`');
   });
 
@@ -2341,7 +2371,7 @@ pl x
     const out: string[] = [];
     buildConsumedLocalsLine(ctx.documentStates, agg, 'worker', 'Consumes locals:', out);
     const text = out.join('\n');
-    expect(text).toContain('Consumes locals:');
+    expect(text).toMatch(/Consumes locals \(\d+ variables?\):/);
     expect(text).toContain('`x`');
   });
 
@@ -2390,7 +2420,7 @@ pl x
     buildConsumedLocalsLine(ctx.documentStates, agg, 'worker', 'Consumes locals:', out);
     expect(out[0]).toBe('existing');
     expect(out[1]).toBe('');
-    expect(out[2]).toMatch(/^Consumes locals:/);
+    expect(out[2]).toMatch(/^Consumes locals \(\d+ variables?\):/);
   });
 
   it('lists `args` when the location reads it', () => {
@@ -2406,7 +2436,7 @@ pl args[0]
     const out: string[] = [];
     buildConsumedLocalsLine(ctx.documentStates, agg, 'worker', 'Consumes locals:', out);
     const text = out.join('\n');
-    expect(text).toContain('Consumes locals:');
+    expect(text).toMatch(/Consumes locals \(\d+ variables?\):/);
     expect(text).toContain('`args`');
   });
 
@@ -2444,7 +2474,7 @@ pl args[0]
 });
 
 describe('buildUsedGlobalsSection', () => {
-  it('lists globals defined in the location with assigned-line annotation', () => {
+  it('lists globals defined in the location with definition count', () => {
     const code = `# room
 $name = 'hero'
 hp = 100
@@ -2454,10 +2484,10 @@ hp = 100
     const agg = buildFileAggregates(state.symbols, uri);
     const out: string[] = [];
     buildUsedGlobalsSection(ctx.documentStates, agg, 'room', '**Uses globals:**', out);
-    expect(out).toContain('**Uses globals:**');
+    expect(out.join('\n')).toMatch(/\*\*Uses globals \(\d+ variables?\):\*\*/);
     const text = out.join('\n');
-    expect(text).toMatch(/`name` — assigned line 2/);
-    expect(text).toMatch(/`hp` — assigned line 3/);
+    expect(text).toMatch(/`name` — 1 definition\b/);
+    expect(text).toMatch(/`hp` — 1 definition\b/);
   });
 
   it('lists globals only read in the location with read-count annotation', () => {
@@ -2474,7 +2504,7 @@ pl hp
     const out: string[] = [];
     buildUsedGlobalsSection(ctx.documentStates, agg, 'show', '**Uses globals:**', out);
     const text = out.join('\n');
-    expect(text).toMatch(/`hp`.*2 reads/);
+    expect(text).toMatch(/`hp`.*2 usages/);
   });
 
   it('excludes locals declared in the target', () => {
@@ -2537,7 +2567,7 @@ hp = 1
     expect(out).toHaveLength(0);
   });
 
-  it('combines assigned + read counts on the same line', () => {
+  it('combines definition + usage counts on the same line', () => {
     const code = `# room
 hp = 100
 hp += 5
@@ -2549,7 +2579,8 @@ pl hp
     const out: string[] = [];
     buildUsedGlobalsSection(ctx.documentStates, agg, 'room', '**Uses globals:**', out);
     const text = out.join('\n');
-    expect(text).toMatch(/`hp` — assigned line 2, \d+ reads?/);
+    // hp = 100 → 1 definition; hp += 5 (compound) + pl hp (read) → 2 usages.
+    expect(text).toMatch(/`hp` — 1 definition, 2 usages/);
   });
 
   it('finds the target location across files in project mode', () => {
@@ -2570,11 +2601,11 @@ x = 1
     const out: string[] = [];
     buildUsedGlobalsSection(ctx.documentStates, ctx.projectAggregates!, 'room', '**Uses globals:**', out);
     const text = out.join('\n');
-    expect(text).toContain('**Uses globals:**');
+    expect(text).toMatch(/\*\*Uses globals \(\d+ variables?\):\*\*/);
     expect(text).toMatch(/`hp`/);
   });
 
-  it('lists a read-only global (no assignment in this location) without an "assigned" tag', () => {
+  it('lists a read-only global (no definition in this location) without a "definition" tag', () => {
     const code = `# setup
 hp = 100
 ---
@@ -2587,13 +2618,12 @@ pl hp
     const out: string[] = [];
     buildUsedGlobalsSection(ctx.documentStates, agg, 'show', '**Uses globals:**', out);
     const text = out.join('\n');
-    expect(text).toMatch(/`hp` — 1 read/);
-    expect(text).not.toMatch(/assigned line/);
-    expect(text).not.toMatch(/declared line/);
+    expect(text).toMatch(/`hp` — 1 usage\b/);
+    expect(text).not.toMatch(/definition/);
   });
 
-  it('caps the list at MAX_HOVER_GLOBALS with an overflow line', () => {
-    // 26 distinct globals → 25 listed + 1-overflow line.
+  it('caps the list at DEFAULT_HOVER_MAX_ITEMS with an overflow line', () => {
+    // 26 distinct globals → 20 listed + 1-overflow line (default cap is 20).
     const lines: string[] = ['# big'];
     for (let i = 0; i < 26; i++) lines.push(`g${i} = ${i}`);
     lines.push('---');
@@ -2603,17 +2633,29 @@ pl hp
     const out: string[] = [];
     buildUsedGlobalsSection(ctx.documentStates, agg, 'big', '**Uses globals:**', out);
     const body = out.join('\n');
-    // Header + 25 entry lines + 1 overflow line = 27 total when the
-    // section is non-empty (header is 2 entries: blank + label).
     const overflow = out.filter(l => /…and \d+ more/.test(l));
     expect(overflow).toHaveLength(1);
-    expect(overflow[0]).toMatch(/…and 1 more/);
+    expect(overflow[0]).toMatch(/…and 6 more/);
     expect(body).toContain('`g0`');
-    expect(body).toContain('`g24`');
-    expect(body).not.toContain('`g25`');
+    expect(body).toContain('`g19`');
+    expect(body).not.toContain('`g20`');
   });
 
-  it('uses singular "read" when there is exactly one read', () => {
+  it('honours an explicit maxItems override', () => {
+    const lines: string[] = ['# big'];
+    for (let i = 0; i < 10; i++) lines.push(`g${i} = ${i}`);
+    lines.push('---');
+    const code = lines.join('\n') + '\n';
+    const { ctx, state, uri } = makeFixture(code);
+    const agg = buildFileAggregates(state.symbols, uri);
+    const out: string[] = [];
+    buildUsedGlobalsSection(ctx.documentStates, agg, 'big', '**Uses globals:**', out, 3);
+    const overflow = out.filter(l => /…and \d+ more/.test(l));
+    expect(overflow).toHaveLength(1);
+    expect(overflow[0]).toMatch(/…and 7 more/);
+  });
+
+  it('uses singular "usage" when there is exactly one usage', () => {
     const code = `# show
 pl hp
 ---
@@ -2623,8 +2665,8 @@ pl hp
     const out: string[] = [];
     buildUsedGlobalsSection(ctx.documentStates, agg, 'show', '**Uses globals:**', out);
     const text = out.join('\n');
-    expect(text).toMatch(/`hp` — 1 read\b/);
-    expect(text).not.toMatch(/1 reads/);
+    expect(text).toMatch(/`hp` — 1 usage\b/);
+    expect(text).not.toMatch(/1 usages/);
   });
 });
 
@@ -2778,7 +2820,7 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
       'test://hover.qsps',
     );
     expect(out[0]).toBe('');
-    expect(out[1]).toBe('**Possible values:**');
+    expect(out[1]).toMatch(/^\*\*Possible values \(\d+ definitions?\):\*\*$/);
     expect(out[2]).toBe('- `42` — `a` line 2');
   });
 
@@ -2935,15 +2977,26 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
 
   // ── Overflow caps ───────────────────────────────────────────────
 
-  it('caps visible distinct values at MAX_HOVER_VALUES (10) with "…and N more"', () => {
+  it('caps visible distinct values at DEFAULT_HOVER_MAX_ITEMS (20) with "…and N more"', () => {
     const entries: CursorValueEntry[] = [];
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 25; i++) {
       entries.push(expr(`'v${i}'`, { origin: 'document', locationName: `loc${i}`, line: i }));
     }
     const out = buildPossibleValuesLines(entries, 'test://hover.qsps');
     const valueLines = out.filter(l => l.startsWith('- `'));
-    expect(valueLines).toHaveLength(10);
-    expect(out.join('\n')).toMatch(/…and 4 more/);
+    expect(valueLines).toHaveLength(20);
+    expect(out.join('\n')).toMatch(/…and 5 more/);
+  });
+
+  it('honours an explicit maxItems override', () => {
+    const entries: CursorValueEntry[] = [];
+    for (let i = 0; i < 10; i++) {
+      entries.push(expr(`'v${i}'`, { origin: 'document', locationName: `loc${i}`, line: i }));
+    }
+    const out = buildPossibleValuesLines(entries, 'test://hover.qsps', { maxItems: 5 });
+    const valueLines = out.filter(l => l.startsWith('- `'));
+    expect(valueLines).toHaveLength(5);
+    expect(out.join('\n')).toMatch(/…and 5 more/);
   });
 
   it('caps inline locations per value at MAX_HOVER_LOCATIONS_PER_VALUE (20)', () => {

@@ -167,7 +167,7 @@ export function createQspServer(
     embeddedExec: { enabled: boolean };
     diagnostics: DiagnosticSettings;
     semanticHighlighting: { enabled: boolean };
-    hover: { possibleValues: boolean };
+    hover: { possibleValues: boolean; maxItemsPerCategory: number };
   }
 
   const defaultSettings: QspSettings = {
@@ -203,7 +203,7 @@ export function createQspServer(
       maxLocationLines: 500,
     },
     semanticHighlighting: { enabled: true },
-    hover: { possibleValues: true },
+    hover: { possibleValues: true, maxItemsPerCategory: 20 },
   };
   let settings: QspSettings = defaultSettings;
 
@@ -231,7 +231,15 @@ export function createQspServer(
       embeddedExec: { enabled: pick(emb?.enabled, defaultSettings.embeddedExec.enabled) },
       diagnostics: diagnostics as unknown as DiagnosticSettings,
       semanticHighlighting: { enabled: pick(sem?.enabled, defaultSettings.semanticHighlighting.enabled) },
-      hover: { possibleValues: pick(hov?.possibleValues, defaultSettings.hover.possibleValues) },
+      hover: {
+        possibleValues: pick(hov?.possibleValues, defaultSettings.hover.possibleValues),
+        maxItemsPerCategory: (() => {
+          const v = hov?.maxItemsPerCategory;
+          return typeof v === 'number' && Number.isFinite(v) && v >= 1
+            ? Math.floor(v)
+            : defaultSettings.hover.maxItemsPerCategory;
+        })(),
+      },
     };
   }
 

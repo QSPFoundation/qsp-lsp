@@ -251,13 +251,149 @@ describe('LSP end-to-end: qsp.hover.possibleValues setting', () => {
 
   it('renders "**Possible values:**" when the setting is true (default)', async () => {
     const md = await hoverFor(null);
-    expect(md).toContain('**Possible values:**');
+    expect(md).toMatch(/\*\*Possible values \(\d+ definitions?\):\*\*/);
     expect(md).toContain('GATED_MARKER');
   }, 30_000);
 
   it('omits "**Possible values:**" when the setting is false', async () => {
     const md = await hoverFor({ hover: { possibleValues: false } });
-    expect(md).not.toContain('**Possible values:**');
+    expect(md).not.toMatch(/\*\*Possible values[^*]*\*\*/);
     expect(md).not.toContain('GATED_MARKER');
+  }, 30_000);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// `qsp.hover.maxItemsPerCategory` controls the per-section item cap
+// in hover tooltips.  Lowering it should truncate the "Possible values"
+// list and append a "…and N more" tail.
+// ──────────────────────────────────────────────────────────────────────
+
+describe('LSP end-to-end: qsp.hover.maxItemsPerCategory setting', () => {
+  async function valuesHover(qspConfig: Record<string, unknown> | null): Promise<string> {
+    const h = await startServer(qspConfig);
+    try {
+      const uri = 'file:///hover-cap.qsps';
+      // 8 distinct assignments to $g, then a read site for hover.
+      const inits = Array.from({ length: 8 }, (_, i) =>
+        `# init${i}\n$g = 'v${i}'\n---\n`).join('');
+      const code = inits + `# main\npl $g\n---\n`;
+      h.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: { uri, languageId: 'qsp', version: 1, text: code },
+      });
+      await h.diagnosticsFor(uri);
+      // `pl $g` lives on line (8*3 + 1) = 25.  Position on the `g` (col 4).
+      const hover = await h.client.sendRequest(HoverRequest.type, {
+        textDocument: { uri },
+        position: { line: 25, character: 4 },
+      }) as Hover | null;
+      return hover && typeof hover.contents === 'object' && 'value' in hover.contents
+        ? (hover.contents as { value: string }).value
+        : '';
+    } finally {
+      h.shutdown();
+    }
+  }
+
+  it('truncates the "Possible values" list when the cap is below the entry count', async () => {
+    const md = await valuesHover({ hover: { maxItemsPerCategory: 3 } });
+    expect(md).toMatch(/\*\*Possible values \(\d+ definitions?\):\*\*/);
+    expect(md).toMatch(/…and 5 more/);
+    // First 3 should be present, the 4th and beyond should not.
+    expect(md).toContain("'v0'");
+    expect(md).toContain("'v2'");
+    expect(md).not.toContain("'v7'");
+  }, 30_000);
+
+  it('shows all entries when the cap exceeds the entry count', async () => {
+    const md = await valuesHover({ hover: { maxItemsPerCategory: 50 } });
+    expect(md).toMatch(/\*\*Possible values \(\d+ definitions?\):\*\*/);
+    expect(md).not.toMatch(/…and \d+ more/);
+    expect(md).toContain("'v7'");
+  }, 30_000);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Variable hover "N definitions, M usages" splits every occurrence —
+// reads + compound ops (`x += 1`, `hp = hp + 5`) count as usages,
+// plain `=` LHS / `local` / append writes (`$arr[] = …`) count as
+// definitions.  When there's exactly one definition, its line number
+// is shown inline.
+// ──────────────────────────────────────────────────────────────────────
+
+describe('LSP end-to-end: variable hover reference count', () => {
+  async function hoverMd(code: string, line: number, character: number): Promise<string> {
+    const h = await startServer(null);
+    try {
+      const uri = 'file:///ref-count.qsps';
+      h.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: { uri, languageId: 'qsp', version: 1, text: code },
+      });
+      await h.diagnosticsFor(uri);
+      const hover = await h.client.sendRequest(HoverRequest.type, {
+        textDocument: { uri }, position: { line, character },
+      }) as Hover | null;
+      return hover && typeof hover.contents === 'object' && 'value' in hover.contents
+        ? (hover.contents as { value: string }).value
+        : '';
+    } finally {
+      h.shutdown();
+    }
+  }
+
+  it('counts `$arr[] = …` append writes as definitions', async () => {
+    // 4 append writes — all definitions, no usages.
+    const code = `# main
+$jour_list[] = 'a'
+$jour_list[] = 'b'
+$jour_list[] = 'c'
+$jour_list[] = 'd'
+---
+`;
+    const md = await hoverMd(code, 1, 1); // on the `$` of `$jour_list`
+    expect(md).toContain('`jour_list`');
+    expect(md).toMatch(/4 definitions/);
+    expect(md).not.toMatch(/usage/);
+  }, 30_000);
+
+  it('counts compound assignments (`x += 1`) as usages', async () => {
+    const code = `# main
+hp = 10
+hp += 5
+hp += 5
+---
+`;
+    const md = await hoverMd(code, 1, 0); // on `hp`
+    expect(md).toContain('`hp`');
+    // 1 definition (hp = 10), 2 usages (the two compound ops).
+    expect(md).toMatch(/1 definition \(line 2\)/);
+    expect(md).toMatch(/2 usages/);
+  }, 30_000);
+
+  it('counts self-referential `hp = hp + 5` LHS as usage, RHS as usage', async () => {
+    const code = `# main
+hp = 10
+hp = hp + 5
+---
+`;
+    const md = await hoverMd(code, 1, 0);
+    expect(md).toContain('`hp`');
+    // line 2: definition; line 3: compound LHS + RHS read → 2 usages.
+    expect(md).toMatch(/1 definition \(line 2\)/);
+    expect(md).toMatch(/2 usages/);
+  }, 30_000);
+
+  it('counts plain reads as usages alongside the definition', async () => {
+    const code = `# main
+x = 1
+pl x
+pl x
+pl x
+---
+`;
+    const md = await hoverMd(code, 1, 0);
+    expect(md).toContain('`x`');
+    // 1 definition + 3 reads.
+    expect(md).toMatch(/1 definition \(line 2\)/);
+    expect(md).toMatch(/3 usages/);
   }, 30_000);
 });

@@ -2,7 +2,7 @@
   "name": "qsp-lsp",
   "displayName": "QSP Language Support",
   "description": "Language server for QSP (Quest Soft Player) game files",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "publisher": "qsp",
   "license": "MPL-2.0",
   "icon": "icons/qsp-logo.png",
@@ -313,6 +313,11 @@
           "default": true,
           "description": "Enable project mode: treat all .qsps/.qsrc files in the workspace as parts of one combined game file. Cross-file diagnostics, completions, and navigation will span all project files."
         },
+        "qsp.embeddedExec.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Parse QSP code inside `<a href=\"exec:...\">` link bodies in string literals. When enabled, the embedded code participates in symbol lookup, diagnostics, refactoring, and semantic highlighting just like top-level location code. Disable to skip the extra sub-parse if you don't use exec links."
+        },
         "qsp.trace.server": {
           "type": "string",
           "enum": [
@@ -469,6 +474,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show 'Possible values' section in variable hovers, listing statically-known assignments to the variable across the file (or project, in project mode)."
+        },
+        "qsp.hover.maxItemsPerCategory": {
+          "type": "integer",
+          "default": 20,
+          "minimum": 1,
+          "description": "Maximum number of items rendered per category in hover tooltips (e.g. 'Possible values', 'Called from', 'Navigated from', 'Uses globals', 'Also defined in', 'Propagated from/to'). Lists exceeding this limit are truncated with a '…and N more' tail."
         }
       }
     },

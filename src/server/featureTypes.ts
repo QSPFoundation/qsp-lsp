@@ -79,7 +79,7 @@ export interface FeatureSettings {
   project: { enabled: boolean };
   embeddedExec: { enabled: boolean };
   semanticHighlighting: { enabled: boolean };
-  hover: { possibleValues: boolean };
+  hover: { possibleValues: boolean; maxItemsPerCategory: number };
 }
 
 /**
@@ -115,6 +115,12 @@ export interface BuildPossibleValuesOptions {
    * into one line per chain-target write.
    */
   expandVarRef?: (targetVarName: string) => readonly PossibleValueEntry[];
+  /**
+   * Override the default per-category cap (`DEFAULT_HOVER_MAX_ITEMS`).
+   * Applied both to the number of distinct values and to the inline
+   * location citations per value.
+   */
+  maxItems?: number;
 }
 
 // ──────────────────────────────────────────────────────────────────────

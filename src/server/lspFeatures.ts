@@ -366,10 +366,11 @@ export function registerLspFeatures(ctx: ServerContext): void {
                 }
               }
               locLines.push(`**Location** \`${locDef.name}\` — line ${(locDef.definition?.line ?? 0) + 1}${fInfo}`);
-              buildCallerLines(documentStates, locDef.name.toLowerCase(), '**Called from:**', uri, locLines);
-              buildJumperLines(documentStates, locDef.name.toLowerCase(), '**Navigated from:**', uri, locLines);
+              const hoverMax = ctx.settings.hover.maxItemsPerCategory;
+              buildCallerLines(documentStates, locDef.name.toLowerCase(), '**Called from:**', uri, locLines, hoverMax);
+              buildJumperLines(documentStates, locDef.name.toLowerCase(), '**Navigated from:**', uri, locLines, hoverMax);
               buildConsumedLocalsLine(documentStates, getAgg(), locDef.name.toLowerCase(), '**Consumes locals:**', locLines);
-              buildUsedGlobalsSection(documentStates, getAgg(), locDef.name.toLowerCase(), '**Uses globals:**', locLines);
+              buildUsedGlobalsSection(documentStates, getAgg(), locDef.name.toLowerCase(), '**Uses globals:**', locLines, hoverMax);
               hoverText = locLines.join('\n');
             }
             break;
@@ -426,33 +427,90 @@ export function registerLspFeatures(ctx: ServerContext): void {
               : undefined;
             const isPropagatedIn = !!(propProviders && propProviders.length > 0);
 
-            if (varSym.isLocal) { lines.push(`**Local variable** \`${varSym.name}\``); }
-            else if (isPropagatedIn) { lines.push(`**Local variable** \`${varSym.name}\` *(propagated)*`); }
-            else { lines.push(`**Global variable** \`${varSym.name}\``); }
+            const typeLabel = varSym.isLocal
+              ? `**Local variable** \`${varSym.name}\``
+              : isPropagatedIn
+                ? `**Local variable** \`${varSym.name}\` *(propagated)*`
+                : `**Global variable** \`${varSym.name}\``;
+            lines.push((prefixLabel ? `${typeLabel} · Prefixes: ${prefixLabel}` : typeLabel) + '  ');
 
-            if (varSym.definition) {
-              const defFileInfo = varSym.definition.uri !== uri ? ` [${basename(varSym.definition.uri)}]` : '';
-              const label = isPropagatedIn ? 'Assigned at' : 'Defined at';
-              const metaParts: string[] = [`${label} line ${varSym.definition.line + 1}${defFileInfo}`];
-              if (prefixLabel) metaParts.push(`Prefixes: ${prefixLabel}`);
-              const readCount = varSym.references.length - 1;
-              if (readCount > 0) metaParts.push(`${readCount} reference${readCount !== 1 ? 's' : ''} in this location`);
-              lines.push(metaParts.join(' · '));
-            } else {
-              const metaParts: string[] = [];
-              if (prefixLabel) metaParts.push(`Prefixes: ${prefixLabel}`);
-              const readCount = varSym.references.length - (varSym.definition ? 1 : 0);
-              if (readCount > 0) metaParts.push(`${readCount} reference${readCount !== 1 ? 's' : ''} in this location`);
-              if (metaParts.length > 0) lines.push(metaParts.join(' · '));
+            // Partition refs into definitions vs usages.  Definitions
+            // are plain `=` LHS, `local` decls, and append writes
+            // (`$arr[] = …`).  Everything else (reads + compound-op
+            // LHS like `x += 1`, `hp = hp + 5`) counts as a usage.
+            let defCount = 0;
+            let usageCount = 0;
+            for (const r of varSym.references) {
+              if (r.isDefinition) defCount++;
+              else usageCount++;
             }
 
+            // Format `(N definitions, M usages)`.  When exactly one
+            // definition exists, fold the line number into it.  Returns
+            // empty string when the variable has no refs at all (which
+            // shouldn't happen here, but guard anyway).
+            const formatCounts = (
+              defs: number, uses: number,
+              soleDefLoc?: { uri: string; line: number },
+            ): string => {
+              const parts: string[] = [];
+              if (defs > 0) {
+                if (defs === 1 && soleDefLoc) {
+                  const f = soleDefLoc.uri !== uri ? ` [${basename(soleDefLoc.uri)}]` : '';
+                  parts.push(`1 definition (line ${soleDefLoc.line + 1}${f})`);
+                } else {
+                  parts.push(`${defs} definitions`);
+                }
+              }
+              if (uses > 0) {
+                parts.push(`${uses} usage${uses !== 1 ? 's' : ''}`);
+              }
+              return parts.join(', ');
+            };
+
+            const defLoc = varSym.definition
+              ? { uri: varSym.definition.uri, line: varSym.definition.line }
+              : undefined;
+
+            // For non-local, non-propagated-in globals, also show the
+            // project-wide aggregate so the user can see how widely
+            // the variable is used outside the current location.
+            const isGlobal = !varSym.isLocal && !isPropagatedIn;
+            if (isGlobal) {
+              let totalDefs = 0;
+              let totalUsages = 0;
+              let firstDef: { uri: string; line: number } | undefined;
+              for (const [docUri, st] of documentStates) {
+                for (const [, ls] of st.symbols.locations) {
+                  const v = ls.variables.get(varSym.nameLower);
+                  if (!v || v.isLocal) continue;
+                  for (const r of v.references) {
+                    if (r.isDefinition) totalDefs++;
+                    else totalUsages++;
+                  }
+                  if (!firstDef && v.definition) {
+                    firstDef = { uri: docUri, line: v.definition.line };
+                  }
+                }
+              }
+              const total = formatCounts(totalDefs, totalUsages, firstDef);
+              if (total) lines.push(`Total refs: ${total}  `);
+            }
+            const here = formatCounts(defCount, usageCount, defLoc);
+            if (here) lines.push(`Location \`${currentLoc.name}\` refs: ${here}`);
+
             if (isPropagatedIn) {
-              lines.push('', '**Propagated from:**');
-              for (const p of propProviders!) {
+              const total = propProviders!.length;
+              const unit = total === 1 ? 'location' : 'locations';
+              lines.push('', `**Propagated from (${total} ${unit}):**`);
+              const shown = Math.min(total, ctx.settings.hover.maxItemsPerCategory);
+              for (let i = 0; i < shown; i++) {
+                const p = propProviders![i];
                 const fInfo = p.providerUri !== uri ? ` [${basename(p.providerUri)}]` : '';
                 const defLine = p.sym.definition ? ` — line ${p.sym.definition.line + 1}` : '';
                 lines.push(`- \`${p.providerLoc}\`${defLine}${fInfo}`);
               }
+              if (total > shown) lines.push(`- *…and ${total - shown} more*`);
             }
 
             if (varSym.isLocal && varSym.definition) {
@@ -461,8 +519,12 @@ export function registerLspFeatures(ctx: ServerContext): void {
                 if (targetVars.get(varSym.nameLower)?.some(p => p.sym === varSym)) targets.push(targetLoc);
               }
               if (targets.length > 0) {
-                lines.push('', '**Propagated to:**');
-                for (const t of targets) lines.push(`- \`${t}\``);
+                const total = targets.length;
+                const unit = total === 1 ? 'location' : 'locations';
+                lines.push('', `**Propagated to (${total} ${unit}):**`);
+                const shown = Math.min(targets.length, ctx.settings.hover.maxItemsPerCategory);
+                for (let i = 0; i < shown; i++) lines.push(`- \`${targets[i]}\``);
+                if (targets.length > shown) lines.push(`- *…and ${targets.length - shown} more*`);
               }
             }
 
@@ -477,11 +539,17 @@ export function registerLspFeatures(ctx: ServerContext): void {
                 }
               }
               if (otherDefs.length > 0) {
-                lines.push('', varSym.definition ? '**Also defined in:**' : '**Defined in:**');
-                for (const d of otherDefs) {
+                const total = otherDefs.length;
+                const unit = total === 1 ? 'location' : 'locations';
+                const headerBase = varSym.definition ? 'Also defined in' : 'Defined in';
+                lines.push('', `**${headerBase} (${total} ${unit}):**`);
+                const shown = Math.min(otherDefs.length, ctx.settings.hover.maxItemsPerCategory);
+                for (let i = 0; i < shown; i++) {
+                  const d = otherDefs[i];
                   const fInfo = d.uri !== uri ? ` [${basename(d.uri)}]` : '';
                   lines.push(`- \`${d.locName}\` — line ${d.line + 1}${fInfo}`);
                 }
+                if (otherDefs.length > shown) lines.push(`- *…and ${otherDefs.length - shown} more*`);
               }
             }
 
@@ -499,8 +567,11 @@ export function registerLspFeatures(ctx: ServerContext): void {
                 if (dvc.localNames.length === 0) {
                   lines.push('*No caller locals propagate into the referenced code block(s).*');
                 } else {
+                  const total = dvc.localNames.length;
+                  const unit = total === 1 ? 'variable' : 'variables';
                   lines.push(
-                    '**Propagated into dynamic block:** ' + dvc.localNames.map(n => `\`${n}\``).join(', '),
+                    `**Propagated into dynamic block (${total} ${unit}):** `
+                    + dvc.localNames.map(n => `\`${n}\``).join(', '),
                   );
                 }
                 break;
@@ -537,7 +608,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
                     ? resolvePossibleValuesAcrossProject(
                         (function *() { yield state!.symbols; yield* projectDocs; })(), targetKey)
                     : resolvePossibleValuesInDocument(state!.symbols, targetKey);
-                for (const ln of buildPossibleValuesLines(entries, uri, { expandVarRef })) {
+                for (const ln of buildPossibleValuesLines(entries, uri, { expandVarRef, maxItems: ctx.settings.hover.maxItemsPerCategory })) {
                   lines.push(ln);
                 }
                 if (tempTree) tree.delete();
@@ -555,10 +626,11 @@ export function registerLspFeatures(ctx: ServerContext): void {
           ? ` [${basename(locDef.definition.uri)}]` : '';
         const lines: string[] = [];
         lines.push(`**Location** \`${locDef.name}\` — line ${(locDef.definition?.line ?? 0) + 1}${fileInfo}`);
-        buildCallerLines(documentStates, locDef.name.toLowerCase(), '**Called from:**', uri, lines);
-        buildJumperLines(documentStates, locDef.name.toLowerCase(), '**Navigated from:**', uri, lines);
+        const hoverMax = ctx.settings.hover.maxItemsPerCategory;
+        buildCallerLines(documentStates, locDef.name.toLowerCase(), '**Called from:**', uri, lines, hoverMax);
+        buildJumperLines(documentStates, locDef.name.toLowerCase(), '**Navigated from:**', uri, lines, hoverMax);
         buildConsumedLocalsLine(documentStates, getAgg(), locDef.name.toLowerCase(), '**Consumes locals:**', lines);
-        buildUsedGlobalsSection(documentStates, getAgg(), locDef.name.toLowerCase(), '**Uses globals:**', lines);
+        buildUsedGlobalsSection(documentStates, getAgg(), locDef.name.toLowerCase(), '**Uses globals:**', lines, hoverMax);
         return { contents: { kind: MarkupKind.Markdown, value: lines.join('\n') } };
       }
     }

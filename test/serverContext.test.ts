@@ -31,7 +31,7 @@ describe('ServerContext.settings plumbing (B1)', () => {
     let settings = {
       project: { enabled: false },
       semanticHighlighting: { enabled: true },
-      hover: { possibleValues: true },
+      hover: { possibleValues: true, maxItemsPerCategory: 20 },
     };
     const ctx = {
       get settings() { return settings; },
@@ -43,7 +43,7 @@ describe('ServerContext.settings plumbing (B1)', () => {
     settings = {
       project: { enabled: true },
       semanticHighlighting: { enabled: false },
-      hover: { possibleValues: true },
+      hover: { possibleValues: true, maxItemsPerCategory: 20 },
     };
 
     // With the getter, handlers see the new value.
@@ -87,7 +87,7 @@ pl x
   ): ServerContext {
     return {
       projectAggregates: opts.projectAggregates ?? null,
-      settings: { project: { enabled: false }, semanticHighlighting: { enabled: true }, hover: { possibleValues: true } },
+      settings: { project: { enabled: false }, semanticHighlighting: { enabled: true }, hover: { possibleValues: true, maxItemsPerCategory: 20 } },
       documentStates: new Map([[URI, state]]),
       projectFileUris: new Set(),
     } as unknown as ServerContext;

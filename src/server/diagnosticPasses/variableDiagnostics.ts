@@ -335,7 +335,9 @@ export function checkUnusedVariables(
       ctx.push(
         DiagnosticSeverity.Information,
         ctx.locRange(sym.definition),
-        `Variable '${sym.name}' is assigned but never read`,
+        sym.hasValueDefinition
+          ? `Variable '${sym.name}' is assigned but never read`
+          : `Variable '${sym.name}' is declared but never used`,
         true,  // unnecessary
       );
     }
