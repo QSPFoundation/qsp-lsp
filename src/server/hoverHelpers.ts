@@ -271,7 +271,7 @@ function buildLocationCallerSection(
       out.push(`- *…and ${callers.size - shown} more*`);
       break;
     }
-    const lineInfo = info.defLine !== undefined ? ` (line ${info.defLine + 1})` : '';
+    const lineInfo = info.defLine !== undefined ? ` — line ${info.defLine + 1}` : '';
     const fInfo = info.uri !== hoverUri ? ` [${basename(info.uri)}]` : '';
     out.push(`- \`${callerName}\`${lineInfo}${fInfo}`);
     let siteShown = 0;

@@ -1931,7 +1931,7 @@ y = 1
     const text = out.join('\n');
     // `gs 'target'` is on the 3rd line (1-based) of the document.
     // `main` is defined on line 1, so its bullet shows `(line 1)`.
-    expect(text).toMatch(/`main` \(line 1\)\n  - line 3:/);
+    expect(text).toMatch(/`main` — line 1\n  - line 3:/);
   });
 
   it('shows multiple line numbers for multiple call sites as `lines A, B`', () => {
@@ -1948,7 +1948,7 @@ y = 1
     const out: string[] = [];
     buildCallerLines(ctx.documentStates, 'target', '**Called from:**', uri, out);
     const text = out.join('\n');
-    expect(text).toMatch(/`main` \(line 1\)\n  - line 2: `gs 'target'`\n  - line 4: `gs 'target'`/);
+    expect(text).toMatch(/`main` — line 1\n  - line 2: `gs 'target'`\n  - line 4: `gs 'target'`/);
   });
 
   it('places the line suffix before the `(passes locals: …)` annotation', () => {
@@ -1965,7 +1965,7 @@ pl x
     buildCallerLines(ctx.documentStates, 'worker', '**Called from:**', uri, out);
     const text = out.join('\n');
     // Single call on line 3.
-    expect(text).toMatch(/`main` \(line 1\)\n  - line 3: `gs 'worker'` \(passes locals: `x`\)/);
+    expect(text).toMatch(/`main` — line 1\n  - line 3: `gs 'worker'` \(passes locals: `x`\)/);
   });
 
   it('lists multiple distinct callers each with their own line numbers', () => {
@@ -1985,8 +1985,8 @@ y = 1
     const out: string[] = [];
     buildCallerLines(ctx.documentStates, 'target', '**Called from:**', uri, out);
     const text = out.join('\n');
-    expect(text).toMatch(/`alpha` \(line 1\)\n  - line 2: `gs 'target'`/);
-    expect(text).toMatch(/`beta` \(line 4\)\n  - line 6: `gs 'target'`\n  - line 7: `gs 'target'`/);
+    expect(text).toMatch(/`alpha` — line 1\n  - line 2: `gs 'target'`/);
+    expect(text).toMatch(/`beta` — line 4\n  - line 6: `gs 'target'`\n  - line 7: `gs 'target'`/);
   });
 
   it('annotates cross-file callers with `[basename]` suffix', () => {
@@ -2008,7 +2008,7 @@ x = 1
     // Hover is on `target` in fileB; caller `main` lives in fileA.
     buildCallerLines(ctx.documentStates, 'target', '**Called from:**', uriB, out);
     const text = out.join('\n');
-    expect(text).toMatch(/`main` \(line 1\) \[a\.qsps\]\n  - line 2: `gs 'target'`/);
+    expect(text).toMatch(/`main` — line 1 \[a\.qsps\]\n  - line 2: `gs 'target'`/);
   });
 
   it('caps the caller list at MAX_HOVER_LIST_ITEMS (20) with "…and N more" tail', () => {
@@ -2095,7 +2095,7 @@ y = 1
     const out: string[] = [];
     buildJumperLines(ctx.documentStates, 'target', '**Navigated from:**', uri, out);
     const text = out.join('\n');
-    expect(text).toMatch(/`jumper` \(line 1\)\n  - line 2: `gt 'target'`\n  - line 4: `gt 'target'`/);
+    expect(text).toMatch(/`jumper` — line 1\n  - line 2: `gt 'target'`\n  - line 4: `gt 'target'`/);
   });
 
   it('does NOT add `(passes locals: …)` even if the jumper has matching locals', () => {
@@ -2149,7 +2149,7 @@ x = 1
     const out: string[] = [];
     buildJumperLines(ctx.documentStates, 'target', '**Navigated from:**', uriB, out);
     const text = out.join('\n');
-    expect(text).toMatch(/`jumper` \(line 1\) \[a\.qsps\]\n  - line 2: `gt 'target'`/);
+    expect(text).toMatch(/`jumper` — line 1 \[a\.qsps\]\n  - line 2: `gt 'target'`/);
   });
 
   it('a single source location may appear in BOTH `Called from` and `Navigated from` when it uses gs and gt', () => {
@@ -2168,8 +2168,8 @@ y = 1
     buildCallerLines(ctx.documentStates, 'target', '**Called from:**', uri, callOut);
     buildJumperLines(ctx.documentStates, 'target', '**Navigated from:**', uri, jumpOut);
     // The gs is on line 2; gt is on line 4 — each section reports only its own.
-    expect(callOut.join('\n')).toMatch(/`mixed` \(line 1\)\n  - line 2:/);
-    expect(jumpOut.join('\n')).toMatch(/`mixed` \(line 1\)\n  - line 4:/);
+    expect(callOut.join('\n')).toMatch(/`mixed` — line 1\n  - line 2:/);
+    expect(jumpOut.join('\n')).toMatch(/`mixed` — line 1\n  - line 4:/);
   });
 
   it('renders extra positional args at a single gs call site', () => {
@@ -2184,7 +2184,7 @@ x = args[0]
     const out: string[] = [];
     buildCallerLines(ctx.documentStates, 'target', '**Called from:**', uri, out);
     const text = out.join('\n');
-    expect(text).toMatch(/`main` \(line 1\)\n  - line 2: `gs 'target', 1, 'foo'`/);
+    expect(text).toMatch(/`main` — line 1\n  - line 2: `gs 'target', 1, 'foo'`/);
   });
 
   it('renders extra args for func() call sites', () => {
@@ -2199,7 +2199,7 @@ result = args[0]
     const out: string[] = [];
     buildCallerLines(ctx.documentStates, 'target', '**Called from:**', uri, out);
     const text = out.join('\n');
-    expect(text).toMatch(/`main` \(line 1\)\n  - line 2: `func\('target', 42\)`/);
+    expect(text).toMatch(/`main` — line 1\n  - line 2: `func\('target', 42\)`/);
   });
 
   it('renders extra args at user-call sites (`@@target a, b`)', () => {
@@ -2214,7 +2214,7 @@ x = args[0]
     const out: string[] = [];
     buildCallerLines(ctx.documentStates, 'target', '**Called from:**', uri, out);
     const text = out.join('\n');
-    expect(text).toMatch(/`main` \(line 1\)\n  - line 2: `@@target 1, 2`/);
+    expect(text).toMatch(/`main` — line 1\n  - line 2: `@@target 1, 2`/);
   });
 
   it('renders per-site args when multiple call sites pass different args', () => {
@@ -2231,7 +2231,7 @@ y = args[0]
     const out: string[] = [];
     buildCallerLines(ctx.documentStates, 'target', '**Called from:**', uri, out);
     const text = out.join('\n');
-    expect(text).toMatch(/`main` \(line 1\)\n  - line 2: `gs 'target', 'a'`\n  - line 4: `gs 'target', 'b', 2`/);
+    expect(text).toMatch(/`main` — line 1\n  - line 2: `gs 'target', 'a'`\n  - line 4: `gs 'target', 'b', 2`/);
   });
 
   it('renders just the call kind when the call passes only the location name', () => {
@@ -2246,7 +2246,7 @@ x = 1
     const out: string[] = [];
     buildCallerLines(ctx.documentStates, 'target', '**Called from:**', uri, out);
     const text = out.join('\n');
-    expect(text).toMatch(/`main` \(line 1\)\n  - line 2: `gs 'target'`$/m);
+    expect(text).toMatch(/`main` — line 1\n  - line 2: `gs 'target'`$/m);
   });
 
   it('places the args before the `(passes locals: …)` annotation', () => {
@@ -2262,7 +2262,7 @@ pl x
     const out: string[] = [];
     buildCallerLines(ctx.documentStates, 'worker', '**Called from:**', uri, out);
     const text = out.join('\n');
-    expect(text).toMatch(/`main` \(line 1\)\n  - line 3: `gs 'worker', 7` \(passes locals: `x`\)/);
+    expect(text).toMatch(/`main` — line 1\n  - line 3: `gs 'worker', 7` \(passes locals: `x`\)/);
   });
 
   it('renders args for gt/goto jump sites in `Navigated from:`', () => {
@@ -2277,7 +2277,7 @@ x = 1
     const out: string[] = [];
     buildJumperLines(ctx.documentStates, 'target', '**Navigated from:**', uri, out);
     const text = out.join('\n');
-    expect(text).toMatch(/`jumper` \(line 1\)\n  - line 2: `gt 'target', 99`/);
+    expect(text).toMatch(/`jumper` — line 1\n  - line 2: `gt 'target', 99`/);
   });
 
   it('truncates very long arg lists with `…`', () => {
@@ -2295,7 +2295,7 @@ y = 1
     const text = out.join('\n');
     expect(text).toContain('…');
     // The truncated rendering still wraps in backticks and stays on one line.
-    expect(text).toMatch(/`main` \(line 1\)\n  - line 2: `gs 'target', 'x+\S*…`/);
+    expect(text).toMatch(/`main` — line 1\n  - line 2: `gs 'target', 'x+\S*…`/);
   });
 });
 
