@@ -56,7 +56,7 @@ Full-featured [QSP (Quest Soft Player)](https://qsp.org) language support for Vi
 - **Invalid argument count** — built-in called with too few/many args
 - **Mixed variable prefixes** — variable accessed with inconsistent `$`/`#`/`%`
 - **Type mismatch** — assigning a string value to a `%` variable, etc.
-- **Mixed location call types** — location called as both func and gosub/goto
+- **Mixed location call types** — location called inconsistently (mix of func/gosub/goto/desc)
 - **Inconsistent local propagation** — variable behaves as local or global depending on caller
 - **Untracked dynamic calls** — `dynamic`/`dyneval` whose first argument can't be pinned to a single code block (complex expression, multiple global assignments, or multiple local code-block bindings across distinct scopes)
 - **Embedded `exec:` analysis** — full symbol extraction and lint coverage for QSP code embedded in HTML `<a href="exec:…">` links inside displayed strings
@@ -133,7 +133,7 @@ All diagnostic checks are enabled by default. Set to `false` to disable a specif
 | `qsp.diagnostics.invalidBuiltinArgCount` | `true` | Warn when built-in called with wrong arg count |
 | `qsp.diagnostics.mixedVariablePrefixes` | `true` | Info when variable uses inconsistent type prefixes |
 | `qsp.diagnostics.typeMismatch` | `true` | Info when assigning wrong type to a variable |
-| `qsp.diagnostics.mixedLocationCallTypes` | `true` | Info when location called as both func and gosub/goto |
+| `qsp.diagnostics.mixedLocationCallTypes` | `true` | Info when location is called inconsistently (mix of func/gosub/goto/desc) |
 | `qsp.diagnostics.inconsistentLocalPropagation` | `true` | Warn when local propagation varies by caller |
 | `qsp.diagnostics.untrackedDynamicCalls` | `true` | Info when dynamic call can't be statically resolved |
 | `qsp.diagnostics.missingResultInFunctionCall` | `true` | Warn when `@loc` / `func` / `dyneval` block never assigns `result` |

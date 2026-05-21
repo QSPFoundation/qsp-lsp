@@ -194,7 +194,7 @@ export function checkUnresolvedLocationRefs(
   }
 }
 
-/** Mixed call types: a location is called as both func and gosub/goto. */
+/** Mixed call types: a location is called inconsistently (mix of func/gosub/goto/desc). */
 export function checkMixedCallTypes(
   ctx: DiagnosticCtx,
   locSyms: LocationSymbols,

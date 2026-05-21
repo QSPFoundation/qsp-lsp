@@ -426,7 +426,7 @@
         "qsp.diagnostics.mixedLocationCallTypes": {
           "type": "boolean",
           "default": true,
-          "description": "Info when a location is called with mixed call types (func vs gosub vs goto)."
+          "description": "Info when a location is called inconsistently (mix of func/gosub/goto/desc)."
         },
         "qsp.diagnostics.untrackedDynamicCalls": {
           "type": "boolean",
