@@ -23,6 +23,7 @@ import {
   buildConsumedLocalsLine,
   buildUsedGlobalsSection,
   buildPossibleValuesLines,
+  buildOutlineSymbols,
 } from '../src/server/lspFeatures';
 import type { DocumentState, ServerContext } from '../src/server/lspFeatures';
 import { emptyAggregates, buildPropagatedLocals, buildFileAggregates, type ProjectAggregates } from '../src/server/aggregation';
@@ -3082,5 +3083,81 @@ describe('buildPossibleValuesLines (renderer shape)', () => {
     const out = buildPossibleValuesLines([filtered, kept], 'test://hover.qsps').join('\n');
     expect(out).not.toContain('`42`');
     expect(out).toContain("`'kept'`");
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// buildOutlineSymbols (textDocument/documentSymbol)
+// ──────────────────────────────────────────────────────────────────────
+
+describe('buildOutlineSymbols', () => {
+  /** VS Code rejects the whole response unless selectionRange ⊆ range. */
+  function expectContained(sym: import('vscode-languageserver').DocumentSymbol) {
+    const { range: r, selectionRange: s } = sym;
+    const startOk = s.start.line > r.start.line ||
+      (s.start.line === r.start.line && s.start.character >= r.start.character);
+    const endOk = s.end.line < r.end.line ||
+      (s.end.line === r.end.line && s.end.character <= r.end.character);
+    expect(startOk, `selectionRange start outside range for ${sym.name}`).toBe(true);
+    expect(endOk, `selectionRange end outside range for ${sym.name}`).toBe(true);
+    for (const child of sym.children ?? []) expectContained(child);
+  }
+
+  it('handles an unclosed location on the last line of the file (crash regression)', () => {
+    // Blank file + user types `# c` — no trailing newline, no `---`.
+    // endLine === startLine here; the old code produced an empty full
+    // range [0,0]–[0,0] that excluded the col-2 selection range.
+    const { state, doc } = makeFixture('# c');
+    const syms = buildOutlineSymbols(state, doc);
+    expect(syms).toHaveLength(1);
+    expect(syms[0].name).toBe('c');
+    expectContained(syms[0]);
+  });
+
+  it('handles a header with no space and extra spaces before the name', () => {
+    const code = '#tight\n---\n#    padded\n---\n';
+    const { state, doc } = makeFixture(code);
+    const syms = buildOutlineSymbols(state, doc);
+    expect(syms.map((s) => s.name)).toEqual(['tight', 'padded']);
+    // Name columns must point at the actual name text.
+    expect(syms[0].selectionRange.start.character).toBe(1);
+    expect(syms[1].selectionRange.start.character).toBe(5);
+    for (const s of syms) expectContained(s);
+  });
+
+  it('produces full-block ranges for closed locations', () => {
+    const code = '# home\np 1\n---\n# away\np 2\n---\n';
+    const { state, doc } = makeFixture(code);
+    const syms = buildOutlineSymbols(state, doc);
+    expect(syms).toHaveLength(2);
+    expect(syms[0].range.start.line).toBe(0);
+    expect(syms[0].range.end.line).toBeGreaterThan(0);
+    expect(syms[0].selectionRange.start).toEqual({ line: 0, character: 2 });
+    expect(syms[0].selectionRange.end).toEqual({ line: 0, character: 6 });
+    for (const s of syms) expectContained(s);
+  });
+
+  it('keeps selection containment without a TextDocument (fallback column)', () => {
+    const { state } = makeFixture('# c');
+    const syms = buildOutlineSymbols(state, undefined);
+    expect(syms).toHaveLength(1);
+    expectContained(syms[0]);
+  });
+
+  it('emits label and act children', () => {
+    const code = [
+      '# home',
+      ':loop',
+      "act 'open door': p 1",
+      'jump \'loop\'',
+      '---',
+    ].join('\n');
+    const { state, doc } = makeFixture(code);
+    const syms = buildOutlineSymbols(state, doc);
+    expect(syms).toHaveLength(1);
+    const names = (syms[0].children ?? []).map((c) => c.name);
+    expect(names).toContain(':loop');
+    expect(names).toContain('act open door');
+    expectContained(syms[0]);
   });
 });

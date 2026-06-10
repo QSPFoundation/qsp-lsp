@@ -1619,6 +1619,33 @@ pl '<a href="exec:$y = ''<<instr(''''ab'''', )+>>''">go</a>'
       );
       expect(inBody.length).toBeGreaterThan(0);
     });
+
+    it('lint diagnostics fire for refs recovered from an interpolation nested inside an exec body', () => {
+      // End-to-end: host decode recovers the exec body
+      // `pl 'go <<desc(''missing'')>> <<$q>>'`; its `<<desc(…)>>` still
+      // carries doubled quotes (raw-body token → decode pass on the
+      // exec sub-tree) while `<<$q>>` parses inline.  Both the
+      // unresolved-location ref and the uninitialized-variable read
+      // must reach the real diagnostics pipeline with host-line spans.
+      const code = `# home
+pl '<a href="exec:pl ''go <<desc(''''missing'''')>> <<$q>>''">go</a>'
+---
+`;
+      const diags = diagnose(code, {
+        unresolvedLocationRefs: true,
+        uninitializedVariables: true,
+      });
+      const unresolved = diags.filter(d => /Location 'missing' is not defined/i.test(d.message));
+      expect(unresolved.length).toBe(1);
+      expect(unresolved[0].range.start.line).toBe(1);
+      expect(unresolved[0].range.start.character).toBeGreaterThan(0);
+      // `<<$q>>` is visible to BOTH the host-string interpolation walk
+      // and the exec sub-parse, so the read may be reported through
+      // either/both channels — assert presence, not count.
+      const uninit = diags.filter(d => d.message === "Variable 'q' is used but never assigned");
+      expect(uninit.length).toBeGreaterThanOrEqual(1);
+      expect(uninit.every(d => d.range.start.line === 1)).toBe(true);
+    });
   });
 
   // ── Interpolation expressions whose inline parse is corrupted by

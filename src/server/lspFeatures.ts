@@ -27,6 +27,7 @@ import {
   TextEdit,
   WorkspaceEdit,
 } from 'vscode-languageserver';
+import type { DocumentSymbol } from 'vscode-languageserver';
 import type { TextDocument } from 'vscode-languageserver-textdocument';
 import {
   ALL_BUILTINS,
@@ -46,6 +47,7 @@ import type {
 import { buildFileAggregates } from './aggregation';
 import { buildSemanticTokens } from './semanticTokens';
 import { formatLines, inferIndentLevel, uriBasename as basename } from './helpers';
+import { locationNameCol } from './regexFallback';
 import {
   detectEol,
   buildExtractToLocationEdit,
@@ -116,6 +118,76 @@ function symToRange(loc: SymbolLocation): Range {
 
 function symToLocation(loc: SymbolLocation): import('vscode-languageserver').Location {
   return { uri: loc.uri, range: symToRange(loc) };
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Document outline (textDocument/documentSymbol)
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Build the outline tree for a document: one Namespace entry per
+ * location, with label and `act` children.
+ *
+ * Invariant required by VS Code: `selectionRange` must be fully
+ * contained in `range`.  Two traps guard against violating it:
+ *   1. An unclosed location whose header sits on the last line of the
+ *      file has `endLine === startLine`, so a `[startLine,0]–[endLine,0]`
+ *      full range would be empty and exclude the name.  Extend the end
+ *      to cover the selection in that case.
+ *   2. The location name doesn't always start at column 2 — `#name`
+ *      and `#   name` are both valid headers.  `locationNameCol`
+ *      finds the real column from the document text when available.
+ */
+export function buildOutlineSymbols(
+  state: DocumentState,
+  doc?: TextDocument,
+): DocumentSymbol[] {
+  const symbols: DocumentSymbol[] = [];
+  const text = doc?.getText();
+  for (const loc of state.locationIndex) {
+    // Fall back to column 1 (right after `#`) when the text isn't
+    // available.
+    const nameCol = text !== undefined ? locationNameCol(text, loc) : 1;
+    const selectionRange: Range = {
+      start: { line: loc.startLine, character: nameCol },
+      end: { line: loc.startLine, character: nameCol + loc.name.length },
+    };
+    const locRange: Range = {
+      start: { line: loc.startLine, character: 0 },
+      end: loc.endLine > loc.startLine
+        ? { line: loc.endLine, character: 0 }
+        : selectionRange.end,
+    };
+    const children: DocumentSymbol[] = [];
+    const locSyms = state.symbols.getLocation(loc.name);
+    if (locSyms) {
+      // Emit one outline entry per label definition site, including
+      // duplicate names that live in distinct namespaces (e.g. an
+      // act-internal `:foo` plus a root `:foo`).
+      for (const label of locSyms.allLabelSymbols()) {
+        for (const def of label.references) {
+          const r = symToRange(def);
+          children.push({ name: ':' + label.name, kind: SymbolKind.Key, range: r, selectionRange: r });
+        }
+      }
+      for (const act of locSyms.actions) {
+        if (act.definition) {
+          children.push({
+            name: 'act ' + act.name,
+            kind: SymbolKind.Event,
+            range: symToRange(act.blockRange ?? act.definition),
+            selectionRange: symToRange(act.definition),
+          });
+        }
+      }
+    }
+    symbols.push({
+      name: loc.name, kind: SymbolKind.Namespace, range: locRange,
+      selectionRange,
+      children,
+    });
+  }
+  return symbols;
 }
 
 // Spaced QSP statement forms for word detection
@@ -663,45 +735,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
   connection.onDocumentSymbol((params) => {
     const state = documentStates.get(params.textDocument.uri);
     if (!state) return [];
-    const symbols: import('vscode-languageserver').DocumentSymbol[] = [];
-    for (const loc of state.locationIndex) {
-      const locRange: Range = {
-        start: { line: loc.startLine, character: 0 },
-        end: { line: loc.endLine, character: 0 },
-      };
-      const children: import('vscode-languageserver').DocumentSymbol[] = [];
-      const locSyms = state.symbols.getLocation(loc.name);
-      if (locSyms) {
-        // Emit one outline entry per label definition site, including
-        // duplicate names that live in distinct namespaces (e.g. an
-        // act-internal `:foo` plus a root `:foo`).
-        for (const label of locSyms.allLabelSymbols()) {
-          for (const def of label.references) {
-            const r = symToRange(def);
-            children.push({ name: ':' + label.name, kind: SymbolKind.Key, range: r, selectionRange: r });
-          }
-        }
-        for (const act of locSyms.actions) {
-          if (act.definition) {
-            children.push({
-              name: 'act ' + act.name,
-              kind: SymbolKind.Event,
-              range: symToRange(act.blockRange ?? act.definition),
-              selectionRange: symToRange(act.definition),
-            });
-          }
-        }
-      }
-      symbols.push({
-        name: loc.name, kind: SymbolKind.Namespace, range: locRange,
-        selectionRange: {
-          start: { line: loc.startLine, character: 2 },
-          end: { line: loc.startLine, character: 2 + loc.name.length },
-        },
-        children,
-      });
-    }
-    return symbols;
+    return buildOutlineSymbols(state, documents.get(params.textDocument.uri));
   });
 
   // ==================== RENAME ====================
