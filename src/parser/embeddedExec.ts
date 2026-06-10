@@ -60,6 +60,7 @@ import {
   makeTranslator,
   mergeIntoHost,
 } from './embeddedShared';
+import { processLocationInterpolations } from './embeddedInterpolation';
 
 // ── Skip table: strings that never reach the HTML renderer ────────────
 
@@ -333,7 +334,7 @@ function processString(
     // multi-line falls back to the full host span (which is the
     // pre-existing behaviour and remains valid for diagnostics).
     const translate = makeTranslator(
-      s, body, decodedBodyStart, extra, hostLoc,
+      s, decoded, decodedBodyStart, /*bodyLen*/ body.length, extra, hostLoc,
       /*hostPrefixLen*/ 1,    // opening quote
       /*subBodyCol*/    0,    // exec wrapper puts body at col 0 of line 1
     );
@@ -374,6 +375,34 @@ function subParseAndMerge(
     // location bodies receive.
     const subSyms = new LocationSymbols(SUB_LOC_NAME);
     walkLocationBody(subLocBlock, subSyms, docUri, /*inDeferredExecution*/ true);
+
+    // Recursively resolve any `<<…>>` interpolation inside the exec
+    // body whose escapes survived the host string's first decode
+    // (quadrupled quotes → still doubled after one pass).  The
+    // sub-walker tags these as needs-decode but never resolves them;
+    // the top-level interpolation pass only visits the original tree.
+    // Running it here leaves the recovered refs in exec-sub-tree
+    // coordinates so the outer `mergeIntoHost` projects them the rest
+    // of the way to source.  Nested-interpolation syntax errors land
+    // in `subSyms.embeddedExecErrors` (in sub-tree coordinates) and
+    // are forwarded through `translate` below.
+    processLocationInterpolations(subLocBlock, subSyms, docUri, parseFn);
+    for (const e of subSyms.embeddedExecErrors) {
+      const m = translate({
+        uri: hostLoc.uri,
+        line: e.startRow,
+        column: e.startCol,
+        endLine: e.endRow,
+        endColumn: e.endCol,
+      });
+      hostSyms.embeddedExecErrors.push({
+        ...e,
+        startRow: m.line,
+        startCol: m.column,
+        endRow: m.endLine,
+        endCol: m.endColumn,
+      });
+    }
 
     mergeIntoHost(subSyms, hostSyms, translate, allocScope);
   } finally {

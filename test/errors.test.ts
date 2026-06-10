@@ -90,15 +90,12 @@ end
     expect(errors.some(e => /unclosed.*\{/i.test(e.message))).toBe(false);
   });
 
-  it('reports a focused diagnostic for a malformed <<>> with doubled quotes that derails host parsing', () => {
-    // When doubled-quote escapes inside `<<...>>` confuse tree-sitter
-    // so badly that the matching `>>` is lost and the rest of the
-    // location is swallowed into a giant ERROR, the delimiter-mismatch
-    // scan used to point at an inner `(` ("Unclosed '('") which is
-    // both wrong (the `)` exists but is hidden inside a misparsed
-    // string subtree) and misleading.  We now emit a single
-    // "Malformed interpolation expression" diagnostic anchored at the
-    // `<<` instead.
+  it('contains doubled quotes inside <<>> via the raw-body token (no host derailment)', () => {
+    // Doubled-quote escapes inside `<<...>>` used to confuse tree-sitter
+    // so badly that the matching `>>` was lost and the rest of the
+    // location was swallowed into a giant ERROR.  The external scanner
+    // now captures such bodies as one opaque `interpolation_raw_body`
+    // token, so the host parses cleanly and no false diagnostics fire.
     const tree = parser.parse('test://err-malformed-interp', `# forest
 ! Demonstrates: loop, rand(), local variables, mixed call types.
 local encounters = rand(1, 3)
@@ -118,13 +115,10 @@ result = 1
 ---
 `)!;
     const errors = extractErrors(tree);
-    expect(errors.some(e => /malformed interpolation/i.test(e.message))).toBe(true);
-    // The misleading "Unclosed '('" must NOT appear for this shape.
+    // The raw-body token keeps the host parse clean: no "Malformed
+    // interpolation" and no misleading "Unclosed '('".
+    expect(errors.some(e => /malformed interpolation/i.test(e.message))).toBe(false);
     expect(errors.some(e => /unclosed.*\(/i.test(e.message))).toBe(false);
-    // Diagnostic anchored at the `<<` token (line 4, col 46).
-    const hit = errors.find(e => /malformed interpolation/i.test(e.message))!;
-    expect(hit.startRow).toBe(4);
-    expect(hit.startCol).toBe(46);
   });
 
   // ── Stack-counting <<>> detection in refineErrorNode ──
@@ -179,6 +173,67 @@ result = 1
       expect(hit).toBeDefined();
       expect(hit!.startRow).toBe(1);
       expect(hit!.startCol).toBe(14);
+    });
+  });
+
+  // ── Grammar-level containment of doubled-quote interpolation bodies ──
+  //
+  // A `<<…>>` body that uses the host string's doubled-quote escapes
+  // (e.g. `'<<$func(''a/b'', ''c'')>>'`) is captured by the external
+  // scanner as one opaque `interpolation_raw_body` token, so the host
+  // parse stays clean and extractErrors reports nothing — no re-parse
+  // callback needed.  Genuinely unclosed `<<` (no doubled quotes) still
+  // surfaces.  Errors INSIDE a decoded body are reported by the
+  // decode-and-reparse pass (covered in embeddedExec.test.ts), not here.
+  describe('doubled-quote interpolation containment', () => {
+    it('single-quoted host with `' + "''" + '` escapes parses cleanly', () => {
+      const tree = parser.parse(
+        'test://dq-squote',
+        `# t\npl '<<$func(''a/b'', ''c'')>>'\n---\n`,
+      )!;
+      expect(extractErrors(tree)).toEqual([]);
+    });
+
+    it('double-quoted host with `""` escapes parses cleanly', () => {
+      const tree = parser.parse(
+        'test://dq-dquote',
+        `# t\npl "<<$func(""a/b"", ""c"")>>"\n---\n`,
+      )!;
+      expect(extractErrors(tree)).toEqual([]);
+    });
+
+    it('body carrying both doubled-quote types parses cleanly', () => {
+      // The body holds BOTH a `''` sequence (an inner single-quoted
+      // literal's own escape) and the `""` host escape.  The scanner
+      // keys on the HOST quote, so the inner `''` is plain content.
+      const tree = parser.parse(
+        'test://dq-both-types',
+        `# t\npl "<<$func(""a/b"", 'it''s')>>"\n---\n`,
+      )!;
+      expect(extractErrors(tree)).toEqual([]);
+    });
+
+    it('still reports a genuinely unclosed `<<`', () => {
+      // No `>>` and no doubled quotes: the raw-body token is not
+      // emitted, so the inline path runs and the diagnostic fires.
+      const tree = parser.parse('test://dq-genuine', `# t\npl 'a <<func(\n---\n`)!;
+      const errs = extractErrors(tree);
+      expect(errs.some(e => /malformed interpolation/i.test(e.message))).toBe(true);
+    });
+
+    it('an unterminated host string ends the raw body at the lone quote', () => {
+      // `'<<mid(''abc'', 1)'` — the trailing `'` is a LONE host quote,
+      // which always terminates the host string.  The scanner ends the
+      // raw body before it and the missing `>>` surfaces as an error
+      // instead of the whole rest of the file being swallowed.
+      const tree = parser.parse(
+        'test://dq-unterminated',
+        `# t\npl '<<mid(''abc'', 1)'\nx = 1\n---\n`,
+      )!;
+      const errs = extractErrors(tree);
+      expect(errs.length).toBeGreaterThan(0);
+      // Containment: the error stays on the string's line.
+      expect(errs.every(e => e.startRow === 1)).toBe(true);
     });
   });
 
@@ -462,6 +517,28 @@ pl '<<x + >>'
     const tree = parser.parse('test://prefix-cont', '# t\n# _\n  foo = 1\n---\n');
     const errs = extractErrors(tree!);
     expect(errs.some(e => /no whitespace allowed.*type prefix/i.test(e.message))).toBe(true);
+  });
+
+  it('prefix-whitespace check is suppressed inside an ERROR region', () => {
+    // An unclosed `{` collapses the following lines into one ERROR node.
+    // The `# foo` / `$ bar` inside it parse as prefixed variable_refs
+    // with a phantom prefix/name gap, but those groupings are recovery
+    // artifacts -- the ERROR is already reported, so no redundant
+    // prefix-whitespace noise should be emitted.
+    const tree = parser.parse('test://prefix-in-err',
+      '# t\nx = {\n# foo = 1\n$ bar = 2\n---\n');
+    const errs = extractErrors(tree!);
+    expect(errs.some(e => /no whitespace allowed/i.test(e.message))).toBe(false);
+  });
+
+  it('prefix-whitespace check resumes after an ERROR region ends', () => {
+    // Validates that the errorDepth counter is decremented on exit: a
+    // genuine `# foo = 1` gap in a well-formed location AFTER an earlier
+    // broken one must still be flagged.
+    const tree = parser.parse('test://prefix-after-err',
+      '# t\nif x:\n---\n# t2\n# foo = 1\n---\n');
+    const errs = extractErrors(tree!);
+    expect(errs.some(e => /no whitespace allowed.*type prefix.*variable/i.test(e.message))).toBe(true);
   });
 
   // ── Function name as lvalue ─────────────────────────────────────────

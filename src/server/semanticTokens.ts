@@ -15,6 +15,7 @@ import {
 } from 'vscode-languageserver';
 import { isVariableDefinition } from '../parser';
 import { EXEC_PROBE_RE, EXEC_LINK_RE, decodeDoubledQuotes } from '../parser/embeddedExec';
+import { makeOffsetProjector, bodyLineStarts } from '../parser/embeddedReparse';
 import { interpolationNeedsDecode } from '../parser/embeddedInterpolation';
 import { CONTROL_FLOW_STMT_NAMES } from '../parser/lookupTables';
 
@@ -486,12 +487,14 @@ export function collectSemanticTokenTuples(
 const WRAP_HEADER = '# __exec__\n';
 const WRAP_FOOTER = '\n---\n';
 
-/** A single single-line `exec:` body inside a host string. */
+/** A single `exec:` body inside a host string (may span lines). */
 interface ExecBodyInfo {
-  /** Source row of the body. */
+  /** Source row of the body's first character. */
   row: number;
   /** Source column of the first raw body character (inclusive). */
   startCol: number;
+  /** Source row of the body's last character. */
+  endRow: number;
   /** Source column just past the last raw body character (exclusive). */
   endCol: number;
   /** Decoded body text (after `''`/`""` escape collapse). */
@@ -515,16 +518,18 @@ function findExecBodies(stringNode: Parser.SyntaxNode): ExecBodyInfo[] {
   // calls, removing the leading/trailing reset dance.
   for (const m of inner.matchAll(EXEC_LINK_RE)) {
     const rawBody = m[2];
-    if (!rawBody || rawBody.includes('\n')) continue;
+    if (!rawBody) continue;
     // `d` flag: m.indices[2] is the body's offset within `inner`;
     // `+ 1` accounts for the opening quote stripped from `raw → inner`.
     const innerOffset = m.indices![2]![0] + 1;
-    const bodyPos = offsetToSourcePos(raw, innerOffset, stringStart);
+    const startPos = offsetToSourcePos(raw, innerOffset, stringStart);
+    const endPos = offsetToSourcePos(raw, innerOffset + rawBody.length, stringStart);
     const { text: decoded, extra } = decodeDoubledQuotes(rawBody, hostQuote);
     out.push({
-      row: bodyPos.row,
-      startCol: bodyPos.column,
-      endCol: bodyPos.column + rawBody.length,
+      row: startPos.row,
+      startCol: startPos.column,
+      endRow: endPos.row,
+      endCol: endPos.column,
       decoded,
       extra,
     });
@@ -538,6 +543,10 @@ function findExecBodies(stringNode: Parser.SyntaxNode): ExecBodyInfo[] {
  * range is dropped; the surrounding parts are emitted as separate
  * tokens.  Other token types pass through.  `bodies` must be sorted
  * by `(row, startCol)`, which `findExecBodies` guarantees.
+ *
+ * Bodies may span multiple lines.  On the body's first row the clip
+ * starts at `startCol`; on its last row it ends at `endCol`; rows
+ * strictly between are clipped end-to-end.
  */
 function clipStringEmit(
   baseEmit: TokenSink,
@@ -552,11 +561,15 @@ function clipStringEmit(
     const end = char + length;
     let cursor = char;
     for (const r of bodies) {
-      if (r.row !== line || r.endCol <= cursor || r.startCol >= end) continue;
-      if (r.startCol > cursor) {
-        baseEmit(line, cursor, r.startCol - cursor, type, modifiers);
+      if (line < r.row || line > r.endRow) continue;
+      // Clip range covered by this body on the current line.
+      const lo = line === r.row ? r.startCol : char;
+      const hi = line === r.endRow ? r.endCol : end;
+      if (hi <= cursor || lo >= end) continue;
+      if (lo > cursor) {
+        baseEmit(line, cursor, lo - cursor, type, modifiers);
       }
-      cursor = Math.min(r.endCol, end);
+      cursor = Math.min(hi, end);
       if (cursor >= end) return;
     }
     if (cursor < end) baseEmit(line, cursor, end - cursor, type, modifiers);
@@ -575,15 +588,22 @@ function emitExecBodyForInfo(
   if (!subTree) return;
   try {
     const { row, startCol, decoded, extra } = info;
-    // Body sits at (line=1, column=0) in the wrapper; project back.
-    const project: TokenSink = (line, char, length, type, modifiers) => {
-      if (line !== 1 || char < 0 || char > decoded.length) return;
-      const d2 = Math.min(char + length, decoded.length);
-      const srcCol = startCol + char + (extra ? extra[char] : 0);
-      const srcEnd = startCol + d2   + (extra ? extra[d2]   : 0);
-      if (srcEnd > srcCol) emit(row, srcCol, srcEnd - srcCol, type, modifiers);
+    // Body sits at (line=1, column=0) in the wrapper; project each
+    // sub-tree position back through the decoded→raw shift map, which
+    // also handles multi-line bodies (row advances per decoded newline).
+    const project = makeOffsetProjector(decoded, extra, row, startCol);
+    const lineStarts = bodyLineStarts(decoded, 0, decoded.length);
+    const emitToken: TokenSink = (line, char, length, type, modifiers) => {
+      const bodyLine = line - 1;
+      if (bodyLine < 0 || bodyLine >= lineStarts.length || char < 0) return;
+      const d0 = lineStarts[bodyLine] + char;
+      if (d0 > decoded.length) return;
+      const d1 = Math.min(d0 + length, decoded.length);
+      const s = project(d0);
+      const e = project(d1);
+      if (e.column > s.column) emit(s.row, s.column, e.column - s.column, type, modifiers);
     };
-    emitSemanticTokens(subTree, project, gotoTargets);
+    emitSemanticTokens(subTree, emitToken, gotoTargets, parseFn);
   } finally {
     subTree.delete();
   }
@@ -596,9 +616,8 @@ function emitExecBodyForInfo(
  * Mirrors `emitExecBodyForInfo`: wraps the decoded body so it parses
  * as a single expression, runs the same token emitter, then projects
  * back through the `extra` shift map produced by `decodeDoubledQuotes`.
- *
- * Single-line bodies only; multi-line interpolations are exceedingly
- * rare in practice and fall back to the (corrupted) inline tokens.
+ * Multi-line bodies project precisely (row advances per decoded
+ * newline; see {@link makeOffsetProjector}).
  */
 function emitDoubledQuoteInterpolation(
   intp: Parser.SyntaxNode,
@@ -606,11 +625,17 @@ function emitDoubledQuoteInterpolation(
   emit: TokenSink,
   gotoTargets: ReadonlySet<string> | undefined,
 ): void {
-  // Need single-line body so column projection is straightforward.
-  if (intp.startPosition.row !== intp.endPosition.row) return;
-  const raw = intp.text;
-  if (raw.length < 4) return; // need at least `<<>>`
-  const innerBody = raw.slice(2, -2);
+  // The body is the opaque `interpolation_raw_body` token produced by
+  // the grammar's external scanner (the needs-decode predicate keyed
+  // on its presence).  Using the node keeps coordinates correct even
+  // when the closing `>>` is MISSING.
+  let bodyNode: Parser.SyntaxNode | null = null;
+  for (let i = 0; i < intp.namedChildCount; i++) {
+    const child = intp.namedChild(i)!;
+    if (child.type === 'interpolation_raw_body') { bodyNode = child; break; }
+  }
+  if (!bodyNode) return;
+  const innerBody = bodyNode.text;
   if (innerBody.length === 0) return;
 
   // Host quote char dictates which doubled-quote sequence is the
@@ -632,19 +657,27 @@ function emitDoubledQuoteInterpolation(
   const subTree = parseFn(wrapped);
   if (!subTree) return;
   try {
-    const row = intp.startPosition.row;
-    // Source column of body byte 0 = column of `<<` + 2.
-    const bodyStartCol = intp.startPosition.column + 2;
-    const project: TokenSink = (line, char, length, type, modifiers) => {
-      if (line !== 1) return;
-      const c0 = char - PREFIX.length;
-      if (c0 < 0 || c0 > decoded.length) return;
-      const c1 = Math.min(c0 + length, decoded.length);
-      const srcCol = bodyStartCol + c0 + (extra ? extra[c0] : 0);
-      const srcEnd = bodyStartCol + c1 + (extra ? extra[c1] : 0);
-      if (srcEnd > srcCol) emit(row, srcCol, srcEnd - srcCol, type, modifiers);
+    // Body offset 0 sits exactly at the raw-body node's start position;
+    // project sub-tree positions back from there.
+    const project = makeOffsetProjector(
+      decoded, extra, bodyNode.startPosition.row, bodyNode.startPosition.column,
+    );
+    const lineStarts = bodyLineStarts(decoded, 0, decoded.length);
+    const emitToken: TokenSink = (line, char, length, type, modifiers) => {
+      const bodyLine = line - 1;
+      if (bodyLine < 0 || bodyLine >= lineStarts.length) return;
+      // The body starts at column PREFIX.length on line 1 of the
+      // wrapper; continuation lines start at column 0.
+      const col = char - (bodyLine === 0 ? PREFIX.length : 0);
+      if (col < 0) return;
+      const d0 = lineStarts[bodyLine] + col;
+      if (d0 > decoded.length) return;
+      const d1 = Math.min(d0 + length, decoded.length);
+      const s = project(d0);
+      const e = project(d1);
+      if (e.column > s.column) emit(s.row, s.column, e.column - s.column, type, modifiers);
     };
-    emitSemanticTokens(subTree, project, gotoTargets);
+    emitSemanticTokens(subTree, emitToken, gotoTargets);
   } finally {
     subTree.delete();
   }

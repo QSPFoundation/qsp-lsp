@@ -107,17 +107,20 @@ describe('semantic tokens: exec-body highlighting', () => {
     expect(xTok!.char).toBe(26);
   });
 
-  it('skips sub-parse for multi-line exec bodies (no extra tokens)', () => {
+  it('highlights multi-line exec bodies', () => {
     const src =
       `# home\n`
       + `pl '<a href="exec:gs\n`
       + `''target''">x</a>'\n`
       + `---\n`;
     const toks = tokensFor(src);
-    // No `gs` should be emitted as a statement_name — it's inside an
-    // un-parsed multi-line body.
+    // The body spans two lines (`gs` then the decoded `'target'`).
+    // `gs` is sub-parsed and highlighted as a statement keyword on the
+    // first body row at the column just past `exec:`.
     const gs = toks.find(t => t.text === 'gs' && t.type === SemanticTokenTypes.type);
-    expect(gs).toBeUndefined();
+    expect(gs).toBeDefined();
+    expect(gs!.line).toBe(1);
+    expect(gs!.char).toBe(18);
   });
 
   it('skips strings in identifier-position contexts safely (no crash)', () => {
@@ -403,3 +406,117 @@ describe('semantic tokens: exec-body highlighting', () => {
     expect(afterBody).toBeDefined();
   });
 });
+
+describe('semantic tokens: multi-line embedded bodies', () => {
+  it('projects exec-body tokens onto the correct continuation line', () => {
+    const src =
+      `# home\n`
+      + `pl '<a href="exec:n = 1 &\n`
+      + `gs ''dest''">x</a>'\n`
+      + `---\n`
+      + `# dest\n---\n`;
+    const toks = tokensFor(src);
+    // `gs` lives on the second body line (source row 2) at column 0.
+    const gs = toks.find(t => t.text === 'gs' && t.type === SemanticTokenTypes.type);
+    expect(gs).toBeDefined();
+    expect(gs!.line).toBe(2);
+    expect(gs!.char).toBe(0);
+    // `n` (first body line) stays on row 1.
+    const n = toks.find(t => t.text === 'n' && t.type === SemanticTokenTypes.variable);
+    expect(n).toBeDefined();
+    expect(n!.line).toBe(1);
+  });
+
+  it('clips host-string tokens across a multi-line exec body', () => {
+    const src =
+      `# home\n`
+      + `pl '<a href="exec:n = 1 &\n`
+      + `gs ''dest''">x</a>'\n`
+      + `---\n`
+      + `# dest\n---\n`;
+    const toks = tokensFor(src);
+    // No string token may cover the `gs` keyword (cols 0..2 on row 2).
+    const stringOverGs = toks.filter(t =>
+      t.type === SemanticTokenTypes.string
+      && t.line === 2
+      && t.char < 2
+      && t.char + t.length > 0,
+    );
+    expect(stringOverGs).toEqual([]);
+    // The `">x</a>'` suffix after the body on row 2 stays string-coloured.
+    const afterBody = toks.find(t =>
+      t.type === SemanticTokenTypes.string && t.line === 2 && t.char >= 11,
+    );
+    expect(afterBody).toBeDefined();
+  });
+
+  it('projects interpolation tokens onto the correct continuation line', () => {
+    // Doubled-quote interpolation forcing the decode path, body split
+    // across two lines; `$y` lives on the second.
+    const src =
+      `# home\n`
+      + `$x = 'v <<instr(''ab'',\n`
+      + `$y)>>'\n`
+      + `---\n`;
+    const toks = tokensFor(src);
+    const y = toks.find(t => t.text === 'y' && t.type === SemanticTokenTypes.variable);
+    expect(y).toBeDefined();
+    expect(y!.line).toBe(2);
+    expect(y!.char).toBe(1); // `$y` — `y` is one past the `$` at col 0
+  });
+});
+
+describe('semantic tokens: interpolation inside an exec body', () => {
+  it('highlights a needs-decode interpolation variable inside an exec body', () => {
+    // Host `'`; quadrupled quotes so after the host decode the exec
+    // body is `$y = '<<instr(''ab'', $inner)>>'`, whose inner `<<>>`
+    // still needs the decode pass.  `$inner` must get a variable token
+    // projected back onto the host string line.
+    const src =
+      `# home\n`
+      + `pl '<a href="exec:$y = ''<<instr(''''ab'''', $inner)>>''">go</a>'\n`
+      + `---\n`;
+    const toks = tokensFor(src);
+    const inner = toks.find(t => t.text === 'inner' && t.type === SemanticTokenTypes.variable);
+    expect(inner).toBeDefined();
+    expect(inner!.line).toBe(1);
+    // `instr` built-in inside the interpolation is highlighted too.
+    const instr = toks.find(t => t.text === 'instr' && t.type === SemanticTokenTypes.method);
+    expect(instr).toBeDefined();
+    expect(instr!.line).toBe(1);
+  });
+});
+
+describe('semantic tokens: doubled-quote interpolation host-quote variants', () => {
+  it('highlights a needs-decode interpolation inside a DOUBLE-quoted host', () => {
+    // The `""` escape path (counterpart to the single-quoted tests):
+    // a `<<...>>` carrying `""` inside a double-quoted host needs the
+    // decode pass; `$y` and the `instr` builtin must still be coloured.
+    const src =
+      `# home\n`
+      + `$x = "v <<instr(""ab"", $y)>>"\n`
+      + `---\n`;
+    const toks = tokensFor(src);
+    const y = toks.find(t => t.text === 'y' && t.type === SemanticTokenTypes.variable);
+    expect(y).toBeDefined();
+    expect(y!.line).toBe(1);
+    const instr = toks.find(t => t.text === 'instr' && t.type === SemanticTokenTypes.method);
+    expect(instr).toBeDefined();
+    expect(instr!.line).toBe(1);
+  });
+
+  it('emits delimiter tokens for a needs-decode interpolation (no children recursion)', () => {
+    // When the decode path runs, the `<<` / `>>` delimiters are emitted
+    // explicitly (the inline children aren't recursed).  Verify the
+    // body tokens land and nothing duplicates onto the wrong line.
+    const src =
+      `# home\n`
+      + `$x = 'a <<instr(''xy'', $z)>> b'\n`
+      + `---\n`;
+    const toks = tokensFor(src);
+    const z = toks.filter(t => t.text === 'z' && t.type === SemanticTokenTypes.variable);
+    expect(z.length).toBe(1);
+    expect(z[0]!.line).toBe(1);
+  });
+});
+

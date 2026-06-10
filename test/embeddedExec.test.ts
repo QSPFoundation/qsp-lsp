@@ -252,6 +252,27 @@ pl '<a href="exec:n=''x'' & gs ''target''">x</a>'
       expect(ref).toBeDefined();
       expect(ref!.references[0].line).toBe(1);
     });
+
+    it('projects a ref onto the correct line of a multi-line exec body', () => {
+      // The exec body spans two source lines; the `gs ''target''` call
+      // lives on the SECOND line, so its ref must be projected there
+      // (not collapsed onto the host string's first line).
+      const code = `# home
+pl '<a href="exec:n = 1 &
+gs ''target''">x</a>'
+---
+# target
+---
+`;
+      const symbols = run(code);
+      const ref = symbols.getLocation('home')!.locationRefs.get('target');
+      expect(ref).toBeDefined();
+      const r = ref!.references[0];
+      expect(r.line).toBe(2); // second body line == third source line (0-based row 2)
+      const span = code.split('\n')[r.line].substring(r.column, r.endColumn);
+      expect(span.toLowerCase()).toContain('target');
+      expect(span).not.toContain("''");
+    });
   });
 
   describe('classifier (identifier-position strings are skipped)', () => {
@@ -371,6 +392,101 @@ gs 'real', '<a href="exec:gs ''found''">y</a>'
       // CAN end up rendered to HTML if real prints it.
       expect(symbols.getLocation('home')!.locationRefs.get('found'))
         .toBeDefined();
+    });
+  });
+
+  describe('classifier: full skip-table vocabulary', () => {
+    // Each entry of every skip table must classify its argument as an
+    // identifier position so a `<a href="exec:gs ''x''">` placed there
+    // is NOT scanned.  These cover the entries not exercised by the
+    // representative tests above.
+    const noRef = (code: string, ...targets: string[]) => {
+      const home = run(code).getLocation('home')!;
+      for (const t of targets) {
+        expect(home.locationRefs.get(t), `expected ${t} to be skipped`).toBeUndefined();
+      }
+    };
+
+    it('skips arg0 of the remaining location-ref statements (xgoto/xgt/jump)', () => {
+      noRef(
+        `# home
+xgoto '<a href="exec:gs ''a''">y</a>'
+xgt '<a href="exec:gs ''b''">y</a>'
+jump '<a href="exec:gs ''c''">y</a>'
+---
+`,
+        'a', 'b', 'c',
+      );
+    });
+
+    it('skips arg0 of path-ref statements (play/close/view/opengame/savegame/openqst/inclib/addqst)', () => {
+      noRef(
+        `# home
+play '<a href="exec:gs ''a''">y</a>'
+close '<a href="exec:gs ''b''">y</a>'
+view '<a href="exec:gs ''c''">y</a>'
+opengame '<a href="exec:gs ''d''">y</a>'
+savegame '<a href="exec:gs ''e''">y</a>'
+openqst '<a href="exec:gs ''f''">y</a>'
+inclib '<a href="exec:gs ''g''">y</a>'
+addqst '<a href="exec:gs ''h''">y</a>'
+---
+`,
+        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
+      );
+    });
+
+    it('skips arg0 of var-name statements (setvar/killvar/sortarr/scanstr/unpackarr/menu)', () => {
+      noRef(
+        `# home
+setvar '<a href="exec:gs ''a''">y</a>', 1
+killvar '<a href="exec:gs ''b''">y</a>'
+sortarr '<a href="exec:gs ''c''">y</a>'
+scanstr '<a href="exec:gs ''d''">y</a>', 'pat'
+unpackarr '<a href="exec:gs ''e''">y</a>'
+menu '<a href="exec:gs ''f''">y</a>'
+---
+`,
+        'a', 'b', 'c', 'd', 'e', 'f',
+      );
+    });
+
+    it('skips arg0 of var-name & location functions (arrsize/arrtype/arritem/arrpack/arrpos/isplay)', () => {
+      noRef(
+        `# home
+w = arrsize('<a href="exec:gs ''a''">y</a>')
+x = arrtype('<a href="exec:gs ''b''">y</a>')
+y = arritem('<a href="exec:gs ''c''">y</a>', 0)
+z = arrpack('<a href="exec:gs ''d''">y</a>')
+p = arrpos('<a href="exec:gs ''e''">y</a>', 0)
+q = isplay('<a href="exec:gs ''f''">y</a>')
+---
+`,
+        'a', 'b', 'c', 'd', 'e', 'f',
+      );
+    });
+
+    it('skips BOTH args of copyarr (source and destination names)', () => {
+      noRef(
+        `# home
+copyarr '<a href="exec:gs ''a''">y</a>', '<a href="exec:gs ''b''">y</a>'
+---
+`,
+        'a', 'b',
+      );
+    });
+
+    it('skips regex-pattern args (strfind/strpos arg1, scanstr arg2, arrcomp arg1)', () => {
+      noRef(
+        `# home
+a = strfind(s, '<a href="exec:gs ''a''">y</a>')
+b = strpos(s, '<a href="exec:gs ''b''">y</a>')
+scanstr res, src, '<a href="exec:gs ''c''">y</a>'
+d = arrcomp('arr', '<a href="exec:gs ''d''">y</a>')
+---
+`,
+        'a', 'b', 'c', 'd',
+      );
     });
   });
 
@@ -1421,6 +1537,29 @@ pl 'forks <<''>>'
       expect(hits.length).toBeGreaterThan(0);
     });
 
+    it('reports a diagnostic when the decoded raw body is malformed', () => {
+      // The body carries doubled host quotes, so the grammar contains it
+      // as an `interpolation_raw_body` token and the HOST parses cleanly.
+      // The decoded expression has a trailing unbalanced `(`, which the
+      // decode-and-reparse pass must surface as a diagnostic on the host
+      // string — grammar containment must not silently swallow errors.
+      const code = `# home
+pl '<<$func(''a/b'', ''c'')(>>'
+---
+`;
+      const diags = diagnose(code, {});
+      const lineText = code.split('\n')[1]!;
+      const start = lineText.indexOf('<<');
+      const end = lineText.lastIndexOf('>>') + 2;
+      const hits = diags.filter(d =>
+        d.severity === 1
+        && d.range.start.line === 1
+        && d.range.start.character >= start
+        && d.range.start.character < end,
+      );
+      expect(hits.length).toBeGreaterThan(0);
+    });
+
     it('does NOT raise `missingResultInFunctionCall` for phantom names that appear inside a broken <<>>', () => {
       // Defensive: a malformed body must not leak fake location refs
       // into the host that would then be flagged as never-assigning
@@ -1439,6 +1578,46 @@ pl 'oops <<func(''nowhere'') +>>'
         d.message.includes("never assigns 'result'"),
       );
       expect(missingResult).toEqual([]);
+    });
+
+    // ── Compound diagnostics: multiple independent embedded bodies
+    //    in one location, and errors originating in an interpolation
+    //    nested inside an exec body.
+
+    it('two exec bodies with different diagnostic types each surface', () => {
+      const code = `# home
+pl '<a href="exec:gs ''missingloc''">a</a>'
+$n = 5
+pl '<a href="exec:$n = ''txt''">b</a>'
+---
+`;
+      const diags = diagnose(code, { unresolvedLocationRefs: true, typeMismatch: true });
+      // First body: an unresolved location ref.
+      expect(diags.some(d => /Location 'missingloc' is not defined/i.test(d.message))).toBe(true);
+      // Second body: a type mismatch ($n is numeric, assigned a string).
+      expect(diags.some(d => /Type mismatch/i.test(d.message))).toBe(true);
+    });
+
+    it('a malformed interpolation nested inside an exec body surfaces a diagnostic in the host string', () => {
+      // Quadrupled quotes leave the exec body `$y = '<<instr(''ab'', )+>>'`
+      // whose inner `<<>>` still needs the decode pass.  Its syntax
+      // error must be projected through BOTH the interpolation and the
+      // exec translators back onto the host string line.
+      const code = `# home
+pl '<a href="exec:$y = ''<<instr(''''ab'''', )+>>''">go</a>'
+---
+`;
+      const diags = diagnose(code, {});
+      const lineText = code.split('\n')[1]!;
+      const start = lineText.indexOf('exec:');
+      const end = lineText.lastIndexOf('">');
+      const inBody = diags.filter(d =>
+        d.severity === 1
+        && d.range.start.line === 1
+        && d.range.start.character > start
+        && d.range.start.character < end,
+      );
+      expect(inBody.length).toBeGreaterThan(0);
     });
   });
 
@@ -1465,6 +1644,27 @@ $x = 'go <<desc(''target'')>>'
       expect(ref!.references.length).toBe(1);
       expect(ref!.references[0].line).toBe(1);
       expect(ref!.references[0].column).toBeGreaterThan(0);
+    });
+
+    it('projects a ref onto the correct line of a multi-line interpolation', () => {
+      // The interpolation body spans two source lines; `desc(''target'')`
+      // lives on the second, so its ref must be projected there rather
+      // than collapsed onto the interpolation's start line.
+      const code = `# home
+$x = 'go <<desc(
+''target'')>>'
+---
+# target
+---
+`;
+      const symbols = run(code);
+      const ref = symbols.getLocation('home')!.locationRefs.get('target');
+      expect(ref).toBeDefined();
+      const r = ref!.references[0];
+      expect(r.line).toBe(2);
+      const span = code.split('\n')[r.line].substring(r.column, r.endColumn);
+      expect(span.toLowerCase()).toContain('target');
+      expect(span).not.toContain("''");
     });
 
     // ── Nested interpolations.  An interpolation body may itself
@@ -1639,6 +1839,129 @@ $x = 'oops <<instr(''ab'', ) +>>'
       expect(names).not.toContain('_r_');
     });
 
+    it('empty interpolation `<<>>` is skipped without error or leaked _r_', () => {
+      const symbols = run(
+        `# home
+$x = 'a <<>> b'
+---
+`,
+      );
+      const names = [...symbols.getLocation('home')!.ownedVariables].map(v => v.name);
+      expect(names).toContain('x');
+      expect(names).not.toContain('_r_');
+    });
+
+    it('NON-local var inside a doubled-quote interpolation resolves to a single host global', () => {
+      // Counterpart to the act-local test: a var that is NOT a host
+      // local must still attach to ONE location-level symbol (via the
+      // host-scope override) rather than spawning a duplicate.  Pre-fix
+      // the decode-pass ref could land in a different scope than the
+      // inline reads, splitting the symbol.
+      const symbols = run(
+        `# home
+$g = 'v <<instr(''ab'', $glob)>>'
+$g2 = '<<$glob>>'
+---
+`,
+      );
+      const globs = [...symbols.getLocation('home')!.ownedVariables].filter(v => v.name === 'glob');
+      expect(globs.length).toBe(1);
+      expect(globs[0].isLocal).toBe(false);
+    });
+
+    it('extracts an inner var through TRIPLE-nested interpolation (inline → inline → decode)', () => {
+      // Host `'` → inner `"` (inline) → innermost `''` doubled (decode
+      // pass).  The walker must descend through all three nesting
+      // levels and recover `$deep`.
+      const symbols = run(
+        `# home
+$x = '<<len("a <<instr(''xy'', $deep)>>")>>'
+---
+`,
+      );
+      const names = [...symbols.getLocation('home')!.ownedVariables].map(v => v.name);
+      expect(names).toContain('deep');
+      expect(names).not.toContain('_r_');
+    });
+
+    it('decoded interpolation body that is just a string literal emits no host symbols', () => {
+      // `<<''justliteral''>>` decodes to the expression `'justliteral'`
+      // — a bare string literal with no refs/vars.  The pass must run
+      // cleanly and add nothing (no stray `_r_`, no phantom location ref).
+      const symbols = run(
+        `# home
+$x = 'pre <<''justliteral''>>'
+---
+`,
+      );
+      const home = symbols.getLocation('home')!;
+      const names = [...home.ownedVariables].map(v => v.name);
+      expect(names).toEqual(['x']);
+      expect(home.locationRefs.size).toBe(0);
+    });
+
+  });
+
+  // ── Interpolation nested INSIDE an `exec:` body.  The host string
+  //    is decoded once to recover the exec body; a `<<…>>` whose
+  //    quotes survive that first decode (quadrupled in the original
+  //    source) is re-parsed by the interpolation pass running over the
+  //    exec sub-tree, then projected back through the exec translator.
+  describe('exec body containing interpolation', () => {
+    it('extracts a normal (inline) interpolation var inside an exec body', () => {
+      // Host `'`; decode '' -> '. Exec body: gt 'dest <<$where>>'.
+      // The `<<$where>>` needs no decode and is walked inline.
+      const symbols = run(
+        `# home
+pl '<a href="exec:gt ''dest <<$where>>''">go</a>'
+---
+# dest
+---
+`,
+      );
+      const names = [...symbols.getLocation('home')!.ownedVariables].map(v => v.name);
+      expect(names).toContain('where');
+      expect(names).not.toContain('_r_');
+    });
+
+    it('resolves a needs-decode interpolation ref inside an exec body', () => {
+      // Quadrupled quotes: host decode '''' -> '', leaving the exec
+      // body `gt 'dest <<desc(''x'')>>'` whose inner `<<>>` STILL
+      // carries doubled quotes and so needs the interpolation pass to
+      // run over the exec sub-tree.  Pre-fix the `desc('x')` ref was
+      // dropped entirely.
+      const symbols = run(
+        `# home
+pl '<a href="exec:gt ''dest <<desc(''''x'''')>>''">go</a>'
+---
+# dest
+---
+# x
+---
+`,
+      );
+      const home = symbols.getLocation('home')!;
+      const ref = home.locationRefs.get('x');
+      expect(ref).toBeDefined();
+      expect(ref!.references.length).toBe(1);
+      // Must land inside the host string, not at column 0.
+      expect(ref!.references[0].line).toBe(1);
+      expect(ref!.references[0].column).toBeGreaterThan(0);
+      expect([...home.ownedVariables].map(v => v.name)).not.toContain('_r_');
+    });
+
+    it('resolves a needs-decode interpolation VARIABLE inside an exec body', () => {
+      const symbols = run(
+        `# home
+pl '<a href="exec:$y = ''<<instr(''''ab'''', $inner)>>''">go</a>'
+---
+`,
+      );
+      const names = [...symbols.getLocation('home')!.ownedVariables].map(v => v.name);
+      expect(names).toContain('inner');
+      expect(names).toContain('y');
+      expect(names).not.toContain('_r_');
+    });
   });
 
   // ── Perf-regression guards for the chunked decoder & per-host

@@ -116,6 +116,15 @@ module.exports = grammar({
     $._location_end_mark_ext,
     $._location_start_mark_ext,
     $._newline_or_rbrace_ext,
+    // Raw `<<…>>` body containing doubled host quotes (`''` in a
+    // single-quoted host, `""` in a double-quoted host).  The scanner
+    // only emits these when a doubled host quote is actually present in
+    // the body — clean interpolations keep the inline expression parse.
+    // This prevents the context-free lexer from treating `''`/`""`
+    // inside `<<…>>` as host-string escapes (which garbles the parse);
+    // the LSP re-parses the decoded body separately.
+    $._intp_raw_body_sq_ext,
+    $._intp_raw_body_dq_ext,
   ],
 
   word: $ => $.identifier_text,
@@ -834,13 +843,19 @@ module.exports = grammar({
 
     single_quoted_string: $ => seq(
       "'",
-      repeat(choice($.string_interpolation, "''", token(prec(1, /[^'<]+/)), token(prec(-1, '<')))),
+      repeat(choice(
+        alias($._string_interpolation_sq, $.string_interpolation),
+        "''", token(prec(1, /[^'<]+/)), token(prec(-1, '<')),
+      )),
       "'",
     ),
 
     double_quoted_string: $ => seq(
       '"',
-      repeat(choice($.string_interpolation, '""', token(prec(1, /[^"<]+/)), token(prec(-1, '<')))),
+      repeat(choice(
+        alias($._string_interpolation_dq, $.string_interpolation),
+        '""', token(prec(1, /[^"<]+/)), token(prec(-1, '<')),
+      )),
       '"',
     ),
 
@@ -848,8 +863,28 @@ module.exports = grammar({
     //
     // Invalid expressions inside <<>> produce ERROR nodes, which are
     // reported as info-level diagnostics (not errors) by the LSP.
-    string_interpolation: $ => seq(
-      '<<', optional($._nls), $._ml_expression, optional($._nls), '>>',
+    //
+    // The rule is split per host-quote so the external scanner can tell
+    // (via valid_symbols) which quote char is the host's.  When the body
+    // contains a doubled host quote, the scanner emits an opaque
+    // `interpolation_raw_body` token instead of letting the corrupted
+    // inline parse proceed; the LSP decodes and re-parses that body.
+    _string_interpolation_sq: $ => seq(
+      '<<',
+      choice(
+        seq(optional($._nls), $._ml_expression, optional($._nls)),
+        alias($._intp_raw_body_sq_ext, $.interpolation_raw_body),
+      ),
+      '>>',
+    ),
+
+    _string_interpolation_dq: $ => seq(
+      '<<',
+      choice(
+        seq(optional($._nls), $._ml_expression, optional($._nls)),
+        alias($._intp_raw_body_dq_ext, $.interpolation_raw_body),
+      ),
+      '>>',
     ),
 
     number_literal: $ => /\d+/,

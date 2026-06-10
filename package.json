@@ -2,7 +2,7 @@
   "name": "qsp-lsp",
   "displayName": "QSP Language Support",
   "description": "Language server for QSP (Quest Soft Player) game files",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "publisher": "qsp",
   "license": "MPL-2.0",
   "icon": "icons/qsp-logo.png",

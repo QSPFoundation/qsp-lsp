@@ -1,11 +1,11 @@
 /**
  * Doubled-quote interpolation re-parse pass.
  *
- * When tree-sitter's lexer is inside a host string, it greedily eats
- * `''` / `""` as the OUTER string's escape token — even when those
- * bytes appear inside `<<…>>` where, semantically, they're meant to
- * open/close an inner string literal.  Result: `'<<f(''a'')>>'` parses
- * the inner `'a'` as an empty-string + ERROR pair.
+ * When a `<<…>>` body contains the host string's doubled-quote escape
+ * (`''` in a '-quoted host, `""` in a "-quoted host), the grammar's
+ * external scanner captures the whole body as one opaque
+ * `interpolation_raw_body` token instead of letting the context-free
+ * lexer mis-treat those quotes as host-string escapes.
  *
  * {@link interpolationNeedsDecode} flags such interpolations so the
  * main walker skips them and {@link extractEmbeddedInterpolations}
@@ -32,12 +32,12 @@ import {
   makeTranslator,
   mergeIntoHost,
 } from './embeddedShared';
+import {
+  INTP_BODY_SUB_COL,
+  wrapInterpolationBody,
+} from './embeddedReparse';
 
 // ── Interpolation re-parse constants ─────────────────────────────────
-
-/** Wrap an interpolation body as the RHS of an assignment. */
-const INTP_WRAPPER_PREFIX = '# __intp__\n_r_=(';
-const INTP_WRAPPER_SUFFIX = ')\n---\n';
 
 /** Synthetic location name for sub-extraction. */
 const INTP_SUB_LOC_NAME = '__intp__';
@@ -48,9 +48,6 @@ const INTP_SUB_LOC_NAME = '__intp__';
  * at merge time so it never pollutes host symbols.
  */
 const INTP_SYNTHETIC_LHS = '_r_';
-
-/** Body sits at column = `INTP_WRAPPER_PREFIX.length - "# __intp__\n".length`. */
-const INTP_BODY_SUB_COL = '_r_=('.length;
 
 /** One-shot synthetic-LHS skip set (interned for hot-path reuse). */
 const INTP_SKIP_VARS: ReadonlySet<string> = new Set([INTP_SYNTHETIC_LHS]);
@@ -141,16 +138,29 @@ export function extractEmbeddedInterpolations(
   }
 }
 
-function processLocationInterpolations(
+/**
+ * Re-parse every doubled-quote interpolation tagged inside `locBlock`
+ * and merge its symbols into `locSymbols`.
+ *
+ * Exported so {@link extractEmbeddedExec} can run the interpolation
+ * pass over an `exec:` body's sub-tree: a `<<…>>` whose escapes were
+ * NOT fully resolved by the host string's first decode (quadrupled
+ * quotes) is tagged `needs-decode` by the sub-walker but would
+ * otherwise be dropped, since the top-level interpolation pass only
+ * visits the ORIGINAL tree's locations.  Running it on the exec
+ * sub-tree leaves every ref in sub-tree coordinates so the exec
+ * pass's own translator can project them the rest of the way to
+ * source.
+ */
+export function processLocationInterpolations(
   locBlock: Parser.SyntaxNode,
   locSymbols: LocationSymbols,
   docUri: string,
   parseFn: (text: string) => Parser.Tree | null,
 ): void {
-  // Fast path: if the symbol walker didn't tag any interpolation in
-  // this location as needing decode, there's nothing to do.  Most
-  // documents have zero doubled-quote interpolations so this skips
-  // the whole cursor walk.
+  // Fast path: skip the cursor walk entirely unless the symbol walker
+  // tagged a needs-decode interpolation in this location.  Most
+  // documents have none, so this is a no-op for them.
   const hostScopes = locSymbols.interpolationHostScopes;
   if (hostScopes.size === 0) return;
 
@@ -169,14 +179,16 @@ function processLocationInterpolations(
   function visit(c: Parser.TreeCursor): void {
     const n = c.currentNode;
     if (n.type === 'string_interpolation') {
-      // Authoritative source for "needs decode" is the symbol walker's
-      // tag — same predicate, but recorded once at walk time so we
-      // don't re-materialize `intp.text` here.
       const hostScope = hostScopes.get(n.id);
       if (hostScope !== undefined) {
+        // Tagged needs-decode: handle wholesale, don't descend — the
+        // body is an opaque raw token with no children to walk anyway.
         processInterpolation(n, locSymbols, docUri, parseFn, allocScope, hostScope);
-        return; // do not descend — sub-parse handled it
+        return;
       }
+      // Untagged (inline-parsed) interpolation: descend — a NESTED
+      // interpolation inside an inner string with the opposite quote
+      // may itself be tagged (e.g. `'<<len("hi <<f(""x"")>> bye")>>'`).
     }
     if (c.gotoFirstChild()) {
       do { visit(c); } while (c.gotoNextSibling());
@@ -202,11 +214,12 @@ function processInterpolation(
   if (!host) return;
   const hostQuote = host.type === 'single_quoted_string' ? "'" : '"';
 
-  // Body bytes are everything between `<<` and `>>`.  Tree-sitter
-  // guarantees `intp.text` starts with `<<` and ends with `>>`.
-  const raw = intp.text;
-  if (raw.length < 4) return;
-  const innerBody = raw.slice(2, -2);
+  // The body is the opaque raw token the external scanner produced.
+  // Using the node (rather than slicing `intp.text`) stays correct
+  // when the closing `>>` is MISSING (unterminated host string).
+  const bodyNode = findNamedChildOfType(intp, 'interpolation_raw_body');
+  if (!bodyNode) return;
+  const innerBody = bodyNode.text;
   if (innerBody.length === 0) return;
 
   const { text: decoded, extra } = decodeDoubledQuotes(innerBody, hostQuote);
@@ -214,14 +227,13 @@ function processInterpolation(
   // Wrap as the RHS of an assignment so the body parses as a single
   // expression.  `_r_=(BODY)` puts the body at column INTP_BODY_SUB_COL
   // on line 1 of the wrapped tree.
-  const wrapped = INTP_WRAPPER_PREFIX + decoded + INTP_WRAPPER_SUFFIX;
-  const subTree = parseFn(wrapped);
+  const subTree = parseFn(wrapInterpolationBody(decoded));
   if (!subTree) return;
 
   const hostLoc = nodeLoc(intp, docUri);
   const translate = makeTranslator(
-    intp, decoded, /*decodedBodyStart*/ 0, extra, hostLoc,
-    /*hostPrefixLen*/ 2,       // skip `<<`
+    bodyNode, decoded, /*decodedBodyStart*/ 0, /*bodyLen*/ decoded.length, extra, hostLoc,
+    /*hostPrefixLen*/ 0,       // bodyNode starts AT the body, no `<<` to skip
     /*subBodyCol*/    INTP_BODY_SUB_COL,
   );
 

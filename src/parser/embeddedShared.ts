@@ -25,6 +25,7 @@
 import type Parser from 'web-tree-sitter';
 import { extractErrors } from './extractErrors';
 import { LocationSymbols } from './locationSymbols';
+import { makeOffsetProjector, bodyLineStarts } from './embeddedReparse';
 import type { SymbolLocation, VariableBinding } from './symbolTypes';
 
 // ── Position translation ─────────────────────────────────────────────
@@ -38,81 +39,77 @@ export type LocTranslator = (subRef: SymbolLocation) => SymbolLocation;
  * `SymbolLocation`.
  *
  * Parameters:
- *   • `hostNode`         — AST node whose `startPosition.row` defines
- *                          the host row.
- *   • `body`             — decoded body text (used only for the
- *                          multi-line fast path).
- *   • `decodedBodyStart` — offset of body start within the decoded
- *                          host *inner* text (for exec: position
- *                          inside the host string).  Always 0 when
- *                          the caller already extracted just the
- *                          body bytes (interpolations).
- *   • `extra`            — `decoded → raw` shift map.
- *   • `hostLoc`          — full host-node loc, used as fallback for
- *                          multi-line bodies/hosts.
+ *   • `hostNode`         — AST node whose `startPosition` anchors the
+ *                          host inner text.
+ *   • `decodedInner`     — the FULL decoded host *inner* text (for
+ *                          interpolations this equals the body; for
+ *                          exec it is the whole decoded string, of
+ *                          which the body is a `decodedBodyStart`
+ *                          slice).
+ *   • `decodedBodyStart` — offset of the body within `decodedInner`.
+ *                          0 when the caller passes just the body.
+ *   • `bodyLen`          — decoded length of the body.
+ *   • `extra`            — `decoded → raw` shift map (indexes
+ *                          `decodedInner`).
+ *   • `hostLoc`          — full host-node loc, used as a defensive
+ *                          fallback for sub positions outside the body
+ *                          (e.g. the synthetic `_r_=(` wrapper bytes).
  *   • `hostPrefixLen`    — bytes between `hostNode.startPosition` and
  *                          the FIRST character of the host *inner*
  *                          text (1 for `'…'` / `"…"`, 2 for `<<…>>`).
  *   • `subBodyCol`       — column in the WRAPPED sub-tree where the
- *                          body begins on its row.  0 for exec
- *                          wrappers (`# __exec__\n` puts body at col
- *                          0 of line 1); >0 for wrappers that prefix
- *                          the body with leading source bytes (e.g.
- *                          `_r_=(` for the interpolation wrapper).
+ *                          body begins on its FIRST row (0 for exec
+ *                          wrappers; `'_r_=('.length` for the
+ *                          interpolation wrapper).  Continuation rows
+ *                          always start at column 0.
  *
- * Multi-line bodies and multi-line host strings fall back to the
- * host span: per-line escape tracking and host-string wrapping don't
- * justify the complexity for what is essentially a non-existent
- * real-world case.
+ * Multi-line bodies (and multi-line host strings) are projected
+ * precisely: newlines are never part of a doubled-quote escape, so the
+ * decoded newline count drives the source row and the column resets per
+ * line.  See {@link makeOffsetProjector}.
  */
 export function makeTranslator(
   hostNode: Parser.SyntaxNode,
-  body: string,
+  decodedInner: string,
   decodedBodyStart: number,
+  bodyLen: number,
   extra: Int32Array | null,
   hostLoc: SymbolLocation,
   hostPrefixLen: number,
   subBodyCol: number,
 ): LocTranslator {
   const hostStart = hostNode.startPosition;
-  const hostEnd = hostNode.endPosition;
-  const bodyIsMultiLine = body.includes('\n');
-  const hostIsMultiLine = hostStart.row !== hostEnd.row;
+  const project = makeOffsetProjector(
+    decodedInner, extra, hostStart.row, hostStart.column + hostPrefixLen,
+  );
+  const lineStarts = bodyLineStarts(decodedInner, decodedBodyStart, bodyLen);
+  const bodyEnd = decodedBodyStart + bodyLen;
 
-  if (bodyIsMultiLine || hostIsMultiLine) {
-    // Fall back to host span for everything.
-    return (subRef) => mergeRefMetadata(subRef, hostLoc);
-  }
-
-  // Single-line body inside a single-line host span.  Body lives on
-  // hostStart.row, starting at:
-  //   hostStart.column        (host node start)
-  //   + hostPrefixLen         (opening quote or `<<`)
-  //   + decodedBodyStart       (decoded offset within host inner)
-  //   + baseShift              (raw shift for that decoded position)
-  const baseShift = extra ? extra[decodedBodyStart] : 0;
-  const rawBodyStart = hostStart.column + hostPrefixLen + decodedBodyStart + baseShift;
-  // `shiftAt(d)` returns the raw-vs-decoded offset for decoded column
-  // `d` WITHIN the body, relative to the body start (so column 0 of
-  // the body always maps to shift 0 and rawBodyStart is the anchor).
-  const shiftAt = extra
-    ? (d: number): number => extra[decodedBodyStart + d] - baseShift
-    : (_d: number): number => 0;
+  // Map a wrapped sub-tree position to a decoded-inner offset, or `-1`
+  // when it falls outside the body (wrapper scaffolding / bad row).
+  const toDecodedOffset = (subRow: number, subCol: number): number => {
+    const bodyLine = subRow - 1;
+    if (bodyLine < 0 || bodyLine >= lineStarts.length) return -1;
+    const col = subCol - (bodyLine === 0 ? subBodyCol : 0);
+    if (col < 0) return -1;
+    const d = decodedBodyStart + lineStarts[bodyLine] + col;
+    return d > bodyEnd ? -1 : d;
+  };
 
   return (subRef) => {
-    // Sub-tree position: body lives on line 1, starting at `subBodyCol`;
-    // any ref off that row falls back to the host span defensively.
-    if (subRef.line !== 1 || subRef.endLine !== 1) {
+    const dStart = toDecodedOffset(subRef.line, subRef.column);
+    const dEnd = toDecodedOffset(subRef.endLine, subRef.endColumn);
+    if (dStart < 0 || dEnd < 0) {
       return mergeRefMetadata(subRef, hostLoc);
     }
-    const c0 = subRef.column - subBodyCol;
-    const c1 = subRef.endColumn - subBodyCol;
+    const s = project(dStart);
+    const e = project(dEnd);
     const out: SymbolLocation = {
       uri: hostLoc.uri,
-      line: hostStart.row,
-      column: rawBodyStart + c0 + shiftAt(c0),
-      endLine: hostStart.row,
-      endColumn: rawBodyStart + c1 + shiftAt(c1),
+      line: s.row,
+      column: s.column,
+      endLine: e.row,
+      endColumn: e.column,
     };
     return mergeRefMetadata(subRef, out);
   };
@@ -141,60 +138,11 @@ function mergeRefMetadata(
 
 // ── Doubled-quote decoding ───────────────────────────────────────────
 
-/**
- * Decode QSP doubled-quote escapes (`qq` → `q` where `q` is `hostQuote`)
- * in `raw`.  Returns the decoded text plus a `decoded → raw` shift map
- * (`extra[d]` = number of escape pairs collapsed strictly before
- * decoded position `d`); `extra` is `null` when no escapes were
- * present (fast path — avoids an O(n) allocation).
- *
- * Hot path on large host strings: chunks between escapes are copied
- * via `substring` (one V8-allocated slice each) and joined once, and
- * `extra` is a pre-sized `Int32Array` filled by chunk rather than by
- * per-character `push`.
- */
-export function decodeDoubledQuotes(
-  raw: string,
-  hostQuote: string,
-): { text: string; extra: Int32Array | null } {
-  const dq = hostQuote + hostQuote;
-  let i = raw.indexOf(dq);
-  if (i < 0) return { text: raw, extra: null };
-
-  const parts: string[] = [];
-  // `extra` has one entry per decoded position INCLUDING the
-  // sentinel at the end (length = decoded.length + 1), so callers can
-  // safely look up `extra[decoded.length]` when projecting end-of-body.
-  // Decoded length is at most `raw.length`; we size to that and slice
-  // at the end.
-  const extra = new Int32Array(raw.length + 1);
-  let start = 0;       // start of next un-copied raw chunk
-  let decLen = 0;      // current decoded length
-  let escapes = 0;
-  while (i >= 0) {
-    // Copy raw[start..i] verbatim, then the collapsed quote.
-    if (i > start) {
-      parts.push(raw.substring(start, i));
-      extra.fill(escapes, decLen, decLen + (i - start) + 1);
-      decLen += (i - start);
-    } else {
-      extra[decLen] = escapes;
-    }
-    parts.push(hostQuote);
-    decLen++;
-    escapes++;
-    extra[decLen] = escapes;
-    start = i + 2;
-    i = raw.indexOf(dq, start);
-  }
-  if (start < raw.length) {
-    parts.push(raw.substring(start));
-    const tailLen = raw.length - start;
-    extra.fill(escapes, decLen, decLen + tailLen + 1);
-    decLen += tailLen;
-  }
-  return { text: parts.join(''), extra: extra.subarray(0, decLen + 1) };
-}
+// `decodeDoubledQuotes` lives in the dependency-free `embeddedReparse`
+// leaf so `extractErrors` can share it without a circular import.
+// Re-exported here so existing importers (`embeddedExec`,
+// `embeddedInterpolation`) keep their import sites unchanged.
+export { decodeDoubledQuotes } from './embeddedReparse';
 
 // ── Error forwarding ─────────────────────────────────────────────────
 

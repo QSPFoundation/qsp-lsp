@@ -143,14 +143,15 @@ export function walkLocationBody(
   function visit(): void {
     const node = cursor.currentNode;
 
-    // Interpolations whose inline parse is corrupted by the host
-    // string's doubled-quote escapes are handled by a post-walk pass
-    // (`extractEmbeddedInterpolations`) that decodes the body and
-    // sub-parses it.  Skip descent here so the broken inline tree
-    // doesn't contribute bogus symbols / arg counts.  Capture the
-    // CURRENT scopeId so the post-pass can resolve refs against host
-    // locals (in-scope `act` / `loop` / `if` bodies) the same way the
-    // inline path does for non-doubled-quote interpolations.
+    // Interpolations whose body carries the host string's doubled-quote
+    // escape are captured by the grammar as an opaque
+    // `interpolation_raw_body` token; a post-walk pass
+    // (`extractEmbeddedInterpolations`) decodes the body and
+    // sub-parses it.  Skip descent here (the raw token has no symbol
+    // children anyway) and capture the CURRENT scopeId so the
+    // post-pass can resolve refs against host locals (in-scope `act` /
+    // `loop` / `if` bodies) the same way the inline path does for
+    // clean interpolations.
     if (node.type === 'string_interpolation' && interpolationNeedsDecode(node)) {
       locSymbols.interpolationHostScopes.set(node.id, scopeId);
       return;

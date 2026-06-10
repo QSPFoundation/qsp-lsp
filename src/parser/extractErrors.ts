@@ -16,34 +16,6 @@ import {
 
 export { checkFunctionNameAsLvalue, checkReservedWordMisuse, checkPrefixWhitespace };
 
-/**
- * True if `intp` is a `string_interpolation` whose inline tree-sitter
- * parse is corrupted by the enclosing string's doubled-quote escapes.
- * In that case the decoded-body pass (`extractEmbeddedInterpolations`)
- * is responsible for reporting diagnostics with correct coordinates,
- * so the inline walker should NOT also emit errors from the same node.
- *
- * Duplicated locally (not imported) to avoid a circular dependency
- * with `embeddedInterpolation.ts`, which depends on `hasStructuralErrors`
- * from this file.  Memoized per-tree to avoid re-materializing
- * `intp.text` across the two call sites in this module.
- */
-const doubledQuoteCache = new WeakMap<Parser.Tree, Map<number, boolean>>();
-function interpolationHasDoubledQuotes(intp: Parser.SyntaxNode): boolean {
-  let perTree = doubledQuoteCache.get(intp.tree);
-  if (!perTree) doubledQuoteCache.set(intp.tree, perTree = new Map());
-  const cached = perTree.get(intp.id);
-  if (cached !== undefined) return cached;
-  let p: Parser.SyntaxNode | null = intp.parent;
-  while (p && p.type !== 'single_quoted_string' && p.type !== 'double_quoted_string') {
-    p = p.parent;
-  }
-  const result = p !== null
-    && intp.text.includes(p.type === 'single_quoted_string' ? "''" : '""');
-  perTree.set(intp.id, result);
-  return result;
-}
-
 /** A syntax error extracted from the parse tree. */
 export interface SyntaxError {
   startRow: number;
@@ -182,14 +154,6 @@ export function extractErrors(tree: Parser.Tree): SyntaxError[] {
     if (isCodeBlock || isRawCodeBlock) codeBlockDepth++;
     if (isInterpolation) interpolationDepth++;
 
-    // Doubled-quote interpolations are handled by the decoded-body
-    // sub-parse pass; skip them here to avoid duplicate / misleading
-    // inline-parse errors at the same span.
-    if (isInterpolation && interpolationHasDoubledQuotes(node)) {
-      interpolationDepth--;
-      return;
-    }
-
     if (node.isError) {
       const { diagnostics, summarized } = refineErrorNode(node);
       if (codeBlockDepth > 0) {
@@ -259,6 +223,7 @@ function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
   const cursor = tree.walk();
   let codeBlockDepth = 0;
   let interpolationDepth = 0;
+  let errorDepth = 0;
 
   function emitGap(opener: Parser.SyntaxNode, name: Parser.SyntaxNode, label: string): void {
     if (opener.endIndex === name.startIndex) return;
@@ -276,15 +241,10 @@ function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
     const t = n.type;
     const isCB = t === 'code_block' || t === 'raw_code_block';
     const isIntp = t === 'string_interpolation';
+    const isErr = n.isError;
     if (isCB) codeBlockDepth++;
     if (isIntp) interpolationDepth++;
-
-    // Doubled-quote interpolations are sub-parsed by the decode pass;
-    // their inline tree is unreliable so skip lint passes inside.
-    if (isIntp && interpolationHasDoubledQuotes(n)) {
-      interpolationDepth--;
-      return;
-    }
+    if (isErr) errorDepth++;
 
     // ── Pass 1: reserved-word misuse on variable_ref/identifier_text ──
     if (t === 'identifier_text' && n.parent?.type === 'variable_ref') {
@@ -307,7 +267,16 @@ function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
         || t === 'na_func_call' || t === 'ext_func_call' || t === 'ml_func_call') {
       const prefix = n.childForFieldName('prefix');
       const name = n.childForFieldName('name');
-      if (prefix && name) {
+      // This check is purely byte-offset based (gap between prefix and
+      // name), so it's only meaningful on a well-formed parse.  Inside
+      // an ERROR region the prefix/name grouping is a recovery artifact,
+      // not something the user typed — e.g. a `# loc` header swallowed
+      // by an unterminated string reappears as a `#`-prefixed
+      // variable_ref with a phantom gap.  The ERROR itself
+      // is already reported, so skip the redundant prefix-whitespace
+      // noise here.  `errorDepth` is tracked along the walk so this stays
+      // O(1) per node (no per-node parent-chain walk / node allocation).
+      if (prefix && name && errorDepth === 0) {
         const what = (t.endsWith('func_call')) ? 'type prefix and function name'
                                                : 'type prefix and variable name';
         emitGap(prefix, name, what);
@@ -356,6 +325,7 @@ function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
 
     if (isCB) codeBlockDepth--;
     if (isIntp) interpolationDepth--;
+    if (isErr) errorDepth--;
   }
 
   visit();

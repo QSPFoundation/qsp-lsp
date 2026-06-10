@@ -553,3 +553,241 @@ z'
                 (op_arith)
                 (number_literal)))))))
     (location_end)))
+
+================
+Interpolation with doubled host quotes becomes raw body (single-quoted host)
+================
+# test
+$img = '<center><img src="<<$func(''cave/look'', ''arg'')>>"></center>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (interpolation_raw_body))))))
+    (location_end)))
+
+================
+Interpolation with doubled host quotes becomes raw body (double-quoted host)
+================
+# test
+"double <<func(""a/b"", 1)>> tail"
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (implicit_statement
+        (string
+          (double_quoted_string
+            (string_interpolation
+              (interpolation_raw_body))))))
+    (location_end)))
+
+================
+Raw interpolation body treats >> inside inner strings as content
+================
+# test
+$a = '<<$func(''a>>b'')>>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (interpolation_raw_body))))))
+    (location_end)))
+
+================
+Clean interpolation next to inner double-quoted string keeps inline parse
+================
+# test
+$x = '<<len("hi <<instr(""ab"", $inner)>> bye")>>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (ml_func_call
+                name: (function_name)
+                (paren_args
+                  (string
+                    (double_quoted_string
+                      (string_interpolation
+                        (interpolation_raw_body)))))))))))
+    (location_end)))
+
+================
+Unterminated raw interpolation ends before the lone host quote
+:error
+================
+# test
+$b = '<<mid(''abc'', 1)'
+--
+---
+
+================
+Multiline raw interpolation body with doubled host quotes
+================
+# test
+$a = '<<$func(''one'',
+  ''two'')>> tail'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (interpolation_raw_body))))))
+    (location_end)))
+
+================
+Raw interpolation body tracks nested << >> depth
+================
+# test
+$a = '<<iif(x, ''y'', mid(''abc<<z>>def'', 2))>>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (interpolation_raw_body))))))
+    (location_end)))
+
+================
+Double-quoted host raw body with single-quoted inner strings
+================
+# test
+$a = "x <<func('sq inner', ""dq"")>> y"
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (double_quoted_string
+            (string_interpolation
+              (interpolation_raw_body))))))
+    (location_end)))
+
+================
+Doubled host quote inside an inner opposite-quote string
+================
+# test
+$a = '<<func("it''s")>>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (interpolation_raw_body))))))
+    (location_end)))
+
+================
+Line continuation between << and the raw body
+================
+# test
+$a = '<< _
+ func(''a'')>>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (string
+          (single_quoted_string
+            (string_interpolation
+              (line_continuation_ext)
+              (interpolation_raw_body))))))
+    (location_end)))

@@ -243,10 +243,16 @@ export function checkReservedWordMisuse(tree: Parser.Tree): SyntaxError[] {
  *   `$ name = 1`, `% t = 1`
  *   `@ foo`, `@@ foo`
  *   `# _\nfoo` (line-continuation between prefix and name)
+ *
+ * Inside an ERROR region the prefix/name grouping is a recovery artifact
+ * (the ERROR is already reported), so the check is skipped there.  An
+ * `errorDepth` counter tracked along the single walk keeps this O(1) per
+ * node — no per-node parent-chain walk / node allocation.
  */
 export function checkPrefixWhitespace(tree: Parser.Tree): SyntaxError[] {
   const errors: SyntaxError[] = [];
   const cursor = tree.walk();
+  let errorDepth = 0;
 
   /** Emit an error for the gap between two adjacent tokens. */
   function emitGap(opener: Parser.SyntaxNode, name: Parser.SyntaxNode, label: string): void {
@@ -263,13 +269,15 @@ export function checkPrefixWhitespace(tree: Parser.Tree): SyntaxError[] {
   function visit(): void {
     const n = cursor.currentNode;
     const t = n.type;
+    const isErr = n.isError;
+    if (isErr) errorDepth++;
 
     // Variables / functions that carry a `prefix` field.
     if (t === 'variable_ref' || t === 'ml_variable_ref'
         || t === 'na_func_call' || t === 'ext_func_call' || t === 'ml_func_call') {
       const prefix = n.childForFieldName('prefix');
       const name = n.childForFieldName('name');
-      if (prefix && name) {
+      if (prefix && name && errorDepth === 0) {
         const what = (t.endsWith('func_call')) ? 'type prefix and function name'
                                                : 'type prefix and variable name';
         emitGap(prefix, name, what);
@@ -299,6 +307,8 @@ export function checkPrefixWhitespace(tree: Parser.Tree): SyntaxError[] {
       do { visit(); } while (cursor.gotoNextSibling());
       cursor.gotoParent();
     }
+
+    if (isErr) errorDepth--;
   }
 
   visit();
