@@ -13,6 +13,7 @@ import type { BaseLanguageClient } from 'vscode-languageclient';
 import {
   getActiveQspEditor,
   getCurrentLocationBlock,
+  qspGlob,
 } from './shared';
 
 import {
@@ -26,9 +27,14 @@ import {
   formatLocationCommand,
 } from './locationCommands';
 
+import {
+  combineProjectCommand,
+  exportGameCommand,
+  importGameCommand,
+} from './exportCommands';
+
 let statusBarItem: vscode.StatusBarItem;
 let locBoundaryDecoration: vscode.TextEditorDecorationType;
-let qspFileGlob: string;
 let lspClient: BaseLanguageClient;
 
 /**
@@ -39,15 +45,6 @@ export function registerExtensionFeatures(
   client: BaseLanguageClient,
 ): void {
   lspClient = client;
-
-  // ── QSP file glob from language contribution ────────────────────────
-  const langDef = context.extension.packageJSON?.contributes?.languages
-    ?.find((l: { id: string }) => l.id === 'qsp');
-  const exts: string[] = langDef?.extensions ?? ['.qsps', '.qsrc'];
-  const bareExts = exts.map(e => e.replace(/^\./, ''));
-  qspFileGlob = bareExts.length === 1
-    ? `**/*.${bareExts[0]}`
-    : `**/*.{${bareExts.join(',')}}`;
 
   // ── Status bar: current location ────────────────────────────────────
   statusBarItem = vscode.window.createStatusBarItem(
@@ -72,7 +69,7 @@ export function registerExtensionFeatures(
 
   // ── Commands ────────────────────────────────────────────────────────
   context.subscriptions.push(
-    vscode.commands.registerCommand('qsp.goToLocation', goToLocationCommand),
+    vscode.commands.registerCommand('qsp.goToLocation', () => goToLocationCommand(context)),
     vscode.commands.registerCommand('qsp.newLocation', newLocationCommand),
     vscode.commands.registerCommand('qsp.insertSeparator', insertSeparatorCommand),
     vscode.commands.registerCommand('qsp.sortLocations', () => sortLocationsCommand('asc')),
@@ -89,6 +86,9 @@ export function registerExtensionFeatures(
     vscode.commands.registerCommand('qsp.listVariables', listVariablesCommand),
     vscode.commands.registerCommand('qsp.moveLocationsToFile', moveLocationsToFileCommand),
     vscode.commands.registerCommand('qsp.splitLocationsToFiles', splitLocationsToFilesCommand),
+    vscode.commands.registerCommand('qsp.combineProject', () => combineProjectCommand(context)),
+    vscode.commands.registerCommand('qsp.exportGame', () => exportGameCommand(context)),
+    vscode.commands.registerCommand('qsp.importGame', (uri?: vscode.Uri) => importGameCommand(context, uri)),
   );
 }
 
@@ -127,7 +127,7 @@ function updateEditorState(): void {
 // Go to Location — quick pick
 // ──────────────────────────────────────────────────────────────────────
 
-async function goToLocationCommand(): Promise<void> {
+async function goToLocationCommand(context: vscode.ExtensionContext): Promise<void> {
   const editor = getActiveQspEditor();
   if (!editor) return;
 
@@ -141,7 +141,7 @@ async function goToLocationCommand(): Promise<void> {
   const items: LocItem[] = [];
 
   if (projectEnabled) {
-    const uris = await vscode.workspace.findFiles(qspFileGlob);
+    const uris = await vscode.workspace.findFiles(qspGlob(context));
     const results = await Promise.all(
       uris.map(async (uri) => {
         const syms = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
@@ -562,7 +562,7 @@ async function moveLocationsToFileCommand(
     : 'moved.qsps';
   const targetUri = await vscode.window.showSaveDialog({
     defaultUri: vscode.Uri.joinPath(sourceDir, defaultName),
-    filters: { 'QSP Source': ['qsps', 'qsrc'] },
+    filters: { 'QSP source': ['qsps', 'qsrc'] },
     title: 'Move locations to…',
   });
   if (!targetUri) return;

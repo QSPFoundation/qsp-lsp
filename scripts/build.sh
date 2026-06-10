@@ -84,6 +84,10 @@ if [[ ! -d node_modules ]]; then
 fi
 
 # ── Grammar ──────────────────────────────────────────────────────────────────
+step "Fetching txt2gam WASM"
+node scripts/fetchTxt2gam.mjs
+ok "txt2gam ready"
+
 step "Generating tree-sitter parser & WASM"
 (
   cd tree-sitter-qsp

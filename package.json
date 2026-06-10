@@ -142,6 +142,23 @@
         "command": "qsp.splitLocationsToFiles",
         "title": "Split Locations into Files…",
         "category": "QSP"
+      },
+      {
+        "command": "qsp.combineProject",
+        "title": "Combine Project Files…",
+        "category": "QSP"
+      },
+      {
+        "command": "qsp.exportGame",
+        "title": "Export QSP Game…",
+        "category": "QSP",
+        "icon": "$(package)"
+      },
+      {
+        "command": "qsp.importGame",
+        "title": "Import QSP Game…",
+        "category": "QSP",
+        "icon": "$(go-to-file)"
       }
     ],
     "menus": {
@@ -194,6 +211,11 @@
           "command": "qsp.splitLocationsToFiles",
           "when": "resourceLangId == qsp",
           "group": "7_modification@2"
+        },
+        {
+          "command": "qsp.importGame",
+          "when": "resourceExtname == .qsp",
+          "group": "7_modification@3"
         }
       ],
       "commandPalette": [
@@ -264,6 +286,17 @@
         {
           "command": "qsp.splitLocationsToFiles",
           "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.combineProject",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.exportGame",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.importGame"
         }
       ]
     },
@@ -480,6 +513,16 @@
           "default": 20,
           "minimum": 1,
           "description": "Maximum number of items rendered per category in hover tooltips (e.g. 'Possible values', 'Called from', 'Navigated from', 'Uses globals', 'Also defined in', 'Propagated from/to'). Lists exceeding this limit are truncated with a '…and N more' tail."
+        },
+        "qsp.game.password": {
+          "type": "string",
+          "default": "",
+          "description": "Password used when exporting to .qsp and tried first when importing a .qsp file. Leave empty to use the default password ('No')."
+        },
+        "qsp.game.promptPassword": {
+          "type": "boolean",
+          "default": true,
+          "description": "When exporting a game, prompt for the password. The configured password is shown as the default value. Disable to export silently using only the configured password."
         }
       }
     },
@@ -552,14 +595,15 @@
     "build:grammar": "cd tree-sitter-qsp && npx tree-sitter generate && npx tree-sitter build --wasm && cp tree-sitter-qsp.wasm ../out/",
     "build:server:node": "esbuild src/server/nodeMain.ts --bundle --outfile=out/server/nodeMain.js --platform=node --format=cjs --external:vscode --target=node18",
     "build:server:browser": "esbuild src/server/browserMain.ts --bundle --outfile=out/server/browserMain.js --platform=browser --format=esm --target=es2020 --external:web-tree-sitter",
-    "build:client:node": "esbuild src/client/nodeMain.ts --bundle --outfile=out/client/nodeMain.js --platform=node --format=cjs --external:vscode --target=node18",
-    "build:client:browser": "esbuild src/client/browserMain.ts --bundle --outfile=out/client/browserMain.js --platform=browser --format=esm --external:vscode --target=es2020",
-    "build:copy-wasm": "cp node_modules/web-tree-sitter/tree-sitter.wasm out/server/tree-sitter.wasm",
-    "build": "npm run build:grammar && npm run build:server:node && npm run build:server:browser && npm run build:client:node && npm run build:client:browser && npm run build:copy-wasm",
+    "build:client:node": "esbuild src/client/nodeMain.ts --bundle --outfile=out/client/nodeMain.js --platform=node --format=cjs --external:vscode --target=node18 --alias:txt2gamJs=./vendor/txt2gam/txt2gam.js",
+    "build:client:browser": "esbuild src/client/browserMain.ts --bundle --outfile=out/client/browserMain.js --platform=browser --format=esm --external:vscode --external:node:fs --target=es2020 --alias:txt2gamJs=./vendor/txt2gam/txt2gam.js",
+    "build:copy-wasm": "cp node_modules/web-tree-sitter/tree-sitter.wasm out/server/tree-sitter.wasm && cp vendor/txt2gam/txt2gam.wasm out/client/txt2gam.wasm",
+    "fetch:txt2gam": "node scripts/fetchTxt2gam.mjs",
+    "build": "npm run fetch:txt2gam && npm run build:grammar && npm run build:server:node && npm run build:server:browser && npm run build:client:node && npm run build:client:browser && npm run build:copy-wasm",
     "watch:server:node": "esbuild src/server/nodeMain.ts --bundle --outfile=out/server/nodeMain.js --platform=node --format=cjs --external:vscode --target=node18 --watch",
     "watch:server:browser": "esbuild src/server/browserMain.ts --bundle --outfile=out/server/browserMain.js --platform=browser --format=esm --target=es2020 --external:web-tree-sitter --watch",
-    "watch:client:node": "esbuild src/client/nodeMain.ts --bundle --outfile=out/client/nodeMain.js --platform=node --format=cjs --external:vscode --target=node18 --watch",
-    "watch:client:browser": "esbuild src/client/browserMain.ts --bundle --outfile=out/client/browserMain.js --platform=browser --format=esm --external:vscode --target=es2020 --watch",
+    "watch:client:node": "esbuild src/client/nodeMain.ts --bundle --outfile=out/client/nodeMain.js --platform=node --format=cjs --external:vscode --target=node18 --alias:txt2gamJs=./vendor/txt2gam/txt2gam.js --watch",
+    "watch:client:browser": "esbuild src/client/browserMain.ts --bundle --outfile=out/client/browserMain.js --platform=browser --format=esm --external:vscode --external:node:fs --target=es2020 --alias:txt2gamJs=./vendor/txt2gam/txt2gam.js --watch",
     "watch": "npm run watch:server:node & npm run watch:server:browser & npm run watch:client:node & npm run watch:client:browser",
     "lint": "eslint",
     "test": "vitest run",

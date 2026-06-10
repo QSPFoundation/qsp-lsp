@@ -6,3 +6,4 @@ tree-sitter-qsp/build/
 tree-sitter-qsp/src/*
 !tree-sitter-qsp/src/scanner.c
 tree-sitter-qsp/*.wasm
+vendor/

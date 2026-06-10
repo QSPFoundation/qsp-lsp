@@ -2,7 +2,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['out/**', 'node_modules/**', 'tree-sitter-qsp/**', '*.js', '*.mjs'],
+    ignores: ['out/**', 'node_modules/**', 'tree-sitter-qsp/**', 'vendor/**', 'scripts/**', '**/*.js', '**/*.mjs'],
   },
   ...tseslint.configs.recommended,
   {

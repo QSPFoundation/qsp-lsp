@@ -42,3 +42,16 @@ export function getCurrentLocationBlock(
   const index = blocks.findIndex(b => cursorLine >= b.startLine && cursorLine <= b.endLine);
   return { blocks, current: index >= 0 ? blocks[index] : undefined, index };
 }
+
+/**
+ * Build the glob pattern that matches every QSP source file in the workspace,
+ * derived from the extension's language contribution (so it stays in sync
+ * with the `languages[].extensions` array in package.json).
+ */
+export function qspGlob(context: vscode.ExtensionContext): string {
+  const langDef = context.extension.packageJSON?.contributes?.languages
+    ?.find((l: { id: string }) => l.id === 'qsp');
+  const exts: string[] = langDef?.extensions ?? ['.qsps', '.qsrc'];
+  const bare = exts.map((e: string) => e.replace(/^\./, ''));
+  return bare.length === 1 ? `**/*.${bare[0]}` : `**/*.{${bare.join(',')}}`;
+}
