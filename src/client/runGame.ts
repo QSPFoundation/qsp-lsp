@@ -14,10 +14,13 @@ import { encodeTextToGame } from './txt2gam';
 import { getActiveQspEditor, qspGlob } from './shared';
 import { combineFiles, normalizeText } from './exportCommands';
 import { ensureGameConfig, collectOrderedUris, resolveOutputUri } from './gameConfig';
+import * as logger from './logger';
 
 export async function runGameCommand(
   context: vscode.ExtensionContext,
 ): Promise<void> {
+  logger.show();
+  logger.log('[Run] Starting...');
   let playerExe = vscode.workspace
     .getConfiguration('qsp.game')
     .get<string>('playerExecutable')
@@ -39,11 +42,15 @@ export async function runGameCommand(
     await vscode.workspace
       .getConfiguration('qsp.game')
       .update('playerExecutable', playerExe, vscode.ConfigurationTarget.Global);
+    logger.log(`[Run] Player executable saved: ${playerExe}`);
   }
 
   const projectEnabled = vscode.workspace
     .getConfiguration('qsp')
     .get<boolean>('project.enabled', true);
+
+  logger.log(`[Run] Player: ${playerExe}`);
+  logger.log(`[Run] Project mode: ${projectEnabled}`);
 
   let sourceText: string;
   let outputUri: vscode.Uri;
@@ -57,6 +64,7 @@ export async function runGameCommand(
       vscode.window.showWarningMessage('No QSP source files found in the workspace.');
       return;
     }
+    logger.log(`[Run] Found ${uris.length} source file(s)`);
     sourceText = await combineFiles(uris, context);
     outputUri = resolveOutputUri(gameCfg);
   } else {
@@ -77,8 +85,10 @@ export async function runGameCommand(
     async () => {
       let gameBytes: Uint8Array;
       try {
+        logger.log(`[Run] Building: ${vscode.workspace.asRelativePath(outputUri)}`);
         gameBytes = await encodeTextToGame(context.extensionUri, sourceText, { password });
       } catch (err) {
+        logger.log(`[Run] Build failed: ${err instanceof Error ? err.message : String(err)}`);
         vscode.window.showErrorMessage(
           `Build failed: ${err instanceof Error ? err.message : String(err)}`,
         );
@@ -86,11 +96,14 @@ export async function runGameCommand(
       }
 
       await vscode.workspace.fs.writeFile(outputUri, gameBytes);
+      logger.log(`[Run] Written: ${vscode.workspace.asRelativePath(outputUri)} (${Math.round(gameBytes.byteLength / 1024)}kb)`);
 
       // execFile passes playerExe and qspPath as distinct argv entries —
       // spaces in both paths are handled correctly, no shell quoting needed.
+      logger.log(`[Run] Launching: ${playerExe} ${outputUri.fsPath}`);
       cp.execFile(playerExe, [outputUri.fsPath], (err) => {
         if (err) {
+          logger.log(`[Run] Launch failed: ${err.message}`);
           vscode.window.showErrorMessage(`Failed to launch player: ${err.message}`);
         }
       });

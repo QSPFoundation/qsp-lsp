@@ -252,6 +252,7 @@ export function createQspServer(
     // — project mode is a no-op otherwise.
     if (fsProvider && params.workspaceFolders) {
       project.workspaceFolders = params.workspaceFolders.map(f => fsProvider.uriToPath(f.uri));
+      connection.console.log(`[QSP] Workspace folders: ${project.workspaceFolders.join(', ')}`);
     }
 
     // Initialize tree-sitter in the background (non-blocking)
@@ -267,6 +268,8 @@ export function createQspServer(
       } catch (e) {
         connection.console.error(`[QSP] Tree-sitter init failed: ${e}`);
       }
+    } else {
+      connection.console.log('[QSP] Running in lite mode (no tree-sitter parser — regex-only analysis)');
     }
 
     return {
@@ -307,9 +310,11 @@ export function createQspServer(
 
     // Register file watcher for project mode
     if (fsProvider) {
+      const globs = QSP_FILE_EXTENSIONS.map(ext => `**/*${ext}`);
       connection.client.register(DidChangeWatchedFilesNotification.type, {
-        watchers: QSP_FILE_EXTENSIONS.map(ext => ({ globPattern: `**/*${ext}` })),
+        watchers: globs.map(globPattern => ({ globPattern })),
       });
+      connection.console.log(`[QSP] Watching: ${globs.join(', ')}`);
     }
 
     // Read initial settings and potentially start project mode
@@ -320,6 +325,7 @@ export function createQspServer(
       fileEncoding = filesConfig?.encoding ?? 'utf8';
       settings = parseSettingsFromConfig(qspConfig as Record<string, unknown> | undefined);
       project.embeddedExecEnabled = settings.embeddedExec.enabled;
+      connection.console.log(`[QSP] Server ready (encoding: ${fileEncoding}, project: ${settings.project.enabled}, embeddedExec: ${settings.embeddedExec.enabled})`);
       if (settings.project.enabled) {
         project.init(fsProvider!, fileEncoding, () => collectCallTypesPerTarget(documentStates), (ownUri: string) => collectPeerDocs(documentStates, ownUri), settings.diagnostics);
       }
@@ -345,8 +351,13 @@ export function createQspServer(
     ]).then(([qspConfig, filesConfig]) => {
       fileEncoding = filesConfig?.encoding ?? 'utf8';
       const prevProjectEnabled = settings.project.enabled;
+      const prevEmbeddedExec = settings.embeddedExec.enabled;
       settings = parseSettingsFromConfig(qspConfig as Record<string, unknown> | undefined);
       project.embeddedExecEnabled = settings.embeddedExec.enabled;
+
+      if (settings.embeddedExec.enabled !== prevEmbeddedExec) {
+        connection.console.log(`[QSP] embeddedExec.enabled: ${prevEmbeddedExec} → ${settings.embeddedExec.enabled}`);
+      }
       // Re-analyze all open documents with new settings
       for (const doc of documents.all()) {
         analyzeDocument(doc);
@@ -354,8 +365,10 @@ export function createQspServer(
 
       // Handle project mode toggling
       if (settings.project.enabled && !prevProjectEnabled) {
+        connection.console.log('[QSP] project.enabled: false → true');
         project.init(fsProvider!, fileEncoding, () => collectCallTypesPerTarget(documentStates), (ownUri: string) => collectPeerDocs(documentStates, ownUri), settings.diagnostics);
       } else if (!settings.project.enabled && prevProjectEnabled) {
+        connection.console.log('[QSP] project.enabled: true → false');
         project.teardown();
         // Re-analyze open documents without project aggregates
         for (const doc of documents.all()) {
@@ -605,6 +618,8 @@ export function createQspServer(
     // The regex index is more resilient in that case — we bridge the
     // gap here so the Outline view stays complete during mid-edit.
     if (treeHasErrors) {
+      const label = doc.uri.split('/').pop() ?? doc.uri;
+      connection.console.log(`[QSP] Tree-sitter: parse errors in ${label}`);
       for (const loc of locationIndex) {
         // Skip locations reused from a previous incremental parse —
         // they already contain merge results from the previous cycle.
@@ -918,6 +933,8 @@ export function createQspServer(
 
     // ── Full analysis (initial load or structural change) ─────────
     const locationIndex = buildLocationIndex(text);
+    const label = doc.uri.split('/').pop() ?? doc.uri;
+    connection.console.log(`[QSP] Per-location parse: ${label} (${locationIndex.length} locations, ${Math.round(text.length / 1024)}kb)`);
     const symbols = new DocumentSymbols(doc.uri);
     const allErrors: SyntaxError[] = [];
 

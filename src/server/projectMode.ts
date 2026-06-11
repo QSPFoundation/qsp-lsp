@@ -340,6 +340,8 @@ export class ProjectModeService {
     collectPeerDocs: (ownUri: string) => DocumentSymbols[],
   ): void {
     if (changeType === FileChangeType.Deleted) {
+      const label = uri.split('/').pop() ?? uri;
+      this.connection.console.log(`[QSP] File deleted: ${label}`);
       // File deleted — remove from project
       this.projectFileUris.delete(uri);
       if (!this.documents.get(uri)) {
@@ -348,6 +350,8 @@ export class ProjectModeService {
       }
     } else {
       // Created or changed
+      const label = uri.split('/').pop() ?? uri;
+      this.connection.console.log(`[QSP] File ${changeType === FileChangeType.Created ? 'created' : 'changed'}: ${label}`);
       this.projectFileUris.add(uri);
 
       const openDoc = this.documents.get(uri);
@@ -358,7 +362,8 @@ export class ProjectModeService {
           const text = fsProvider.readFile(filePath, fileEncoding);
           this.analyzeFile(uri, text);
         } catch (e) {
-          this.connection.console.error(`[QSP] Failed to read project file: ${e}`);
+          const filePath = uri.split('/').pop() ?? uri;
+          this.connection.console.error(`[QSP] Failed to read project file ${filePath}: ${e}`);
           return;
         }
       } else if (openDoc) {

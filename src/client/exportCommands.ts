@@ -27,6 +27,7 @@ import {
   collectOrderedUris,
   resolveOutputUri,
 } from './gameConfig';
+import * as logger from './logger';
 
 // UTF-8 BOM — matches what txt2gam CLI emits and what the server's
 // decodeBuffer recognises at highest priority.
@@ -111,6 +112,8 @@ function workspaceName(): string {
 export async function combineProjectCommand(
   context: vscode.ExtensionContext,
 ): Promise<void> {
+  logger.show();
+  logger.log('[Combine] Starting combine project...');
   const projectEnabled = vscode.workspace
     .getConfiguration('qsp')
     .get<boolean>('project.enabled', true);
@@ -126,6 +129,7 @@ export async function combineProjectCommand(
       vscode.window.showWarningMessage('No QSP source files found in the workspace.');
       return;
     }
+    logger.log(`[Combine] Found ${uris.length} source file(s)`);
     combinedText = await combineFiles(uris, context);
     suggestName  = workspaceName() + '.qsps';
   } else {
@@ -150,6 +154,7 @@ export async function combineProjectCommand(
   // Write UTF-8 with BOM
   const content = UTF8_BOM + combinedText;
   await vscode.workspace.fs.writeFile(saveUri, Buffer.from(content, 'utf8'));
+  logger.log(`[Combine] Written: ${vscode.workspace.asRelativePath(saveUri)} (${Math.round(content.length / 1024)}kb)`);
   const doc = await vscode.workspace.openTextDocument(saveUri);
   await vscode.window.showTextDocument(doc);
 }
@@ -159,6 +164,8 @@ export async function combineProjectCommand(
 export async function exportGameCommand(
   context: vscode.ExtensionContext,
 ): Promise<void> {
+  logger.show();
+  logger.log('[Export] Starting export...');
   const projectEnabled = vscode.workspace
     .getConfiguration('qsp')
     .get<boolean>('project.enabled', true);
@@ -175,6 +182,7 @@ export async function exportGameCommand(
       vscode.window.showWarningMessage('No QSP source files found in the workspace.');
       return;
     }
+    logger.log(`[Export] Found ${uris.length} source file(s)`);
     sourceText = await combineFiles(uris, context);
     saveUri = resolveOutputUri(gameCfg);
   } else {
@@ -215,10 +223,13 @@ export async function exportGameCommand(
       try {
         const gameBytes = await encodeTextToGame(context.extensionUri, sourceText, { password });
         await vscode.workspace.fs.writeFile(saveUri, gameBytes);
+        const sizeKb = Math.round(gameBytes.byteLength / 1024);
+        logger.log(`[Export] Written: ${vscode.workspace.asRelativePath(saveUri)} (${sizeKb}kb)`);
         vscode.window.showInformationMessage(
           `Exported to ${vscode.workspace.asRelativePath(saveUri)}`,
         );
       } catch (err) {
+        logger.log(`[Export] Failed: ${err instanceof Error ? err.message : String(err)}`);
         vscode.window.showErrorMessage(
           `Export failed: ${err instanceof Error ? err.message : String(err)}`,
         );
@@ -234,6 +245,8 @@ export async function importGameCommand(
   /** URI from explorer context-menu — undefined when invoked from palette. */
   clickedUri?: vscode.Uri,
 ): Promise<void> {
+  logger.show();
+  logger.log('[Import] Starting import...');
   let gameUri = clickedUri;
   if (!gameUri) {
     const picked = await vscode.window.showOpenDialog({
@@ -248,7 +261,7 @@ export async function importGameCommand(
   }
 
   const gameBytes = await vscode.workspace.fs.readFile(gameUri);
-
+  logger.log(`[Import] Decoding: ${vscode.workspace.asRelativePath(gameUri)} (${Math.round(gameBytes.byteLength / 1024)}kb)`);
   /**
    * Try to decode with the given password.
    * Returns the text on success, or re-throws T2gError for the caller to handle.
@@ -273,6 +286,7 @@ export async function importGameCommand(
       const msg = isT2gError(err, T2gErrorCode.WRONG_PASSWORD)
         ? 'The password is incorrect.'
         : `Failed to import game: ${err instanceof Error ? err.message : String(err)}`;
+      logger.log(`[Import] Failed: ${msg}`);
       vscode.window.showErrorMessage(msg);
       return undefined;
     }
@@ -286,9 +300,9 @@ export async function importGameCommand(
     text = await tryDecode(cfgPassword);
   } catch (err) {
     if (!isT2gError(err, T2gErrorCode.WRONG_PASSWORD)) {
-      vscode.window.showErrorMessage(
-        `Failed to import game: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      const msg = `Failed to import game: ${err instanceof Error ? err.message : String(err)}`;
+      logger.log(`[Import] Failed: ${msg}`);
+      vscode.window.showErrorMessage(msg);
       return;
     }
     // Wrong password — always prompt the user.
@@ -310,6 +324,7 @@ export async function importGameCommand(
   // Write UTF-8 with BOM
   const content = UTF8_BOM + normalizeText(text);
   await vscode.workspace.fs.writeFile(saveUri, Buffer.from(content, 'utf8'));
+  logger.log(`[Import] Saved: ${vscode.workspace.asRelativePath(saveUri)}`);
 
   const doc = await vscode.workspace.openTextDocument(saveUri);
   await vscode.window.showTextDocument(doc);

@@ -9,6 +9,7 @@ import {
   LanguageClientOptions,
 } from 'vscode-languageclient/browser';
 import { registerExtensionFeatures } from './features';
+import * as logger from './logger';
 
 let client: LanguageClient;
 
@@ -39,6 +40,7 @@ export function activate(context: ExtensionContext): void {
 
   // Register extension-side features (status bar, commands)
   registerExtensionFeatures(context, client);
+  context.subscriptions.push({ dispose: logger.dispose });
 
   client.start();
 }

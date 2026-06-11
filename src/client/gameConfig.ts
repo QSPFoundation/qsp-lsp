@@ -23,6 +23,7 @@
  */
 
 import * as vscode from 'vscode';
+import * as logger from './logger';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -60,7 +61,9 @@ export async function readGameConfig(): Promise<GameConfig | undefined> {
   if (!uri) return undefined;
   try {
     const bytes = await vscode.workspace.fs.readFile(uri);
-    return JSON.parse(Buffer.from(bytes).toString('utf8')) as GameConfig;
+    const cfg = JSON.parse(Buffer.from(bytes).toString('utf8')) as GameConfig;
+    logger.log(`[Config] Read txt2gam.json: outputFile=${cfg.outputFile}, files=${cfg.files ? cfg.files.length + ' entries' : 'unset (alphabetical)'}`);
+    return cfg;
   } catch (err: unknown) {
     // FileSystemError.FileNotFound is the expected "file doesn't exist" case.
     if (err instanceof vscode.FileSystemError && err.code === 'FileNotFound') {
@@ -76,6 +79,7 @@ export async function writeGameConfig(cfg: GameConfig): Promise<void> {
   if (!uri) throw new Error('No workspace folder open.');
   const json = JSON.stringify(cfg, null, 2) + '\n';
   await vscode.workspace.fs.writeFile(uri, Buffer.from(json, 'utf8'));
+  logger.log(`[Config] Wrote txt2gam.json: outputFile=${cfg.outputFile}`);
 }
 
 // ── Setup wizard ──────────────────────────────────────────────────────
@@ -92,6 +96,7 @@ export async function ensureGameConfig(
   const existing = await readGameConfig();
   if (existing) return existing;
 
+  logger.log('[Config] Creating txt2gam.json...');
   const root = workspaceRoot();
   const defaultName = (root?.path.split('/').pop() ?? 'game') + '.qsp';
   const defaultUri = root
@@ -207,13 +212,16 @@ export async function collectOrderedUris(
 ): Promise<vscode.Uri[]> {
   if (!cfg?.files || cfg.files.length === 0) {
     // Original behaviour: all QSP files alphabetically.
+    logger.log('[Config] No explicit file list — collecting all QSP files alphabetically');
     const uris = await vscode.workspace.findFiles(qspGlobPattern);
     uris.sort((a, b) => a.toString().localeCompare(b.toString()));
+    logger.log(`[Config] Collected ${uris.length} file(s) (alphabetical)`);
     return uris;
   }
 
   const seen = new Set<string>();
   const result: vscode.Uri[] = [];
+  logger.log(`[Config] Resolving ${cfg.files.length} file glob(s)...`);
 
   for (const pattern of cfg.files) {
     const matches = await vscode.workspace.findFiles(pattern);
@@ -227,6 +235,7 @@ export async function collectOrderedUris(
     }
   }
 
+  logger.log(`[Config] Collected ${result.length} file(s) from explicit list`);
   return result;
 }
 

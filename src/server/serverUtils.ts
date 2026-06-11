@@ -8,9 +8,8 @@
 
 import type { Connection } from 'vscode-languageserver';
 import { ConnectionError, ConnectionErrors } from 'vscode-jsonrpc';
-import { type LocationEntry, type SyntaxError } from '../parser';
+import { type LocationEntry, type SyntaxError, type SymbolLocation } from '../parser';
 import { locationNameCol } from './regexFallback';
-import { type SymbolLocation } from '../parser';
 
 /**
  * File-system provider for project mode.
@@ -60,9 +59,9 @@ export function makeLocSymLoc(uri: string, text: string, loc: LocationEntry): Sy
 
 /**
  * Wrapper around `connection.sendDiagnostics` that silently ignores
- * "Connection is closed" errors.  These occur when a debounced timer
- * fires after the LSP connection has been torn down (e.g. at test
- * teardown), and they are harmless.
+ * `ConnectionErrors.Closed` and `ConnectionErrors.Disposed` errors.
+ * These occur when a debounced timer fires after the LSP connection has
+ * been torn down (e.g. at test teardown), and they are harmless.
  */
 export function safeSendDiagnostics(
   connection: Connection,
@@ -78,7 +77,8 @@ export function safeSendDiagnostics(
 
 /**
  * Wrapper around arbitrary connection calls that silently ignores
- * "Connection is closed" errors for the same reason as safeSendDiagnostics.
+ * `ConnectionErrors.Closed` and `ConnectionErrors.Disposed` errors
+ * for the same reason as safeSendDiagnostics.
  */
 export function safeConnectionCall(fn: () => void): void {
   try {

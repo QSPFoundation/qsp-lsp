@@ -13,6 +13,7 @@ import {
 import { registerExtensionFeatures } from './features';
 import { runGameCommand } from './runGame';
 import { registerQspDebugAdapter } from './qspDebugAdapter';
+import * as logger from './logger';
 
 let client: LanguageClient;
 
@@ -53,6 +54,7 @@ export function activate(context: ExtensionContext): void {
   // Register extension-side features (status bar, commands)
   registerExtensionFeatures(context, client, runGameCommand);
   registerQspDebugAdapter(context);
+  context.subscriptions.push({ dispose: logger.dispose });
 
   client.start();
 }

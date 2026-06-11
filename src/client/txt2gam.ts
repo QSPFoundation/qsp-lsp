@@ -12,6 +12,7 @@
  */
 
 import * as vscode from 'vscode';
+import * as logger from './logger';
 
 // ── Type declarations for the Emscripten module ───────────────────────
 
@@ -131,12 +132,6 @@ export interface DecodeOptions {
 // ── Module singleton ──────────────────────────────────────────────────
 
 let modulePromise: Promise<T2gModule> | undefined;
-let outputChannel: vscode.OutputChannel | undefined;
-
-/** Show the txt2gam output channel (created lazily). */
-export function showTxt2gamOutput(): void {
-  outputChannel?.show(true);
-}
 
 /**
  * Lazily load (and cache) the txt2gam Emscripten module.
@@ -145,8 +140,6 @@ export function showTxt2gamOutput(): void {
  */
 function getModule(extensionUri: vscode.Uri): Promise<T2gModule> {
   if (!modulePromise) {
-    outputChannel ??= vscode.window.createOutputChannel('TXT2GAM');
-    const channel = outputChannel;
     modulePromise = (async () => {
       const wasmUri  = vscode.Uri.joinPath(extensionUri, 'out', 'client', 'txt2gam.wasm');
       const wasmData = await vscode.workspace.fs.readFile(wasmUri);
@@ -157,8 +150,8 @@ function getModule(extensionUri: vscode.Uri): Promise<T2gModule> {
       const factory: CreateT2gModule = require('txt2gamJs');
       return factory({
         wasmBinary: wasmData,
-        print:    (s: string) => channel.appendLine(s),
-        printErr: (s: string) => channel.appendLine(s),
+        print:    (s: string) => logger.log(`[WASM] ${s}`),
+        printErr: (s: string) => logger.log(`[WASM] ${s}`),
       });
     })();
   }
@@ -181,12 +174,13 @@ export async function encodeTextToGame(
   text: string,
   opts: EncodeOptions = {},
 ): Promise<Uint8Array> {
-  outputChannel?.show(true);
   const mod = await getModule(extensionUri);
   const t2g = new mod.Txt2gam();
+  logger.log(`[Encode] ${text.length.toLocaleString()} chars...`);
   try {
-    // Throws T2gError on failure — let it propagate to the caller.
-    return t2g.textToGame(text, null, null, false, true, opts.password ?? null);
+    const result = t2g.textToGame(text, null, null, false, true, opts.password ?? null);
+    logger.log(`[Encode] Done: ${(result.byteLength / 1024).toFixed(1)} kb`);
+    return result;
   } finally {
     t2g.destroy();
   }
@@ -207,12 +201,13 @@ export async function decodeGameToText(
   gameBytes: Uint8Array,
   opts: DecodeOptions = {},
 ): Promise<string> {
-  outputChannel?.show(true);
   const mod = await getModule(extensionUri);
   const t2g = new mod.Txt2gam();
+  logger.log(`[Decode] ${(gameBytes.byteLength / 1024).toFixed(1)} kb...`);
   try {
-    // Throws T2gError on failure — let it propagate to the caller.
-    return t2g.gameToText(gameBytes, opts.password ?? null, null, null);
+    const result = t2g.gameToText(gameBytes, opts.password ?? null, null, null);
+    logger.log(`[Decode] Done: ${result.length.toLocaleString()} chars`);
+    return result;
   } finally {
     t2g.destroy();
   }
@@ -247,6 +242,4 @@ export async function parseTextBytes(
  */
 export function resetModuleCache(): void {
   modulePromise = undefined;
-  outputChannel?.dispose();
-  outputChannel = undefined;
 }
