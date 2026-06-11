@@ -34,7 +34,7 @@ import {
 import { type SymbolAggregates, buildFileAggregates, collectCallTypesPerTarget as collectCallTypesPerTargetFromSymbols, isAggContributionStable } from './aggregation';
 import { computeDiagnostics, type DiagnosticSettings } from './diagnostics';
 import { registerLspFeatures, type DocumentState, type PerLocationParseResult } from './lspFeatures';
-import { stripBom, shiftErrors, makeLocSymLoc, QSP_FILE_EXTENSIONS, type FsProvider } from './serverUtils';
+import { stripBom, shiftErrors, makeLocSymLoc, safeSendDiagnostics, safeConnectionCall, QSP_FILE_EXTENSIONS, type FsProvider } from './serverUtils';
 import { ProjectModeService } from './projectMode';
 
 // Re-export FsProvider for backward compatibility.
@@ -462,7 +462,7 @@ export function createQspServer(
       // the document.  In project mode the file is still part of the
       // project and projectRebuildAndReanalyze re-publishes accurate
       // diagnostics, so we skip the clear there.
-      connection.sendDiagnostics({ uri, diagnostics: [] });
+      safeSendDiagnostics(connection, { uri, diagnostics: [] });
     }
   });
 
@@ -496,7 +496,7 @@ export function createQspServer(
     // warnings/errors with outdated line numbers while the tree tier
     // debounce is pending.  The tree tier will send fresh diagnostics
     // once tree-sitter re-parses the document.
-    connection.sendDiagnostics({ uri: doc.uri, diagnostics: [] });
+    safeSendDiagnostics(connection, { uri: doc.uri, diagnostics: [] });
 
     // In project mode, if the set of location names changed (rename,
     // add, or delete), re-diagnose all OTHER project files so their
@@ -531,7 +531,7 @@ export function createQspServer(
               undefined,
               collectPeerDocs(documentStates, uri),
             );
-            connection.sendDiagnostics({ uri, diagnostics: d });
+            safeSendDiagnostics(connection, { uri, diagnostics: d });
           }
         }, 0);
       }
@@ -650,13 +650,13 @@ export function createQspServer(
         undefined, undefined, fileAgg,
         collectPeerDocs(documentStates, doc.uri),
       );
-      connection.sendDiagnostics({ uri: doc.uri, diagnostics });
+      safeSendDiagnostics(connection, { uri: doc.uri, diagnostics });
     }
 
     // Tell VS Code to re-request semantic tokens — a prior request may
     // have been served with stale cached tokens (wrong line positions)
     // before the tree-sitter re-parse completed.
-    connection.languages.semanticTokens.refresh();
+    safeConnectionCall(() => connection.languages.semanticTokens.refresh());
   }
 
   // ── Per-location analysis for large files ──────────────────────────
@@ -898,11 +898,11 @@ export function createQspServer(
         allErrors, undefined, fileAgg,
         collectPeerDocs(documentStates, doc.uri),
       );
-      connection.sendDiagnostics({ uri: doc.uri, diagnostics });
+      safeSendDiagnostics(connection, { uri: doc.uri, diagnostics });
     }
 
     // Tell VS Code to re-request semantic tokens.
-    connection.languages.semanticTokens.refresh();
+    safeConnectionCall(() => connection.languages.semanticTokens.refresh());
 
     return true;
   }
@@ -1005,11 +1005,11 @@ export function createQspServer(
         allErrors, undefined, fileAgg,
         collectPeerDocs(documentStates, doc.uri),
       );
-      connection.sendDiagnostics({ uri: doc.uri, diagnostics });
+      safeSendDiagnostics(connection, { uri: doc.uri, diagnostics });
     }
 
     // Tell VS Code to re-request semantic tokens.
-    connection.languages.semanticTokens.refresh();
+    safeConnectionCall(() => connection.languages.semanticTokens.refresh());
   }
 
   // ── LSP feature handlers ────────────────────────────────────────────

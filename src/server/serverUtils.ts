@@ -6,6 +6,7 @@
  */
 
 
+import type { Connection } from 'vscode-languageserver';
 import { type LocationEntry, type SyntaxError } from '../parser';
 import { locationNameCol } from './regexFallback';
 import { type SymbolLocation } from '../parser';
@@ -54,4 +55,36 @@ export function makeLocSymLoc(uri: string, text: string, loc: LocationEntry): Sy
     endLine: loc.startLine,
     endColumn: nameCol + loc.name.length,
   };
+}
+
+/**
+ * Wrapper around `connection.sendDiagnostics` that silently ignores
+ * "Connection is closed" errors.  These occur when a debounced timer
+ * fires after the LSP connection has been torn down (e.g. at test
+ * teardown), and they are harmless.
+ */
+export function safeSendDiagnostics(
+  connection: Connection,
+  params: Parameters<Connection['sendDiagnostics']>[0],
+): void {
+  try {
+    connection.sendDiagnostics(params);
+  } catch (err) {
+    // Ignore "Connection is closed" — the client is gone
+    if (err instanceof Error && err.message.includes('Connection is closed')) return;
+    throw err;
+  }
+}
+
+/**
+ * Wrapper around arbitrary connection calls that silently ignores
+ * "Connection is closed" errors for the same reason as safeSendDiagnostics.
+ */
+export function safeConnectionCall(fn: () => void): void {
+  try {
+    fn();
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('Connection is closed')) return;
+    throw err;
+  }
 }

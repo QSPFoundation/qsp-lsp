@@ -40,7 +40,7 @@ import {
 import type { DiagnosticSettings } from './diagnostics';
 import type { DocumentState } from './lspFeatures';
 import { computeDiagnostics } from './diagnostics';
-import { stripBom, QSP_FILE_EXTENSIONS } from './serverUtils';
+import { stripBom, QSP_FILE_EXTENSIONS, safeSendDiagnostics } from './serverUtils';
 
 // ──────────────────────────────────────────────────────────────────────
 
@@ -128,7 +128,7 @@ export class ProjectModeService {
     // Clear diagnostics for non-open files
     for (const uri of this.projectFileUris) {
       if (!this.documents.get(uri)) {
-        this.connection.sendDiagnostics({ uri, diagnostics: [] });
+        safeSendDiagnostics(this.connection, { uri, diagnostics: [] });
         this.documentStates.delete(uri);
       }
     }
@@ -303,7 +303,7 @@ export class ProjectModeService {
         undefined,
         collectPeerDocs(uri),
       );
-      this.connection.sendDiagnostics({ uri, diagnostics });
+      safeSendDiagnostics(this.connection, { uri, diagnostics });
     }
   }
 
@@ -343,7 +343,7 @@ export class ProjectModeService {
       // File deleted — remove from project
       this.projectFileUris.delete(uri);
       if (!this.documents.get(uri)) {
-        this.connection.sendDiagnostics({ uri, diagnostics: [] });
+        safeSendDiagnostics(this.connection, { uri, diagnostics: [] });
         this.documentStates.delete(uri);
       }
     } else {
