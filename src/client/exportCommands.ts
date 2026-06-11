@@ -4,18 +4,15 @@
  *   qsp.combineProject — combine all project .qsps/.qsrc files into
  *                         one .qsps file (sorted alphabetically by path).
  *   qsp.exportGame     — combine + encode to a binary .qsp game file.
- *   qsp.runGame        — export to a temp .qsp file and launch the player.
  *   qsp.importGame     — decode a .qsp binary back to a .qsps text file.
  *
+ * The qsp.runGame command (Node.js only) lives in runGame.ts.
+ *
  * All commands run on the extension host (client side) and work on both
- * desktop and VS Code for Web (runGame falls back gracefully when no
- * player is configured).
+ * desktop and VS Code for Web.
  */
 
 import * as vscode from 'vscode';
-import * as cp from 'child_process';
-import * as os from 'os';
-import * as path from 'path';
 import {
   encodeTextToGame,
   decodeGameToText,
@@ -62,7 +59,7 @@ async function readFileAsText(
  * combined output, and therefore which location the QSP engine runs
  * first (it always starts at the first location).
  */
-async function collectProjectUris(glob: string): Promise<vscode.Uri[]> {
+export async function collectProjectUris(glob: string): Promise<vscode.Uri[]> {
   const uris = await vscode.workspace.findFiles(glob);
   uris.sort((a, b) => a.toString().localeCompare(b.toString()));
   return uris;
@@ -75,7 +72,7 @@ async function collectProjectUris(glob: string): Promise<vscode.Uri[]> {
  * file and the first `#` of the next are never on the same line.
  * Each file's content has a trailing newline guaranteed.
  */
-async function combineFiles(
+export async function combineFiles(
   uris: vscode.Uri[],
   context: vscode.ExtensionContext,
 ): Promise<string> {
@@ -91,7 +88,7 @@ async function combineFiles(
 }
 
 /** Strip BOM and normalise line endings to LF. */
-function normalizeText(text: string): string {
+export function normalizeText(text: string): string {
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
@@ -224,91 +221,6 @@ export async function exportGameCommand(
           `Export failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-    },
-  );
-}
-
-// ── qsp.runGame ───────────────────────────────────────────────────────
-
-export async function runGameCommand(
-  context: vscode.ExtensionContext,
-): Promise<void> {
-  const playerExe = vscode.workspace
-    .getConfiguration('qsp.game')
-    .get<string>('playerExecutable')
-    ?.trim();
-
-  if (!playerExe) {
-    const open = 'Open Settings';
-    const choice = await vscode.window.showErrorMessage(
-      'No QSP player configured. Set \'qsp.game.playerExecutable\' to the path of your player.',
-      open,
-    );
-    if (choice === open) {
-      await vscode.commands.executeCommand(
-        'workbench.action.openSettings',
-        'qsp.game.playerExecutable',
-      );
-    }
-    return;
-  }
-
-  // Build source text (same logic as exportGameCommand).
-  const projectEnabled = vscode.workspace
-    .getConfiguration('qsp')
-    .get<boolean>('project.enabled', true);
-
-  let sourceText: string;
-
-  if (projectEnabled) {
-    const glob = qspGlob(context);
-    const uris = await collectProjectUris(glob);
-    if (uris.length === 0) {
-      vscode.window.showWarningMessage('No QSP source files found in the workspace.');
-      return;
-    }
-    sourceText = await combineFiles(uris, context);
-  } else {
-    const editor = getActiveQspEditor();
-    if (!editor) return;
-    sourceText = normalizeText(editor.document.getText());
-  }
-
-  // Resolve password (never prompt for run — use configured value silently).
-  const cfg = vscode.workspace.getConfiguration('qsp.game');
-  const password = cfg.get<string>('password') || undefined;
-
-  // Write to the OS temp directory so the file never appears in the workspace.
-  const tempFile = path.join(os.tmpdir(), `.qsp-run-${Date.now()}.qsp`);
-  const tempUri = vscode.Uri.file(tempFile);
-
-  await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: 'Building game…' },
-    async () => {
-      let gameBytes: Uint8Array;
-      try {
-        gameBytes = await encodeTextToGame(context.extensionUri, sourceText, { password });
-      } catch (err) {
-        vscode.window.showErrorMessage(
-          `Build failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return;
-      }
-
-      await vscode.workspace.fs.writeFile(tempUri, gameBytes);
-
-      const qspPath = tempUri.fsPath;
-      // Use execFile so that playerExe and qspPath are passed as distinct
-      // arguments — no shell quoting needed, spaces in both paths are safe.
-      cp.execFile(playerExe, [qspPath], (err) => {
-        // Clean up the temp file regardless of outcome.
-        void vscode.workspace.fs.delete(tempUri);
-        if (err) {
-          vscode.window.showErrorMessage(
-            `Failed to launch player: ${err.message}`,
-          );
-        }
-      });
     },
   );
 }

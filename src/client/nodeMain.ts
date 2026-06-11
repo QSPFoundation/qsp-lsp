@@ -11,6 +11,7 @@ import {
   TransportKind,
 } from 'vscode-languageclient/node';
 import { registerExtensionFeatures } from './features';
+import { runGameCommand } from './runGame';
 
 let client: LanguageClient;
 
@@ -49,7 +50,7 @@ export function activate(context: ExtensionContext): void {
   );
 
   // Register extension-side features (status bar, commands)
-  registerExtensionFeatures(context, client);
+  registerExtensionFeatures(context, client, runGameCommand);
 
   client.start();
 }

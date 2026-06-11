@@ -30,7 +30,6 @@ import {
 import {
   combineProjectCommand,
   exportGameCommand,
-  runGameCommand,
   importGameCommand,
 } from './exportCommands';
 
@@ -44,6 +43,7 @@ let lspClient: BaseLanguageClient;
 export function registerExtensionFeatures(
   context: vscode.ExtensionContext,
   client: BaseLanguageClient,
+  runGame?: (context: vscode.ExtensionContext) => Promise<void>,
 ): void {
   lspClient = client;
 
@@ -89,7 +89,11 @@ export function registerExtensionFeatures(
     vscode.commands.registerCommand('qsp.splitLocationsToFiles', splitLocationsToFilesCommand),
     vscode.commands.registerCommand('qsp.combineProject', () => combineProjectCommand(context)),
     vscode.commands.registerCommand('qsp.exportGame', () => exportGameCommand(context)),
-    vscode.commands.registerCommand('qsp.runGame', () => runGameCommand(context)),
+    vscode.commands.registerCommand('qsp.runGame', () =>
+      runGame
+        ? runGame(context)
+        : vscode.window.showErrorMessage('Run QSP Game is not supported in VS Code for Web.'),
+    ),
     vscode.commands.registerCommand('qsp.importGame', (uri?: vscode.Uri) => importGameCommand(context, uri)),
   );
 }
