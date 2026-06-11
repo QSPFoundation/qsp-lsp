@@ -212,67 +212,6 @@ npm test
 
 Press **F5** in VS Code to launch the Extension Development Host with the extension loaded.
 
-## Architecture
-
-```
-src/
-  client/                    # VS Code extension entry points
-    nodeMain.ts              #   Desktop (Node.js + stdio)
-    browserMain.ts           #   Web (Worker + postMessage)
-    features.ts              #   Command registration & status bar
-    locationCommands.ts      #   Location editing commands
-    shared.ts                #   Editor helpers
-  server/                    # LSP server
-    nodeMain.ts              #   Desktop entry
-    browserMain.ts           #   Web entry
-    common.ts                #   Server lifecycle & incremental per-location parse
-    projectMode.ts           #   Multi-file workspace aggregation
-    serverUtils.ts           #   Shared utilities (stripBom, shiftErrors, …)
-    diagnostics.ts           #   Diagnostic orchestrator
-    diagnosticPasses/        #   Domain-specific diagnostic checks
-      diagnosticHelpers.ts       Shared diagnostic helpers
-      structureDiagnostics.ts    Syntax errors, dupes, unclosed/oversized
-      symbolDiagnostics.ts       Labels, actions, objects, refs per location
-      variableDiagnostics.ts     Uninitialized, mixed prefixes, type mismatch
-      dynamicDiagnostics.ts      Untracked/unresolvable dynamic calls
-      propagationDiagnostics.ts  Inconsistent propagation, unused locations
-    lspFeatures.ts           #   Hover, completion, definition, references, rename
-    featureTypes.ts          #   Shared handler context types
-    hoverHelpers.ts          #   Markdown builders for hover
-    symbolNav.ts             #   Cross-file symbol resolution
-    semanticTokens.ts        #   Semantic token legend & collection
-    codeActions.ts           #   Code action providers
-    regexFallback.ts         #   Regex analysis when tree-sitter unavailable
-    aggregation.ts           #   Symbol aggregates for diagnostics & dataflow
-    helpers.ts               #   URI basename utility
-  parser/                    # Language analysis
-    extractSymbols.ts        #   Symbol extraction orchestrator
-    symbolWalker.ts          #   Scope-aware recursive AST walker
-    symbolExtractors.ts      #   Per-node extractors (variable, label, action, refs)
-    bindingCollector.ts      #   Assignment pre-scan & dynamic call resolution
-    variableBindings.ts      #   Dataflow resolver (possible values, chains)
-    scopeUtils.ts            #   Scope classification & binding visibility
-    walkHelpers.ts           #   Argument parsing, string utilities
-    lookupTables.ts          #   Statement/function name classification
-    variableUtils.ts         #   Variable definition/classification predicates
-    lintChecks.ts            #   Standalone lint checks
-    extractErrors.ts         #   Tree-sitter error extraction & merged lint pass
-    embeddedExec.ts          #   `<a href="exec:…">` link scanner
-    embeddedInterpolation.ts #   Doubled-quote `<<…>>` decode pass
-    embeddedShared.ts        #   Shared sub-parse / position-translate / merge
-    builtins.ts              #   Built-in statements & functions data
-    blockKeywords.ts         #   Block keyword range extraction
-    treeSitter.ts            #   Tree-sitter wrapper
-    symbolTable.ts           #   DocumentSymbols (cross-location index)
-    locationSymbols.ts       #   LocationSymbols (per-location symbol table)
-    symbolTypes.ts           #   Core types: QspSymbol, VariableBinding, etc.
-    index.ts                 #   Public API re-exports
-  common/                    # Shared between client and server
-    locations.ts             #   Location block parsing & index operations
-    qspStringScanner.ts      #   QSP string scanning
-tree-sitter-qsp/             # Tree-sitter grammar for QSP
-```
-
 ## License
 
 MPL-2.0
