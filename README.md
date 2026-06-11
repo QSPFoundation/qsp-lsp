@@ -33,8 +33,8 @@ Full-featured [QSP (Quest Soft Player)](https://qsp.org) language support for Vi
 - **Snippets** — `loc`, `if`, `ife`, `act`, `loop`, `gs`, `gt`, `pl`, and more
 
 ### Build & Run
-- **Export QSP Game** (`$(package)` toolbar button) — combine all source files and encode them to a binary `.qsp` game file using [txt2gam](https://github.com/QSPFoundation/txt2gam). In project mode the output path is read from `txt2gam.json`; in single-file mode a save dialog is shown. Supports game passwords.
-- **Run QSP Game** (`$(run)` toolbar button / `F5`) — export the game to a `.qsp` file and immediately launch it with the configured player executable.
+- **Export QSP Game** (toolbar button) — combine all source files and encode them to a binary `.qsp` game file using [txt2gam](https://github.com/QSPFoundation/txt2gam). In project mode the output path is read from `txt2gam.json`; in single-file mode a save dialog is shown. Supports game passwords.
+- **Run QSP Game** (toolbar button / `F5`) — export the game to a `.qsp` file and immediately launch it with the configured player executable.
 - **Import QSP Game** — decode a binary `.qsp` file back to a `.qsps` text source. Supports game passwords.
 - **Combine Project Files** — merge all source files into a single `.qsps` file without binary encoding; useful for inspection or diff.
 - **`txt2gam.json`** — optional per-workspace build config committed alongside source files:
