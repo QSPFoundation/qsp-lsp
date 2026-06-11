@@ -7,6 +7,7 @@
 
 
 import type { Connection } from 'vscode-languageserver';
+import { ConnectionError, ConnectionErrors } from 'vscode-jsonrpc';
 import { type LocationEntry, type SyntaxError } from '../parser';
 import { locationNameCol } from './regexFallback';
 import { type SymbolLocation } from '../parser';
@@ -70,8 +71,7 @@ export function safeSendDiagnostics(
   try {
     connection.sendDiagnostics(params);
   } catch (err) {
-    // Ignore "Connection is closed" — the client is gone
-    if (err instanceof Error && err.message.includes('Connection is closed')) return;
+    if (err instanceof ConnectionError && (err.code === ConnectionErrors.Closed || err.code === ConnectionErrors.Disposed)) return;
     throw err;
   }
 }
@@ -84,7 +84,7 @@ export function safeConnectionCall(fn: () => void): void {
   try {
     fn();
   } catch (err) {
-    if (err instanceof Error && err.message.includes('Connection is closed')) return;
+    if (err instanceof ConnectionError && (err.code === ConnectionErrors.Closed || err.code === ConnectionErrors.Disposed)) return;
     throw err;
   }
 }
