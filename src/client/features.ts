@@ -30,6 +30,7 @@ import {
 import {
   combineProjectCommand,
   exportGameCommand,
+  runGameCommand,
   importGameCommand,
 } from './exportCommands';
 
@@ -88,6 +89,7 @@ export function registerExtensionFeatures(
     vscode.commands.registerCommand('qsp.splitLocationsToFiles', splitLocationsToFilesCommand),
     vscode.commands.registerCommand('qsp.combineProject', () => combineProjectCommand(context)),
     vscode.commands.registerCommand('qsp.exportGame', () => exportGameCommand(context)),
+    vscode.commands.registerCommand('qsp.runGame', () => runGameCommand(context)),
     vscode.commands.registerCommand('qsp.importGame', (uri?: vscode.Uri) => importGameCommand(context, uri)),
   );
 }

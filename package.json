@@ -155,6 +155,12 @@
         "icon": "$(package)"
       },
       {
+        "command": "qsp.runGame",
+        "title": "Run QSP Game",
+        "category": "QSP",
+        "icon": "$(run)"
+      },
+      {
         "command": "qsp.importGame",
         "title": "Import QSP Game…",
         "category": "QSP",
@@ -293,6 +299,10 @@
         },
         {
           "command": "qsp.exportGame",
+          "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.runGame",
           "when": "editorLangId == qsp"
         },
         {
@@ -523,6 +533,11 @@
           "type": "boolean",
           "default": true,
           "description": "When exporting a game, prompt for the password. The configured password is shown as the default value. Disable to export silently using only the configured password."
+        },
+        "qsp.game.playerExecutable": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the QSP player executable or script used by the 'Run QSP Game' command. The .qsp file path is appended as a quoted argument. Example: /usr/local/bin/qsp-player or C:\\QSP\\player.exe"
         }
       }
     },
