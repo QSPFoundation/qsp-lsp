@@ -32,6 +32,24 @@ Full-featured [QSP (Quest Soft Player)](https://qsp.org) language support for Vi
 - **Format Location** — format the current location (Ctrl+Shift+F)
 - **Snippets** — `loc`, `if`, `ife`, `act`, `loop`, `gs`, `gt`, `pl`, and more
 
+### Build & Run
+- **Export QSP Game** (`$(package)` toolbar button) — combine all source files and encode them to a binary `.qsp` game file using [txt2gam](https://github.com/QSPFoundation/txt2gam). In project mode the output path is read from `txt2gam.json`; in single-file mode a save dialog is shown. Supports game passwords.
+- **Run QSP Game** (`$(run)` toolbar button / `F5`) — export the game to a `.qsp` file and immediately launch it with the configured player executable.
+- **Import QSP Game** — decode a binary `.qsp` file back to a `.qsps` text source. Supports game passwords.
+- **Combine Project Files** — merge all source files into a single `.qsps` file without binary encoding; useful for inspection or diff.
+- **`txt2gam.json`** — optional per-workspace build config committed alongside source files:
+  ```json
+  {
+    "outputFile": "mygame.qsp",
+    "files": [
+      "intro.qsps",
+      "chapters/*.qsps",
+      "ending.qsps"
+    ]
+  }
+  ```
+  `outputFile` is relative to the workspace root. `files` controls the order in which source files are combined (each entry is a glob; omit `files` to collect all `.qsps`/`.qsrc` files alphabetically).
+
 ### Multi-File Operations
 - **List All Locations** — browse all locations across the file or project
 - **List All Objects** — browse all objects (addobj) with their definition location
@@ -98,6 +116,10 @@ Full-featured [QSP (Quest Soft Player)](https://qsp.org) language support for Vi
 | QSP: List All Variables | — | Navigable list of all variables |
 | QSP: Move Locations to File… | — | Select locations to move to another file |
 | QSP: Split Locations into Files… | — | Split locations into individual `.qsps` files |
+| QSP: Export QSP Game… | — | Combine source files and encode to a binary `.qsp` |
+| QSP: Run QSP Game | `F5` | Export game and launch with the configured player |
+| QSP: Import QSP Game… | — | Decode a `.qsp` binary back to `.qsps` text |
+| QSP: Combine Project Files… | — | Merge all source files into a single `.qsps` file |
 
 ## Settings
 
@@ -108,6 +130,9 @@ Full-featured [QSP (Quest Soft Player)](https://qsp.org) language support for Vi
 | `qsp.project.enabled` | `true` | Enable project mode: treat all `.qsps`/`.qsrc` files as one combined game |
 | `qsp.trace.server`    | `off`  | Traces LSP communication (`off`, `messages`, `verbose`) |
 | `qsp.semanticHighlighting.enabled` | `true` | Enable semantic token highlighting (requires tree-sitter) |
+| `qsp.game.playerExecutable` | — | Path to the QSP player executable used by Run Game. Set once and persisted globally. |
+| `qsp.game.password` | — | Default game password for export/import (leave blank for no password) |
+| `qsp.game.promptPassword` | `true` | Prompt for a password before each export |
 
 ### Diagnostics
 
