@@ -200,7 +200,19 @@
       }
     ],
     "menus": {
+      "editor/title/run": [
+        {
+          "command": "qsp.runGame",
+          "when": "editorLangId == qsp",
+          "group": "navigation"
+        }
+      ],
       "editor/title": [
+        {
+          "command": "qsp.exportGame",
+          "when": "editorLangId == qsp",
+          "group": "navigation"
+        },
         {
           "command": "qsp.goToLocation",
           "when": "editorLangId == qsp",
