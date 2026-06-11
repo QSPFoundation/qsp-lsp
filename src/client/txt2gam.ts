@@ -16,7 +16,11 @@ import * as vscode from 'vscode';
 // ── Type declarations for the Emscripten module ───────────────────────
 
 /** The Emscripten module factory exported by txt2gam.js. */
-type CreateT2gModule = (opts?: { wasmBinary?: Uint8Array }) => Promise<T2gModule>;
+type CreateT2gModule = (opts?: {
+  wasmBinary?: Uint8Array;
+  print?:    (s: string) => void;
+  printErr?: (s: string) => void;
+}) => Promise<T2gModule>;
 
 interface T2gModule {
   Txt2gam: new () => Txt2gam;
@@ -127,6 +131,12 @@ export interface DecodeOptions {
 // ── Module singleton ──────────────────────────────────────────────────
 
 let modulePromise: Promise<T2gModule> | undefined;
+let outputChannel: vscode.OutputChannel | undefined;
+
+/** Show the txt2gam output channel (created lazily). */
+export function showTxt2gamOutput(): void {
+  outputChannel?.show(true);
+}
 
 /**
  * Lazily load (and cache) the txt2gam Emscripten module.
@@ -135,6 +145,8 @@ let modulePromise: Promise<T2gModule> | undefined;
  */
 function getModule(extensionUri: vscode.Uri): Promise<T2gModule> {
   if (!modulePromise) {
+    outputChannel ??= vscode.window.createOutputChannel('TXT2GAM');
+    const channel = outputChannel;
     modulePromise = (async () => {
       const wasmUri  = vscode.Uri.joinPath(extensionUri, 'out', 'client', 'txt2gam.wasm');
       const wasmData = await vscode.workspace.fs.readFile(wasmUri);
@@ -143,7 +155,11 @@ function getModule(extensionUri: vscode.Uri): Promise<T2gModule> {
       // The dynamic import resolves to the bundled module at runtime.
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const factory: CreateT2gModule = require('txt2gamJs');
-      return factory({ wasmBinary: wasmData });
+      return factory({
+        wasmBinary: wasmData,
+        print:    (s: string) => channel.appendLine(s),
+        printErr: (s: string) => channel.appendLine(s),
+      });
     })();
   }
   return modulePromise;
@@ -165,6 +181,7 @@ export async function encodeTextToGame(
   text: string,
   opts: EncodeOptions = {},
 ): Promise<Uint8Array> {
+  outputChannel?.show(true);
   const mod = await getModule(extensionUri);
   const t2g = new mod.Txt2gam();
   try {
@@ -190,6 +207,7 @@ export async function decodeGameToText(
   gameBytes: Uint8Array,
   opts: DecodeOptions = {},
 ): Promise<string> {
+  outputChannel?.show(true);
   const mod = await getModule(extensionUri);
   const t2g = new mod.Txt2gam();
   try {
@@ -229,4 +247,6 @@ export async function parseTextBytes(
  */
 export function resetModuleCache(): void {
   modulePromise = undefined;
+  outputChannel?.dispose();
+  outputChannel = undefined;
 }

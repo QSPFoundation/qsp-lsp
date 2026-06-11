@@ -21,6 +21,12 @@ import {
   T2gErrorCode,
 } from './txt2gam';
 import { getActiveQspEditor, qspGlob } from './shared';
+import {
+  ensureGameConfig,
+  readGameConfig,
+  collectOrderedUris,
+  resolveOutputUri,
+} from './gameConfig';
 
 // UTF-8 BOM — matches what txt2gam CLI emits and what the server's
 // decodeBuffer recognises at highest priority.
@@ -100,17 +106,6 @@ function workspaceName(): string {
   return 'game';
 }
 
-/** Suggest a save-dialog default URI with a given extension. */
-function defaultSaveUri(ext: string, sourceUri?: vscode.Uri): vscode.Uri {
-  const folders = vscode.workspace.workspaceFolders;
-  const base = folders && folders.length > 0
-    ? folders[0].uri
-    : sourceUri
-      ? vscode.Uri.joinPath(sourceUri, '..')
-      : vscode.Uri.file('.');
-  return vscode.Uri.joinPath(base, workspaceName() + ext);
-}
-
 // ── qsp.combineProject ────────────────────────────────────────────────
 
 export async function combineProjectCommand(
@@ -125,7 +120,8 @@ export async function combineProjectCommand(
 
   if (projectEnabled) {
     const glob = qspGlob(context);
-    const uris = await collectProjectUris(glob);
+    const cfg = await readGameConfig();
+    const uris = await collectOrderedUris(cfg, glob);
     if (uris.length === 0) {
       vscode.window.showWarningMessage('No QSP source files found in the workspace.');
       return;
@@ -168,29 +164,35 @@ export async function exportGameCommand(
     .get<boolean>('project.enabled', true);
 
   let sourceText: string;
-  let sourceUri: vscode.Uri | undefined;
+  let saveUri: vscode.Uri;
 
   if (projectEnabled) {
     const glob = qspGlob(context);
-    const uris = await collectProjectUris(glob);
+    const gameCfg = await ensureGameConfig(glob);
+    if (!gameCfg) return; // user cancelled setup
+    const uris = await collectOrderedUris(gameCfg, glob);
     if (uris.length === 0) {
       vscode.window.showWarningMessage('No QSP source files found in the workspace.');
       return;
     }
     sourceText = await combineFiles(uris, context);
+    saveUri = resolveOutputUri(gameCfg);
   } else {
     const editor = getActiveQspEditor();
     if (!editor) return;
-    sourceUri  = editor.document.uri;
     sourceText = normalizeText(editor.document.getText());
+    const docUri = editor.document.uri;
+    const baseName = docUri.path.split('/').pop()!.replace(/\.[^.]+$/, '') + '.qsp';
+    const dirUri = docUri.with({ path: docUri.path.slice(0, docUri.path.lastIndexOf('/')) });
+    const defaultUri = vscode.Uri.joinPath(dirUri, baseName);
+    const picked = await vscode.window.showSaveDialog({
+      defaultUri,
+      filters: { 'QSP game': ['qsp'] },
+      title: 'Export to game file',
+    });
+    if (!picked) return;
+    saveUri = picked;
   }
-
-  const saveUri = await vscode.window.showSaveDialog({
-    defaultUri: defaultSaveUri('.qsp', sourceUri),
-    filters: { 'QSP game': ['qsp'] },
-    title: 'Export to game file',
-  });
-  if (!saveUri) return;
 
   const cfg = vscode.workspace.getConfiguration('qsp.game');
   const cfgPassword = cfg.get<string>('password') || undefined;

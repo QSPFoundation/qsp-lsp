@@ -297,6 +297,27 @@ function processLocation(
   }
 }
 
+/**
+ * Returns true when `body` contains a `<<` interpolation marker that is
+ * outside any QSP string literal (single- or double-quoted).
+ * Such a body is dynamically generated code and cannot be sub-parsed.
+ */
+function hasTopLevelInterpolation(body: string): boolean {
+  let inQuote: string | null = null;
+  for (let i = 0; i < body.length - 1; i++) {
+    const ch = body[i];
+    if (inQuote) {
+      // Doubled-quote escape inside a string — skip both characters.
+      if (ch === inQuote && body[i + 1] === inQuote) { i++; continue; }
+      if (ch === inQuote) { inQuote = null; continue; }
+    } else {
+      if (ch === "'" || ch === '"') { inQuote = ch; continue; }
+      if (ch === '<' && body[i + 1] === '<') return true;
+    }
+  }
+  return false;
+}
+
 function processString(
   s: Parser.SyntaxNode,
   locSymbols: LocationSymbols,
@@ -325,6 +346,13 @@ function processString(
   for (const m of decoded.matchAll(EXEC_LINK_RE)) {
     const body = m[2];
     if (!body) continue;
+
+    // If the exec body contains a top-level interpolation marker (<<…>> outside
+    // any string literal), it is dynamically generated code — skip sub-parsing
+    // to avoid spurious "unexpected syntax" errors.
+    // Bodies where << appears only inside QSP strings (e.g. exec:pl '<<desc()>>')
+    // pass this check and are parsed normally.
+    if (hasTopLevelInterpolation(body)) continue;
 
     // `d` flag: m.indices[2] is [bodyStart, bodyEnd] in `decoded`.
     const decodedBodyStart = m.indices![2]![0];

@@ -2,7 +2,7 @@
   "name": "qsp-lsp",
   "displayName": "QSP Language Support",
   "description": "Language server for QSP (Quest Soft Player) game files",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "publisher": "qsp",
   "license": "MPL-2.0",
   "icon": "icons/qsp-logo.png",
@@ -165,6 +165,38 @@
         "title": "Import QSP Game…",
         "category": "QSP",
         "icon": "$(go-to-file)"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "qsp",
+        "label": "QSP Game",
+        "languages": [
+          "qsp"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "properties": {}
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "qsp",
+            "request": "launch",
+            "name": "Run QSP Game"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "QSP: Run Game",
+            "description": "Build and run the QSP game with the configured player.",
+            "body": {
+              "type": "qsp",
+              "request": "launch",
+              "name": "Run QSP Game"
+            }
+          }
+        ]
       }
     ],
     "menus": {

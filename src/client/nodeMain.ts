@@ -12,6 +12,7 @@ import {
 } from 'vscode-languageclient/node';
 import { registerExtensionFeatures } from './features';
 import { runGameCommand } from './runGame';
+import { registerQspDebugAdapter } from './qspDebugAdapter';
 
 let client: LanguageClient;
 
@@ -51,6 +52,7 @@ export function activate(context: ExtensionContext): void {
 
   // Register extension-side features (status bar, commands)
   registerExtensionFeatures(context, client, runGameCommand);
+  registerQspDebugAdapter(context);
 
   client.start();
 }
