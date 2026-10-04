@@ -498,3 +498,26 @@ jump 'i[16]i[16](a)'
         (string
           (single_quoted_string))))
     (location_end)))
+
+================
+Old names of inclib and freelib
+================
+# test
+addlib 'lib.qsp'
+dellib
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))))
+    (single_line_block
+      (statement
+        name: (statement_name)))
+    (location_end)))

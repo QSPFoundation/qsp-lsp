@@ -3176,6 +3176,10 @@ dynamic $never
       expect(diags[0].message).toMatch(/Function 'rnd' expects 0 arguments, got 2 arguments$/);
     });
 
+    it('lets close stop every sound without a file', () => {
+      expect(argDiags(`# a\nclose\nclose 'a.mp3'\n---\n`)).toEqual([]);
+    });
+
     // A function that needs no argument takes none without parentheses:
     // what follows is the rest of the expression.
     it('does not take + or - after a 0-arg function for its argument', () => {
@@ -3289,6 +3293,14 @@ dynamic $never
       expect(diags).toHaveLength(1);
       expect(diags[0].message).toMatch(/Statement 'KILLQST' is outdated; use 'FREELIB' instead/);
       expect(diags[0].tags).toContain(DiagnosticTag.Deprecated);
+    });
+
+    it('flags ADDLIB and DELLIB, the other old names, the same way', () => {
+      const diags = depDiags(`# a\naddlib 'lib.qsp'\ndellib\n---\n`);
+      expect(diags.map(d => d.message)).toEqual([
+        "Statement 'ADDLIB' is outdated; use 'INCLIB' instead",
+        "Statement 'DELLIB' is outdated; use 'FREELIB' instead",
+      ]);
     });
 
     it('does NOT flag the modern replacements (INCLIB, FREELIB)', () => {

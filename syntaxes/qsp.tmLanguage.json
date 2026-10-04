@@ -160,7 +160,7 @@
       }
     },
     "keyword-statement": {
-      "match": "(?i)(\\*(?:clear|clr|nl|pl|p)\\b|\\b(?:close all|add obj|del obj|del act|mod obj|set|let|local|goto|gt|xgoto|xgt|gosub|gs|jump|exit|pl|p|nl|clear|clr|cls|msg|wait|play|close|view|addobj|delobj|modobj|resetobj|killobj|unselect|unsel|killall|cla|delact|cmdclear|cmdclr|menu|settimer|dynamic|setvar|killvar|copyarr|sortarr|scanstr|unpackarr|opengame|savegame|openqst|inclib|addqst|freelib|killqst|refint|showacts|showinput|showobjs|showstat)\\b)",
+      "match": "(?i)(\\*(?:clear|clr|nl|pl|p)\\b|\\b(?:close all|add obj|del obj|del act|mod obj|set|let|local|goto|gt|xgoto|xgt|gosub|gs|jump|exit|pl|p|nl|clear|clr|cls|msg|wait|play|close|view|addobj|delobj|modobj|resetobj|killobj|unselect|unsel|killall|cla|delact|cmdclear|cmdclr|menu|settimer|dynamic|setvar|killvar|copyarr|sortarr|scanstr|unpackarr|opengame|savegame|openqst|inclib|addqst|addlib|freelib|killqst|dellib|refint|showacts|showinput|showobjs|showstat)\\b)",
       "captures": {
         "1": { "name": "keyword.other.statement.qsp" }
       }

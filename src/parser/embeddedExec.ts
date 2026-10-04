@@ -80,7 +80,7 @@ const SKIP_ARG0 = new Set<string>([
   'goto', 'gt', 'xgoto', 'xgt', 'gosub', 'gs', 'jump',
   // Path refs
   'play', 'close', 'view', 'opengame', 'savegame', 'openqst',
-  'inclib', 'addqst',
+  'inclib', 'addqst', 'addlib',
   // Variable-name refs
   'setvar', 'killvar', 'sortarr', 'scanstr', 'unpackarr', 'menu',
   // Dynamic-code arg (handled by the dynamic-block pass)

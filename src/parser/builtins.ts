@@ -50,7 +50,7 @@ export const QSP_STATEMENTS: BuiltinInfo[] = [
   { name: 'settimer', kind: 'statement', description: 'Set the timer interval in milliseconds for the counter location', signature: 'SETTIMER [#interval]' },
   // Media
   { name: 'play', kind: 'statement', description: 'Play a sound file at the specified volume', signature: 'PLAY [$file],[#volume]' },
-  { name: 'close', kind: 'statement', description: 'Stop playing the specified sound file', signature: 'CLOSE [$file]' },
+  { name: 'close', kind: 'statement', description: 'Stop playing the specified sound file, or every sound without one', signature: 'CLOSE [$file]' },
   { name: 'close all', kind: 'statement', description: 'Stop playing all sound files', signature: 'CLOSE ALL' },
   { name: 'view', kind: 'statement', description: 'Show an image / hide the current image', signature: 'VIEW [$file]' },
   // Navigation
@@ -97,8 +97,10 @@ export const QSP_STATEMENTS: BuiltinInfo[] = [
   { name: 'openqst', kind: 'statement', description: 'Open and run a game file', signature: 'OPENQST [$file]' },
   { name: 'inclib', kind: 'statement', description: 'Add locations from the specified file', signature: 'INCLIB [$file]' },
   { name: 'addqst', kind: 'statement', description: 'Add locations from the specified file (replaced by INCLIB)', signature: 'ADDQST [$file]', deprecated: 'inclib' },
+  { name: 'addlib', kind: 'statement', description: 'Add locations from the specified file (replaced by INCLIB)', signature: 'ADDLIB [$file]', deprecated: 'inclib' },
   { name: 'freelib', kind: 'statement', description: 'Remove all locations added via INCLIB', signature: 'FREELIB' },
   { name: 'killqst', kind: 'statement', description: 'Remove all locations added via ADDQST (replaced by FREELIB)', signature: 'KILLQST', deprecated: 'freelib' },
+  { name: 'dellib', kind: 'statement', description: 'Remove all locations added via ADDLIB (replaced by FREELIB)', signature: 'DELLIB', deprecated: 'freelib' },
   // UI
   { name: 'refint', kind: 'statement', description: 'Refresh the user interface', signature: 'REFINT' },
   { name: 'showacts', kind: 'statement', description: 'Show / hide the action list', signature: 'SHOWACTS [#show]' },
@@ -157,6 +159,7 @@ export const QSP_VARIABLES: BuiltinInfo[] = [
   { name: 'args', kind: 'variable', description: 'Array with procedure/function parameters', signature: 'ARGS / $ARGS / %ARGS' },
   { name: 'result', kind: 'variable', description: 'Variable contains the result returned by the current function', signature: 'RESULT / $RESULT / %RESULT' },
   { name: 'disablescroll', kind: 'variable', description: 'If the variable is not 0, it forbids automatic text scrolling when outputting', signature: 'DISABLESCROLL' },
+  { name: 'disablesubex', kind: 'variable', description: 'If the variable is not 0, it disables the calculation of subexpressions (<<…>>) in strings. Not used by players 5.8.0 and later', signature: 'DISABLESUBEX' },
   { name: 'nosave', kind: 'variable', description: 'If the variable is not 0, saving the game state by the user is impossible', signature: 'NOSAVE' },
   { name: 'debug', kind: 'variable', description: 'If the variable is not 0, the game identifier check is disabled when loading the state', signature: 'DEBUG' },
   { name: 'counter', kind: 'variable', description: 'Variable contains the name of the counter location', signature: '$COUNTER' },
@@ -238,7 +241,8 @@ const ARG_CONSTRAINTS: Record<string, ArgRange> = {
   settimer: { min: 1, max: 1 },
   // ── Media ───────────────────────────────────────────────────────
   play: { min: 1, max: 2 },
-  close: { min: 1, max: 1 },
+  // Without a file, `close` stops every sound, as `close all` does.
+  close: { min: 0, max: 1 },
   'close all': { min: 0, max: 0 },
   view: { min: 0, max: 1 },
   // ── Navigation ──────────────────────────────────────────────────
@@ -285,8 +289,10 @@ const ARG_CONSTRAINTS: Record<string, ArgRange> = {
   openqst: { min: 1, max: 1 },
   inclib: { min: 1, max: 1 },
   addqst: { min: 1, max: 1 },
+  addlib: { min: 1, max: 1 },
   freelib: { min: 0, max: 0 },
   killqst: { min: 0, max: 0 },
+  dellib: { min: 0, max: 0 },
   // ── UI ──────────────────────────────────────────────────────────
   refint: { min: 0, max: 0 },
   showacts: { min: 1, max: 1 },
