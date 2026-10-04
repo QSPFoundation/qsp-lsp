@@ -1098,6 +1098,40 @@ describe('LSP e2e: blocks passed as arguments', () => {
   }, 30_000);
 });
 
+// A `{…}` kept in a variable is the text it holds: code only when
+// something may run the variable.
+describe('LSP e2e: blocks kept in variables', () => {
+  let h: Harness;
+  beforeAll(async () => { h = await startServer(); }, 30_000);
+  afterAll(() => { h?.shutdown(); });
+
+  it('highlights and navigates a block nothing runs as text, and one that runs as code', async () => {
+    const uri = 'file:///stored.qsps';
+    // `generic` is a variable on lines 1–2; line 3 keeps the text, line 4 code that runs.
+    const text = "# a\ngeneric = 1\npl generic\n$args['t'] = {generic}\n$code = {pl generic}\ndynamic $code\n--- a ---\n";
+    h.client.sendNotification(DidOpenTextDocumentNotification.type, {
+      textDocument: { uri, languageId: 'qsp', version: 1, text },
+    });
+    await h.diagnosticsFor(uri);
+    const { data } = await h.client.sendRequest(SemanticTokensRequest.type, { textDocument: { uri } });
+    const lines = text.split('\n');
+    const tokens: Array<{ line: number; text: string; type: string }> = [];
+    let line = 0, char = 0;
+    for (let i = 0; i < data.length; i += 5) {
+      line += data[i];
+      char = data[i] === 0 ? char + data[i + 1] : data[i + 1];
+      tokens.push({ line, text: lines[line].substr(char, data[i + 2]), type: TOKEN_TYPES[data[i + 3]] });
+    }
+    expect(tokens).toContainEqual({ line: 3, text: '{generic}', type: 'string' });
+    expect(tokens).toContainEqual({ line: 4, text: 'generic', type: 'variable' });
+
+    const textDocument = { uri };
+    const refs = await h.client.sendRequest(ReferencesRequest.type, { textDocument, position: { line: 1, character: 2 }, context: { includeDeclaration: true } });
+    expect((refs ?? []).map(r => r.range.start.line).sort()).toEqual([1, 2, 4]);
+    expect(await h.client.sendRequest(HoverRequest.type, { textDocument, position: { line: 3, character: 16 } })).toBeNull();
+  }, 30_000);
+});
+
 describe('LSP e2e: highlighting after a closed file changes on disk', () => {
   let h: Harness;
   let dir: string;
@@ -1128,6 +1162,45 @@ describe('LSP e2e: highlighting after a closed file changes on disk', () => {
 
     const bPath = path.join(dir, 'b.qsps');
     fs.writeFileSync(bPath, '# b\ndynamic $args[0]\n--- b ---\n');
+    const rediagnosed = h.nextDiagnosticsFor(fsProvider.pathToUri(bPath));
+    h.client.sendNotification(DidChangeWatchedFilesNotification.type, { changes: [{ uri: fsProvider.pathToUri(bPath), type: FileChangeType.Changed }] });
+    await rediagnosed;
+    await h.client.sendRequest(SETTLED_REQUEST);
+    expect(await typeOfX()).toBe('variable');
+  }, 30_000);
+});
+
+describe('LSP e2e: a block kept in a variable after a closed file changes on disk', () => {
+  let h: Harness;
+  let dir: string;
+  beforeAll(async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qsp-stored-'));
+    fs.writeFileSync(path.join(dir, 'main.qsps'), '# a\n$k = {pl x}\n--- a ---\n');
+    fs.writeFileSync(path.join(dir, 'b.qsps'), '# b\npl $k\n--- b ---\n');
+    h = await startServer(null, dir);
+  });
+  afterAll(() => { h.shutdown(); fs.rmSync(dir, { recursive: true, force: true }); });
+
+  it('colours the block as code once another file runs the variable', async () => {
+    const uri = fsProvider.pathToUri(path.join(dir, 'main.qsps'));
+    const text = fs.readFileSync(path.join(dir, 'main.qsps'), 'utf8');
+    const ready = h.nextDiagnosticsFor(uri);
+    h.client.sendNotification(DidOpenTextDocumentNotification.type, { textDocument: { uri, languageId: 'qsp', version: 1, text } });
+    await ready;
+    await h.client.sendRequest(SETTLED_REQUEST);
+    const typeOfX = async () => {
+      const { data } = await h.client.sendRequest(SemanticTokensRequest.type, { textDocument: { uri } });
+      for (let i = 0, line = 0, char = 0; i < data.length; i += 5) {
+        line += data[i];
+        char = data[i] === 0 ? char + data[i + 1] : data[i + 1];
+        if (line === 1 && char <= 9 && 9 < char + data[i + 2]) return TOKEN_TYPES[data[i + 3]];
+      }
+      return undefined;
+    };
+    expect(await typeOfX()).toBe('string');
+
+    const bPath = path.join(dir, 'b.qsps');
+    fs.writeFileSync(bPath, '# b\ndynamic $k\n--- b ---\n');
     const rediagnosed = h.nextDiagnosticsFor(fsProvider.pathToUri(bPath));
     h.client.sendNotification(DidChangeWatchedFilesNotification.type, { changes: [{ uri: fsProvider.pathToUri(bPath), type: FileChangeType.Changed }] });
     await rediagnosed;

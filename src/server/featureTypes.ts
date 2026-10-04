@@ -33,7 +33,7 @@ import type {
 export interface TokenFacts {
   /** Locations something jumps to with `goto`/`gt` (lower-case names). */
   gotoTargets: ReadonlySet<string>;
-  /** The blocks of a location that are only text (arguments nothing runs), where its symbols put them. */
+  /** The blocks of a location that are only text (arguments and blocks kept in variables nothing runs), where its symbols put them. */
   textBlocksOf(entry: PerLocationParseResult): readonly SymbolLocation[];
 }
 

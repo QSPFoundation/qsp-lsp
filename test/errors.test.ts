@@ -484,6 +484,32 @@ pl '<<x + >>'
     expect(here.map(d => d.message)).toEqual(["Variable 'g2' is used but never assigned"]);
   });
 
+  // A block kept in a variable is the text the variable holds: code only
+  // when something may run the variable, directly, through a copy or as
+  // an argument of a location that runs its own.
+  it('a block kept in a variable is text unless something may run the variable', () => {
+    const settings = { uninitializedVariables: true, maxErrorsPerLocation: 100 };
+    const quiet = [
+      "# a\nset $args['temp_<<args[{gen}]>>'] = {generic}\n---\n",
+      '# a\n$k = {pl y}\npl $k\n---\n',
+      "# a\n$k = {pl y}\n$c = $k\ngs 'b', $k\n---\n# b\npl $args[0]\n---\n",
+      "# a\n$args['t'] = {pl y}\n---\n# b\ndynamic $args[0]\n---\n",
+    ];
+    for (const code of quiet) expect(runDiagnostics(parser, code, settings), code).toEqual([]);
+    const runs = [
+      '# a\n$k = {pl y}\ndynamic $k\n---\n',
+      '# a\n$k = {pl y}\n---\n# b\n$s = dyneval($k)\n---\n',
+      "# a\n$h[1] = {pl y}\n$c = $h[1]\n---\n# b\ndynamic $c\n---\n",
+      "# a\n$k = {pl y}\ngs 'b', $k\n---\n# b\ndynamic $args[0]\n---\n",
+      "# a\n$args['t'] = {pl y}\ndynamic $args['t']\n---\n",
+      "# a\n$k = 'a' + {pl y}\n*pl '<a href=\"exec:dynamic $k\">go</a>'\n---\n",
+      '# a\n$result = {pl y}\n---\n',
+    ];
+    for (const code of runs) {
+      expect(runDiagnostics(parser, code, settings).map(d => d.message), code).toEqual(["Variable 'y' is used but never assigned"]);
+    }
+  });
+
   // Running a block doesn't run the blocks inside it: their syntax errors
   // count only when they run themselves.
   it('a block run shows the syntax errors of its own code, not of the blocks it holds', () => {

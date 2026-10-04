@@ -16,6 +16,7 @@ import {
 } from './symbolTypes';
 import { shiftError, type SyntaxError } from './extractErrors';
 import type { ArgBlock } from './argBlocks';
+import type { StoredBlock } from './storedBlocks';
 import type { TargetPattern } from './targetPattern';
 
 /** A jump or call with a non-literal target; see `LocationSymbols.dynamicLocationRefs`. */
@@ -330,6 +331,10 @@ export class LocationSymbols {
   public readonly argBlocks: ArgBlock[] = [];
   /** The `$args[N]` this location runs (`dynamic $args[N]`); ANY_ARG for an index that isn't a number. */
   public readonly runsArgs: number[] = [];
+  /** The `{…}` blocks this location keeps in variables (see storedBlocks.ts). */
+  public readonly storedBlocks: StoredBlock[] = [];
+  /** The words its `dynamic`/`dyneval` lines name, lower-case: the variables it may run (see storedBlocks.ts). */
+  public readonly runsVariables: string[] = [];
 
   constructor(locationName: string) {
     this.locationName = locationName;
@@ -753,6 +758,8 @@ export class LocationSymbols {
       for (const [k, v] of source.variableBindings) copy.variableBindings.set(k, v);
       for (const b of source.argBlocks) copy.argBlocks.push(b);
       for (const i of source.runsArgs) copy.runsArgs.push(i);
+      for (const b of source.storedBlocks) copy.storedBlocks.push(b);
+      for (const w of source.runsVariables) copy.runsVariables.push(w);
       return copy;
     }
 
@@ -867,6 +874,8 @@ export class LocationSymbols {
     }
     for (const b of source.argBlocks) copy.argBlocks.push({ ...b, loc: shift(b.loc) });
     for (const i of source.runsArgs) copy.runsArgs.push(i);
+    for (const b of source.storedBlocks) copy.storedBlocks.push({ ...b, loc: shift(b.loc) });
+    for (const w of source.runsVariables) copy.runsVariables.push(w);
 
     return copy;
   }

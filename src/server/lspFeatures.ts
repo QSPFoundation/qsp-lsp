@@ -84,6 +84,7 @@ import type {
 import type { ProjectVariableItem, TokenFacts } from './featureTypes';
 import { textArgBlocks } from '../parser/argBlocks';
 import { TextBlocks, locationNamedIn } from './textBlocks';
+import { textStoredBlocks } from '../parser/storedBlocks';
 import { buildJumpGraph, formatDynamicJumpStats, newDynamicJumpStats, type JumpGraphSource } from './jumpGraph';
 
 // Re-export types that consumers need
@@ -348,7 +349,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
     if (!doc) return null;
     const uri = params.textDocument.uri;
     const state = documentStates.get(uri);
-    if (new TextBlocks(documentStates).holds(uri, params.position.line, params.position.character)) return null;
+    if (new TextBlocks(documentStates, runVariablesOf).holds(uri, params.position.line, params.position.character)) return null;
 
     function getAgg(): SymbolAggregates {
       return getOrBuildAgg(ctx, state!, uri);
@@ -683,7 +684,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
     if (!doc) return null;
     const state = documentStates.get(params.textDocument.uri);
     if (!state) return null;
-    const text = new TextBlocks(documentStates);
+    const text = new TextBlocks(documentStates, runVariablesOf);
     if (text.holds(params.textDocument.uri, params.position.line, params.position.character)) return null;
     const found = resolveDefinition(ctx, state, params.textDocument.uri, params.position, doc);
     if (!found) return null;
@@ -698,7 +699,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
     if (!doc) return [];
     const state = documentStates.get(params.textDocument.uri);
     if (!state) return [];
-    const text = new TextBlocks(documentStates);
+    const text = new TextBlocks(documentStates, runVariablesOf);
     if (text.holds(params.textDocument.uri, params.position.line, params.position.character)) return [];
     return text.outside(collectAllReferences(ctx, state, params.textDocument.uri, params.position, doc))
       .map(symToLocation);
@@ -718,7 +719,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return null;
     const state = documentStates.get(params.textDocument.uri);
-    if (new TextBlocks(documentStates).holds(params.textDocument.uri, params.position.line, params.position.character)) return null;
+    if (new TextBlocks(documentStates, runVariablesOf).holds(params.textDocument.uri, params.position.line, params.position.character)) return null;
     return resolvePrepareRename(state, doc, params.position);
   });
 
@@ -727,21 +728,31 @@ export function registerLspFeatures(ctx: ServerContext): void {
     if (!doc) return null;
     const state = documentStates.get(params.textDocument.uri);
     if (!state) return null;
-    const text = new TextBlocks(documentStates);
+    const text = new TextBlocks(documentStates, runVariablesOf);
     if (text.holds(params.textDocument.uri, params.position.line, params.position.character)) return null;
     return buildRenameEdit(ctx, state, params.textDocument.uri, params.position, doc, params.newName, text);
   });
 
   // ==================== SEMANTIC TOKENS ====================
 
-  function tokenFactsNow(): TokenFacts {
+  // Only aggregates already worked out: a request must not wait for them,
+  // and without them every block kept in a variable stays code.
+  function runVariablesOf(uri: string): ReadonlySet<string> | undefined {
+    return ctx.projectAggregates?.runVariables ?? documentStates.get(uri)?.aggCache?.runVariables;
+  }
+
+  function tokenFactsNow(uri: string): TokenFacts {
     const callTypes = ctx.projectAggregates?.callTypesPerTarget ?? ctx.collectCallTypesPerTarget();
     const gotoTargets = new Set<string>();
     for (const [key, entry] of callTypes) {
       if (entry.types.has('goto')) gotoTargets.add(key);
     }
     const locationNamed = locationNamedIn(documentStates);
-    return { gotoTargets, textBlocksOf: (entry) => textArgBlocks([entry.symbols], locationNamed) };
+    const run = runVariablesOf(uri);
+    return {
+      gotoTargets,
+      textBlocksOf: (entry) => [...textArgBlocks([entry.symbols], locationNamed), ...textStoredBlocks([entry.symbols], run)],
+    };
   }
 
   connection.onRequest(SemanticTokensRequest.type, async (params: SemanticTokensParams, cancel) => {
@@ -756,7 +767,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
     if (state?.cachedSemanticTokens) return state.cachedSemanticTokens;
 
     if (state?.perLocationCache && state.locationIndex) {
-      const tokens = ctx.buildTokensFromCache(state.locationIndex, state.perLocationCache, tokenFactsNow());
+      const tokens = ctx.buildTokensFromCache(state.locationIndex, state.perLocationCache, tokenFactsNow(uri));
       state.cachedSemanticTokens = tokens;
       return tokens;
     }
@@ -770,7 +781,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
     if (state?.cachedSemanticTokens) return state.cachedSemanticTokens;
     if (state?.perLocationCache && state.locationIndex) {
       const lines = { start: params.range.start.line, end: params.range.end.line };
-      return ctx.buildTokensFromCache(state.locationIndex, state.perLocationCache, tokenFactsNow(), lines);
+      return ctx.buildTokensFromCache(state.locationIndex, state.perLocationCache, tokenFactsNow(params.textDocument.uri), lines);
     }
     return { data: [] };
   });
@@ -919,7 +930,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
   connection.onDocumentHighlight((params) => {
     if (!tsParser.isReady) return null;
     const uri = params.textDocument.uri;
-    if (new TextBlocks(documentStates).holds(uri, params.position.line, params.position.character)) return null;
+    if (new TextBlocks(documentStates, runVariablesOf).holds(uri, params.position.line, params.position.character)) return null;
     const state = documentStates.get(uri);
     let tree: ReturnType<typeof tsParser.parseOnce> = null;
     let lineOffset = 0;

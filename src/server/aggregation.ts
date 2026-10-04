@@ -35,6 +35,7 @@ import { runNow, type Steps } from './slices';
 import { bindingsOfLocal } from '../parser/variableBindings';
 import { locationInterface } from '../parser/locationInterface';
 import { literalOf, type TargetPattern } from '../parser/targetPattern';
+import { addValueFlows, emptyValueFlows, runVariablesOf, type ValueFlows } from '../parser/storedBlocks';
 
 /**
  * Project-wide aggregated data from all files.
@@ -223,6 +224,13 @@ export interface SymbolAggregates {
    * diagnostics.  Keyed by the callee's lowercase location name.
    */
   crossLocationDispatches: Map<string, CrossLocationDispatch[]>;
+  /** What the locations run and how values pass between variables (storedBlocks.ts). */
+  valueFlows: ValueFlows;
+  /**
+   * The variables whose value something may run, worked out from
+   * `valueFlows` by `finishAggregates`: a block kept in any other is text.
+   */
+  runVariables?: ReadonlySet<string>;
 }
 
 /** One candidate provider for a cross-location dispatch. */
@@ -337,6 +345,7 @@ export function emptyAggregates(): SymbolAggregates {
     locationsWritingResult: new Set(),
     argsUsageByLoc: new Map(),
     crossLocationDispatches: new Map(),
+    valueFlows: emptyValueFlows(),
   };
 }
 
@@ -385,6 +394,7 @@ export function collectAggregates(
       const shape = d.target && shapeOf(d.target);
       if (shape) out.dynamicTargetShapes.push(shape);
     }
+    addValueFlows(locSyms, out.valueFlows);
   }
 }
 
@@ -1123,6 +1133,7 @@ export function* finishAggregatesSteps(
   const locIndex = new Map<string, { locSyms: LocationSymbols; uri: string }>();
   for (const { locName, locSyms, uri } of allLocations) locIndex.set(locName.toLowerCase(), { locSyms, uri });
   const result = out.propagatedLocals;
+  out.runVariables = runVariablesOf(out.valueFlows);
 
   // ────────────────────────────────────────────────────────────────────
   // Post-pass: call-graph-sensitive dataflow.

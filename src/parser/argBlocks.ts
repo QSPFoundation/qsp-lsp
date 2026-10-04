@@ -12,6 +12,7 @@ import type { SymbolLocation } from './symbolTypes';
 import type { LocationSymbols } from './locationSymbols';
 import { descendantsOfType, parentOf } from './blockTrees';
 import { nodeLoc } from './walkHelpers';
+import { runWordsOf, storedNames } from './storedBlocks';
 
 /** A `{…}` passed as an argument: the callee gets it as `$args[index]`. */
 export interface ArgBlock {
@@ -36,7 +37,11 @@ const CALL_TYPES = [...CALLS, ...USER_CALLS];
 // `dynamic $args…`, `dyneval($args…`: a location that has none runs no argument.
 const RUNS_ARGS = /dyn(?:amic|eval)[\s(]*[$#%]?args\b/i;
 
-/** Record in `locSymbols` the blocks `locBlock` passes as arguments and the arguments it runs. */
+/**
+ * Record in `locSymbols` the blocks `locBlock` passes as arguments and the
+ * arguments it runs; and the blocks it keeps in variables and the variables
+ * it may run (storedBlocks.ts), found in the same walk over its blocks.
+ */
 export function collectArgBlocks(locBlock: Parser.SyntaxNode, locSymbols: LocationSymbols, docUri: string): void {
   // Most locations hold neither: looking at the text first spares
   // creating a node for every call, seconds on a large game.
@@ -46,7 +51,11 @@ export function collectArgBlocks(locBlock: Parser.SyntaxNode, locSymbols: Locati
       const parent = parentOf(block);
       const node = parent?.type === 'paren_args' ? parentOf(parent) : parent;
       const call = node && callOf(node);
-      if (!call) continue;
+      if (!call) {
+        const names = storedNames(block);
+        if (names) locSymbols.storedBlocks.push({ loc: nodeLoc(block, docUri), names });
+        continue;
+      }
       const { name, args } = call;
       const i = args.findIndex(a => a.id === block.id);
       let first = 0;
@@ -71,6 +80,7 @@ export function collectArgBlocks(locBlock: Parser.SyntaxNode, locSymbols: Locati
   if (RUNS_ARGS.test(text)) {
     for (const i of runArgs(locBlock)) locSymbols.runsArgs.push(i);
   }
+  for (const w of runWordsOf(text)) locSymbols.runsVariables.push(w);
 }
 
 /**

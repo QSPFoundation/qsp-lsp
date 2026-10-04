@@ -284,7 +284,7 @@ describe('duplicate label detection (real computeDiagnostics)', () => {
 
   it('code-block-internal sub-scopes share the block\'s root (collide)', () => {
     const diags = run(
-      `# main\n$code = {\n  :foo\n  if 1:\n    :foo\n  end\n}\n---\n`,
+      `# main\n$code = {\n  :foo\n  if 1:\n    :foo\n  end\n}\ndynamic $code\n---\n`,
     );
     expect(diags).toHaveLength(2);
   });
@@ -426,7 +426,7 @@ describe('unresolved label refs across nested isolated scopes', () => {
 
   it('jump in code-block inside act cannot reach act-level label', () => {
     expect(run(
-      `# main\nact 'go':\n  :foo\n  $cb = {\n    jump 'foo'\n  }\nend\n---\n`,
+      `# main\nact 'go':\n  :foo\n  $cb = {\n    jump 'foo'\n  }\n  dynamic $cb\nend\n---\n`,
     )).toHaveLength(1);
   });
 
@@ -442,13 +442,13 @@ describe('unresolved label refs across nested isolated scopes', () => {
 
   it('jump inside dynamic-block-in-stored-block cannot reach stored-block label', () => {
     expect(run(
-      `# main\n$cb = {\n  :foo\n  dynamic {\n    jump 'foo'\n  }\n}\n---\n`,
+      `# main\n$cb = {\n  :foo\n  dynamic {\n    jump 'foo'\n  }\n}\ndynamic $cb\n---\n`,
     )).toHaveLength(1);
   });
 
   it('jump inside stored-block-in-dynamic-block cannot reach dynamic-block label', () => {
     expect(run(
-      `# main\ndynamic {\n  :foo\n  $cb = {\n    jump 'foo'\n  }\n}\n---\n`,
+      `# main\ndynamic {\n  :foo\n  $cb = {\n    jump 'foo'\n  }\n  dynamic $cb\n}\n---\n`,
     )).toHaveLength(1);
   });
 

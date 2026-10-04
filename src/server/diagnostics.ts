@@ -28,6 +28,7 @@ import {
 
 import { libraryIdOfUri } from '../common/libraryConfig';
 import { argBlockRuns } from '../parser/argBlocks';
+import { textStoredBlocks } from '../parser/storedBlocks';
 import type { Suppressions } from '../common/suppressions';
 import { DiagnosticSeverity, type Diagnostic } from 'vscode-languageserver';
 import { runNow, type Steps } from './slices';
@@ -127,10 +128,11 @@ export function* diagnosticsSteps(
     allLocationDefs = symbols.locationDefs;
   }
 
-  // Blocks passed as arguments are text unless the callee runs them.
+  // Blocks passed as arguments are text unless the callee runs them, and
+  // blocks kept in variables unless something may run the variable.
   const runArgBlocks: SymbolLocation[] = [];
   if (symbols) {
-    const textBlocks: SymbolLocation[] = [];
+    const textBlocks = textStoredBlocks(symbols.locations.values(), agg?.runVariables);
     const locationNamed = (name: string) =>
       symbols.locations.get(name) ?? projectDocs.find(d => d.locations.has(name))?.locations.get(name);
     for (const [, locSyms] of symbols.locations) {

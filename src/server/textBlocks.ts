@@ -1,11 +1,12 @@
 // ── Text blocks for editor features ──────────────────────────────────
 //
-// A block passed as an argument that nothing runs is text (argBlocks.ts):
-// the words in it are not variables, locations or labels to show, jump to
-// or rename. Renaming `generic` must not touch `gs 'show', {generic}`,
-// which passes the text `generic`.
+// A block passed as an argument or kept in a variable that nothing runs is
+// text (argBlocks.ts, storedBlocks.ts): the words in it are not variables,
+// locations or labels to show, jump to or rename. Renaming `generic` must
+// not touch `gs 'show', {generic}`, which passes the text `generic`.
 import type { LocationSymbols, SymbolLocation } from '../parser';
 import { inBlocks, textArgBlocks } from '../parser/argBlocks';
+import { textStoredBlocks } from '../parser/storedBlocks';
 import type { DocumentState } from './featureTypes';
 
 /** The location of that name in any analysed file. */
@@ -24,7 +25,11 @@ export class TextBlocks {
   private readonly byUri = new Map<string, SymbolLocation[]>();
   private readonly locationNamed: (nameLower: string) => LocationSymbols | undefined;
 
-  constructor(private readonly states: ReadonlyMap<string, DocumentState>) {
+  /** `runVariablesOf` gives the aggregates' `runVariables` that hold for a file, when they are worked out. */
+  constructor(
+    private readonly states: ReadonlyMap<string, DocumentState>,
+    private readonly runVariablesOf: (uri: string) => ReadonlySet<string> | undefined,
+  ) {
     this.locationNamed = locationNamedIn(states);
   }
 
@@ -33,7 +38,10 @@ export class TextBlocks {
     let blocks = this.byUri.get(uri);
     if (!blocks) {
       const state = this.states.get(uri);
-      blocks = state ? textArgBlocks(state.symbols.locations.values(), this.locationNamed) : [];
+      blocks = state
+        ? [...textArgBlocks(state.symbols.locations.values(), this.locationNamed),
+          ...textStoredBlocks(state.symbols.locations.values(), this.runVariablesOf(uri))]
+        : [];
       this.byUri.set(uri, blocks);
     }
     return blocks;
