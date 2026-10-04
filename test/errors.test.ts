@@ -494,6 +494,16 @@ pl '<<x + >>'
       '# a\n$k = {pl y}\npl $k\n---\n',
       "# a\n$k = {pl y}\n$c = $k\ngs 'b', $k\n---\n# b\npl $args[0]\n---\n",
       "# a\n$args['t'] = {pl y}\n---\n# b\ndynamic $args[0]\n---\n",
+      // Another element runs: `$args['temp_…']` is not `$args['something']`.
+      "# a\nset $args['temp_<<args[{gen}]>>'] = {generic}\ndynamic $args['something'], 1, {value}\n---\n",
+      '# a\n$h[1] = {pl y}\ndynamic $h[2]\n---\n',
+      "# a\n$h['a'] = {pl y}\n$s = dyneval($h['b'])\n---\n",
+      "# a\n$h = {pl y}\ndynamic $h['0']\n---\n",
+      // A call passes its arguments into $args[N] of the callee, not into the element run.
+      "# a\n$args['t'] = {pl y}\ndynamic $args['s']\ngs 'a', $args['subject']\n---\n",
+      "# a\n$k = {pl y}\ngs 'b', 1, $k\n---\n# b\ndynamic $args[0]\n---\n",
+      // `$result` takes `$args['subject_…']` of `b`; the call passes `$args[3]`.
+      "# a\n$args['t'] = {pl y}\nset args['case'] = func('b', 'n', 's', 't', args['total'])\n---\n# b\nset $result = $args['subject_<<args[{i}]>>']\n---\n# c\n$x = dyneval($result)\n---\n",
     ];
     for (const code of quiet) expect(runDiagnostics(parser, code, settings), code).toEqual([]);
     const runs = [
@@ -504,6 +514,15 @@ pl '<<x + >>'
       "# a\n$args['t'] = {pl y}\ndynamic $args['t']\n---\n",
       "# a\n$k = 'a' + {pl y}\n*pl '<a href=\"exec:dynamic $k\">go</a>'\n---\n",
       '# a\n$result = {pl y}\n---\n',
+      "# a\n$h['A'] = {pl y}\ndynamic $h['a']\n---\n",
+      "# a\n$i = 'x'\n$args['temp_<<$i>>'] = {pl y}\ndynamic $args['temp_x']\n---\n",
+      "# a\n$i = 'a'\n$h['a'] = {pl y}\ndynamic $h[$i]\n---\n",
+      '# a\n$h = {pl y}\ndynamic $h[0]\n---\n',
+      "# a\n$h['a'] = {pl y}\n$c = $h\ndynamic $c['b']\n---\n",
+      "# a\n$k = {pl y}\ngs 'b', 1, $k\n---\n# b\ndynamic $args[1]\n---\n",
+      "# a\n$k = {pl y}\ngs 'b', $k\n---\n# b\ni = 0\ndynamic $args[i]\n---\n",
+      "# a\n$k = {pl y}\n$r = func('b', 'n', $k)\n---\n# b\n$result = $args[1]\n---\n# c\n$x = dyneval($result)\n---\n",
+      "# a\n$h['go'] = {pl y}\n$c = $h['GO']\ndynamic $c\n---\n",
     ];
     for (const code of runs) {
       expect(runDiagnostics(parser, code, settings).map(d => d.message), code).toEqual(["Variable 'y' is used but never assigned"]);

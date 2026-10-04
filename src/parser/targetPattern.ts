@@ -27,9 +27,11 @@ export type TargetPart =
   | { lit: string }
   /**
    * Every value the variable (lowercase base name) may hold; any element
-   * of an array unless `index` gives a constant one.
+   * of an array unless `index` gives a constant one. `key` is a string key
+   * written out, as storedBlocks.ts compares them: `'text`, or `^text`
+   * for one that goes on with something worked out.
    */
-  | { var: string; index?: number }
+  | { var: string; index?: number; key?: string }
   /** What the location (lowercase name) leaves in `result` when called as a function. */
   | { result: string }
   /**
@@ -129,7 +131,14 @@ function partsOf(node: Parser.SyntaxNode, depth: number): TargetPattern {
     if (!name) return unknown(t);
     const index = node.childForFieldName('index');
     const at = index?.namedChildCount === 1 && index.namedChild(0)!.type === 'number_literal' ? Number(index.namedChild(0)!.text) : undefined;
-    return [at !== undefined && Number.isInteger(at) ? { var: name.toLowerCase(), index: at } : { var: name.toLowerCase() }];
+    if (at !== undefined && Number.isInteger(at)) return [{ var: name.toLowerCase(), index: at }];
+    const keyNode = index?.namedChildCount === 1 && index.namedChild(0)!.type === 'string' ? index.namedChild(0)! : undefined;
+    const keyParts = keyNode ? partsOf(keyNode, depth + 1) : undefined;
+    const first = keyParts?.[0];
+    if (first && 'lit' in first) {
+      return [{ var: name.toLowerCase(), key: (keyParts!.length === 1 ? "'" : '^') + first.lit.toLowerCase() }];
+    }
+    return [{ var: name.toLowerCase() }];
   }
   if (t === 'paren_expr' || t === 'paren_args') {
     const inner = node.namedChild(0);

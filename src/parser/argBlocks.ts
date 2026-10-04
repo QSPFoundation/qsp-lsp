@@ -12,7 +12,7 @@ import type { SymbolLocation } from './symbolTypes';
 import type { LocationSymbols } from './locationSymbols';
 import { descendantsOfType, parentOf } from './blockTrees';
 import { nodeLoc } from './walkHelpers';
-import { runWordsOf, storedNames } from './storedBlocks';
+import { runWordsOf, storedIn } from './storedBlocks';
 
 /** A `{…}` passed as an argument: the callee gets it as `$args[index]`. */
 export interface ArgBlock {
@@ -52,8 +52,8 @@ export function collectArgBlocks(locBlock: Parser.SyntaxNode, locSymbols: Locati
       const node = parent?.type === 'paren_args' ? parentOf(parent) : parent;
       const call = node && callOf(node);
       if (!call) {
-        const names = storedNames(block);
-        if (names) locSymbols.storedBlocks.push({ loc: nodeLoc(block, docUri), names });
+        const stored = storedIn(block);
+        if (stored) locSymbols.storedBlocks.push({ loc: nodeLoc(block, docUri), ...stored });
         continue;
       }
       const { name, args } = call;
