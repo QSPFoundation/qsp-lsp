@@ -68,21 +68,32 @@ const STATEMENTS = [
   'setvar',
 ];
 
+// Functions that need an argument: written without parentheses, they take
+// the operand after them (`len $s`).
 const FUNCTIONS = [
   'arrcomp', 'arritem', 'arrpack', 'arrpos', 'arrsize', 'arrtype',
-  'countobj', 'curacts', 'curloc', 'curobjs',
   'desc', 'dyneval',
   'func',
   'getobj',
   'iif', 'input', 'instr', 'isnum', 'isplay',
   'lcase', 'len',
-  'maintxt', 'max', 'mid', 'min', 'msecscount',
-  'qspver',
-  'rand', 'replace', 'rgb', 'rnd',
-  'selact', 'selobj', 'stattxt', 'str', 'strcomp', 'strfind', 'strpos',
+  'max', 'mid', 'min',
+  'rand', 'replace', 'rgb',
+  'str', 'strcomp', 'strfind', 'strpos',
   'trim',
-  'ucase', 'user_text', 'usrtxt',
+  'ucase',
   'val',
+];
+
+// Functions that need no argument: QSP gives one only in parentheses, so
+// `countobj+1` and `rnd - 1` are sums, not calls with `+1` or `-1`.
+const NO_ARG_FUNCTIONS = [
+  'countobj', 'curacts', 'curloc', 'curobjs',
+  'maintxt', 'msecscount',
+  'qspver',
+  'rnd',
+  'selact', 'selobj', 'stattxt',
+  'user_text', 'usrtxt',
 ];
 
 /*
@@ -540,43 +551,68 @@ module.exports = grammar({
     // PEG: nonAmpersandFunctionCall — single arg uses nonAmpersandExpression
     // Bare arg uses _na_unary (not _na_expression) so that binary operators
     // are NOT consumed: `len 'abc' + 1` → `len('abc') + 1`.
-    na_func_call: $ => prec.right(seq(
-      field('prefix', optional($.type_prefix)),
-      field('name', $.function_name),
-      optional(choice(
-        prec(2, seq('(', ')')),
-        $.paren_args,
-        $._na_unary,                  // single bare arg (no binary ops)
+    na_func_call: $ => choice(
+      prec.right(seq(
+        field('prefix', optional($.type_prefix)),
+        field('name', $.function_name),
+        optional(choice(
+          prec(2, seq('(', ')')),
+          $.paren_args,
+          $._na_unary,                  // single bare arg (no binary ops)
+        )),
       )),
-    )),
+      prec.right(seq(
+        field('prefix', optional($.type_prefix)),
+        field('name', alias($._no_arg_function_name, $.function_name)),
+        optional(choice(prec(2, seq('(', ')')), $.paren_args)),
+      )),
+    ),
 
     // PEG: functionCall — single arg uses expression (with &)
     // Bare arg uses _ext_unary (not _ext_expression) so that binary operators
     // are NOT consumed: `len 'abc' + 1` → `len('abc') + 1`.
-    ext_func_call: $ => prec.right(seq(
-      field('prefix', optional($.type_prefix)),
-      field('name', $.function_name),
-      optional(choice(
-        prec(2, seq('(', ')')),
-        $.paren_args,
-        $._ext_unary,                 // single bare arg (no binary ops)
+    ext_func_call: $ => choice(
+      prec.right(seq(
+        field('prefix', optional($.type_prefix)),
+        field('name', $.function_name),
+        optional(choice(
+          prec(2, seq('(', ')')),
+          $.paren_args,
+          $._ext_unary,                 // single bare arg (no binary ops)
+        )),
       )),
-    )),
+      prec.right(seq(
+        field('prefix', optional($.type_prefix)),
+        field('name', alias($._no_arg_function_name, $.function_name)),
+        optional(choice(prec(2, seq('(', ')')), $.paren_args)),
+      )),
+    ),
 
     // PEG: multilineFunctionCall — mws, single arg uses multilineExpression
     // Bare arg uses _ml_unary (not _ml_expression) so that binary operators
     // are NOT consumed: `len 'abc' + 1` → `len('abc') + 1`.
-    ml_func_call: $ => seq(
-      field('prefix', optional($.type_prefix)),
-      field('name', $.function_name),
-      optional(choice(
-        seq(optional($._nls), prec(2, seq('(', ')'))),
-        seq(optional($._nls), $.paren_args),
-        $._ml_unary,                 // single bare arg (no binary ops)
-      )),
+    ml_func_call: $ => choice(
+      seq(
+        field('prefix', optional($.type_prefix)),
+        field('name', $.function_name),
+        optional(choice(
+          seq(optional($._nls), prec(2, seq('(', ')'))),
+          seq(optional($._nls), $.paren_args),
+          $._ml_unary,                 // single bare arg (no binary ops)
+        )),
+      ),
+      seq(
+        field('prefix', optional($.type_prefix)),
+        field('name', alias($._no_arg_function_name, $.function_name)),
+        optional(choice(
+          seq(optional($._nls), prec(2, seq('(', ')'))),
+          seq(optional($._nls), $.paren_args),
+        )),
+      ),
     ),
 
     function_name: $ => kw(FUNCTIONS),
+    _no_arg_function_name: $ => kw(NO_ARG_FUNCTIONS),
 
     // ══════════════════════════════════════════════════════════════════════════
     // LABEL / NOTE / IMPLICIT

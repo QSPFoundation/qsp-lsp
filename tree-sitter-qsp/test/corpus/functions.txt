@@ -454,3 +454,55 @@ x = mid(
             (number_literal)
             (number_literal)))))
     (location_end)))
+
+================
+Function without arguments followed by + or -
+================
+# test
+if i!COUNTOBJ+1:
+end
+x = rnd - 1
+x = len -1
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (ext_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_cmp)
+          (ext_binary
+            (ext_func_call
+              name: (function_name))
+            (op_arith)
+            (number_literal)))
+        end: (end_keyword)))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_binary
+          (na_func_call
+            name: (function_name))
+          (op_arith)
+          (number_literal))))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (na_unary
+            (op_neg)
+            (number_literal)))))
+    (location_end)))

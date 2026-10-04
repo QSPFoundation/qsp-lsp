@@ -184,14 +184,15 @@ QSP {
 
     functionCallNoArgs              = funcNameWithPrefix &delimiterChar
     functionCallEmptyArgs           = funcNameWithPrefix &delimiterChar ws "(" mws ")"
-    functionCallSingleArg           = funcNameWithPrefix &delimiterChar ws ( parenthesizedExpression | expression )
+    // A function that needs no argument takes one only in parentheses: `countobj+1` is a sum.
+    functionCallSingleArg           = ~noArgFuncName funcNameWithPrefix &delimiterChar ws ( parenthesizedExpression | expression )
     functionCallMultiArgs           = funcNameWithPrefix &delimiterChar ws parenthesizedArgument2plusList
 
     multilineFunctionCallEmptyArgs  = funcNameWithPrefix &delimiterChar mws "(" mws ")"
-    multilineFunctionCallSingleArg  = funcNameWithPrefix &delimiterChar mws ( parenthesizedExpression | multilineExpression )
+    multilineFunctionCallSingleArg  = ~noArgFuncName funcNameWithPrefix &delimiterChar mws ( parenthesizedExpression | multilineExpression )
     multilineFunctionCallMultiArgs  = funcNameWithPrefix &delimiterChar mws parenthesizedArgument2plusList
 
-    nonAmpersandFunctionCallSingleArg = funcNameWithPrefix &delimiterChar ws ( parenthesizedExpression | nonAmpersandExpression )
+    nonAmpersandFunctionCallSingleArg = ~noArgFuncName funcNameWithPrefix &delimiterChar ws ( parenthesizedExpression | nonAmpersandExpression )
 
     userFunctionCallNoArgs          = "@" userFunctionName
     userFunctionCallEmptyArgs       = "@" userFunctionName ws "(" mws ")"
@@ -367,6 +368,7 @@ QSP {
     userStatementName     = nonDelimiterChar+
     userFunctionName      = nonDelimiterChar+
     funcNameWithPrefix    = typePrefix? functionName
+    noArgFuncName         = typePrefix? noArgFunctionName &delimiterChar
     varName               = ~(keyword delimiterChar) ~digit nonDelimiterChar+
     varNameWithPrefix     = typePrefix? varName
 
@@ -487,6 +489,9 @@ QSP {
                             | "showinput"
                             | "showobjs"
                             | "showstat"
+
+    noArgFunctionName       = "countobj" | "curacts" | "curloc" | "curobjs" | "maintxt" | "msecscount"
+                            | "qspver" | "rnd" | "selact" | "selobj" | "stattxt" | "usrtxt" | "user_text"
 
     functionName            = "desc"
                             | "max"

@@ -3176,6 +3176,14 @@ dynamic $never
       expect(diags[0].message).toMatch(/Function 'rnd' expects 0 arguments, got 2 arguments$/);
     });
 
+    // A function that needs no argument takes none without parentheses:
+    // what follows is the rest of the expression.
+    it('does not take + or - after a 0-arg function for its argument', () => {
+      for (const line of ['if i!COUNTOBJ+1:\nend', 'x = rnd - 1', 'x = countobj -1', 'x = msecscount+1']) {
+        expect(argDiags(`# a\ni = 1\n${line}\n---\n`), line).toEqual([]);
+      }
+    });
+
     it('flags too few args on a fixed-arity function (iif takes 3)', () => {
       const diags = argDiags(`# a\nx = iif(1, 2)\n---\n`);
       expect(diags).toHaveLength(1);
