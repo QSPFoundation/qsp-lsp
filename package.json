@@ -1006,6 +1006,9 @@
       }
     ],
     "configurationDefaults": {
+      "[qsp]": {
+        "editor.stickyScroll.defaultModel": "foldingProviderModel"
+      },
       "editor.semanticTokenColorCustomizations": {
         "rules": {
           "namespace.goto:qsp": {

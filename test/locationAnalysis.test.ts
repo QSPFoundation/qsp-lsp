@@ -14,10 +14,14 @@
  * symbols: a location filled from the text alone (`regexOnly`) has no
  * variables or jumps, and turns off the "never used" checks of the whole
  * project.
+ * What folds is what Sticky Scroll keeps at the top of the editor: the
+ * blocks, each `elseif`/`else` branch, and the part under each label, so
+ * a nested `if`, a branch or a label in a long location can be found.
+ * Folding ranges must nest, so a label's part stays inside its branch.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { QspTreeSitterParser } from '../src/parser/treeSitter';
-import { extractLocationSymbols } from '../src/server/locationAnalysis';
+import { collectFoldLines, extractLocationSymbols } from '../src/server/locationAnalysis';
 import { initParser } from './testHelpers';
 
 const parser = new QspTreeSitterParser();
@@ -60,5 +64,41 @@ describe('extractLocationSymbols', () => {
     expect(symbols.findVariable('счёт')?.hasValueDefinition).toBe(true);
     expect([...symbols.locationRefs.keys()]).toEqual(['кухня']);
     expect(symbols.actions.map(a => a.name)).toEqual(['выйти']);
+  });
+});
+
+describe('collectFoldLines', () => {
+  it('folds blocks, each branch of an if and the part under each label, nested', () => {
+    const text = [
+      '# t',            // 0
+      ':start',         // 1
+      'pl 1',           // 2
+      'if x = 1:',      // 3
+      '  :inner',       // 4
+      '  pl 2',         // 5
+      '  if y:',        // 6
+      '    pl 3',       // 7
+      '  end',          // 8
+      'elseif x = 2:',  // 9
+      '  pl 4',         // 10
+      'else',           // 11
+      '  pl 5',         // 12
+      'end',            // 13
+      ':second',        // 14
+      'pl 6',           // 15
+      ':last',          // 16
+      '--- t ---',      // 17
+      '',
+    ].join('\n');
+    const tree = parser.parseOnce(text)!;
+    try {
+      const lines = collectFoldLines(tree);
+      const pairs: string[] = [];
+      for (let i = 0; i < lines.length; i += 2) pairs.push(`${lines[i]}-${lines[i + 1]}`);
+      // `:last` holds nothing after it, so it doesn't fold.
+      expect(pairs.sort()).toEqual(['1-13', '11-12', '14-15', '3-13', '4-8', '6-8', '9-10']);
+    } finally {
+      tree.delete();
+    }
   });
 });

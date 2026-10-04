@@ -89,6 +89,23 @@ suite('QSP extension', () => {
     assert.ok(labels.includes('len'));
   });
 
+  // Sticky Scroll keeps the headers of the blocks around the cursor at the
+  // top; built from the folding ranges, an `if` is one of them too.
+  test('Sticky Scroll is built from the folding ranges, which hold an if block', async () => {
+    const model = vscode.workspace.getConfiguration('editor', { languageId: 'qsp' }).get('stickyScroll.defaultModel');
+    assert.strictEqual(model, 'foldingProviderModel');
+
+    const doc = await vscode.workspace.openTextDocument({ language: 'qsp', content: "# a\nif x = 1:\n  pl 'one'\n  pl 'two'\nend\n--- a ---\n" });
+    await vscode.window.showTextDocument(doc);
+    const starts = await waitFor('folding ranges', async () => {
+      const ranges = await vscode.commands.executeCommand<vscode.FoldingRange[]>('vscode.executeFoldingRangeProvider', doc.uri);
+      const lines = (ranges ?? []).map(r => r.start);
+      return lines.includes(1) ? lines : undefined;
+    });
+    assert.ok(starts.includes(0), 'the location folds too');
+    await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+  });
+
   test('Combine Project Files writes the sources in txt2gam.json order', async () => {
     const root = vscode.workspace.workspaceFolders![0];
     const output = fixtureUri(`${root.name}.qsps`);

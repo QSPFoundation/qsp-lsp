@@ -26,6 +26,8 @@ Requires VS Code 1.85 or later. On [vscode.dev](https://vscode.dev) the extensio
 - **Document Symbols** — outline view with locations, labels, acts, and actions (Ctrl+Shift+O)
 - **Document Highlights** — highlight all occurrences of a variable or label under the cursor
 - **Go to Location** — quick-pick to jump to any location across the file or project (Ctrl+Shift+L)
+- **Folding and Sticky Scroll** — locations, `act`, `if` (each `elseif`/`else` branch too), `loop` and the part under each label fold, and Sticky Scroll keeps the ones around the top line pinned at the top of the editor; click a pinned line to jump to it. **Go to Parent Fold** (`editor.gotoParentFold`, no key by default) moves the cursor to the start of the block it is in.
+  VS Code keeps at most 5000 folding regions per file (`editor.foldingMaximumRegions`). Past that it drops whole nesting levels, the deepest first, until the rest fits, and says so in the status bar: in a large single-file game (around a thousand locations or more) the `act` and `if` blocks inside locations stop folding, and Sticky Scroll and Go to Parent Fold lose them too. Splitting the game into several files keeps each under the limit.
 
 ### Editing
 - **New Location** — insert a new `# name … ---` block
