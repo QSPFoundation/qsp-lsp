@@ -1,7 +1,8 @@
 // ── Zip writer ───────────────────────────────────────────────────────
 //
 // Just enough of the zip format to pack a crash report: deflated files,
-// no folders, no encryption, no zip64 (reports are a few megabytes).
+// no folders, no encryption, no zip64 (reports are a few megabytes); and
+// to read one back, to add to it.
 // Written here rather than taken from npm: the extension ships without
 // runtime dependencies for this, and Node's zlib does the compression.
 
@@ -87,4 +88,35 @@ export function zip(entries: readonly ZipEntry[], when = new Date()): Buffer {
   end.writeUInt32LE(centralSize, 12);
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, ...centrals, end]);
+}
+
+/**
+ * The files of a zip archive: stored or deflated, as `zip` and the
+ * common tools write them. Throws on anything else.
+ */
+export function unzip(archive: Buffer): ZipEntry[] {
+  let end = -1;
+  for (let i = archive.length - 22; i >= 0 && i >= archive.length - 22 - 0xffff; i--) {
+    if (archive.readUInt32LE(i) === 0x06054b50) { end = i; break; }
+  }
+  if (end < 0) throw new Error('not a zip archive');
+  const count = archive.readUInt16LE(end + 10);
+  let at = archive.readUInt32LE(end + 16);
+  const entries: ZipEntry[] = [];
+  for (let n = 0; n < count; n++) {
+    if (archive.readUInt32LE(at) !== 0x02014b50) throw new Error('broken zip directory');
+    const method = archive.readUInt16LE(at + 10);
+    const size = archive.readUInt32LE(at + 20);
+    const nameLength = archive.readUInt16LE(at + 28);
+    const extraLength = archive.readUInt16LE(at + 30);
+    const commentLength = archive.readUInt16LE(at + 32);
+    const local = archive.readUInt32LE(at + 42);
+    const name = archive.subarray(at + 46, at + 46 + nameLength).toString('utf8');
+    const dataAt = local + 30 + archive.readUInt16LE(local + 26) + archive.readUInt16LE(local + 28);
+    const raw = archive.subarray(dataAt, dataAt + size);
+    if (method !== 0 && method !== 8) throw new Error(`${name}: unsupported compression`);
+    entries.push({ name, data: method === 8 ? zlib.inflateRawSync(raw) : Buffer.from(raw) });
+    at += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
 }

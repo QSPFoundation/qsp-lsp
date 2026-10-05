@@ -7,7 +7,11 @@
  *   string, comment or number of the game may survive.
  * - It exists to reproduce analysis failures, so the structure (blocks,
  *   calls, assignments, line numbers) must survive and still parse, and
- *   one name must always map to one pseudonym.
+ *   one name must always map to one pseudonym. Strings and comments keep
+ *   what the analysis reads in them, their text masked: quotes, braces,
+ *   markup, `exec:` links, `<<…>>` interpolations (a location's comments
+ *   and interpolated keys were what made one crash, and dropping them
+ *   made the anonymized code analyse fine).
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { QspTreeSitterParser } from '../src/parser/treeSitter';
@@ -37,13 +41,14 @@ const CODE = [
   '--- Тайная_комната ---',
   '# Подземелье',
   "*pl 'Скрытый текст сюжета'",
+  `*pl '<a href="exec:gt ''Тайная_комната''">Вниз</a>' & ! Заметка {о том} 'что' <<сделать>>`,
   "gt 'Тайная_комната'",
   '--- Подземелье ---',
   '',
 ].join('\n');
 
 const SECRETS = ['Текст', 'сюжет', 'Тайная', 'Секретный', 'пароль', 'шифр', 'семь', 'сокровище', 'Золотой', 'ключ',
-  'сила', 'меню', 'Сундук', 'Подземелье', 'метка', 'сна', 'Открыть', 'Проклятый', 'амулет', 'Скрытый', '42', '10'];
+  'сила', 'меню', 'Сундук', 'Подземелье', 'метка', 'сна', 'Открыть', 'Проклятый', 'амулет', 'Скрытый', 'Вниз', 'Заметка', 'сделать', '42', '10'];
 
 function types(tree: ReturnType<QspTreeSitterParser['parseOnce']>): Map<string, number> {
   const counts = new Map<string, number>();
@@ -71,7 +76,8 @@ describe('anonymizeCode', () => {
     expect(again.rootNode.hasError).toBe(false);
     expect(text.split('\n')).toHaveLength(CODE.split('\n').length);
     const before = types(tree), after = types(again);
-    for (const t of ['location_block', 'code_block', 'if_inline', 'act_inline', 'local_statement', 'assignment_statement', 'user_func_call', 'label_statement']) {
+    for (const t of ['location_block', 'code_block', 'if_inline', 'act_inline', 'local_statement', 'assignment_statement', 'user_func_call', 'label_statement',
+      'comment_statement', 'raw_code_block', 'raw_string', 'string_interpolation']) {
       expect(after.get(t), t).toBe(before.get(t));
     }
     tree.delete();
@@ -92,6 +98,16 @@ describe('anonymizeCode', () => {
     // Builtin variables and keywords stay as written.
     expect(text).toContain('if args[0] = 0:');
     expect(text).toContain('dynamic $');
+  });
+
+  it('masks the text of strings and comments, keeping what the analysis reads in them', () => {
+    const tree = parser.parseOnce(CODE)!;
+    const { text, names } = anonymizeCode(tree, CODE);
+    tree.delete();
+    const password = Object.keys(names).find(p => names[p] === 'пароль')!;
+    expect(text).toContain(`"xxxxxxx <<$${password}>> xxxx"`);
+    expect(text).toContain(`'<x xxxx="exec:xx ''xxxxxxxxxxxxxx''">xxxx</x>'`);
+    expect(text).toContain("! xxxxxxx {x xxx} 'xxx' <<xxxxxxx>>");
   });
 
   it('uses the pseudonyms it is given for locations', () => {

@@ -209,6 +209,11 @@
         "category": "QSP"
       },
       {
+        "command": "qsp.addAnonymizedCodeToCrashReport",
+        "title": "Add Anonymized Code to Crash Report",
+        "category": "QSP"
+      },
+      {
         "command": "qsp.diagnostics.turnOff",
         "title": "Turn Off a Diagnostic Check",
         "category": "QSP"
@@ -868,7 +873,7 @@
             "Never add it."
           ],
           "default": "ask",
-          "description": "Whether a crash report may include the anonymized code of the location the server was analysing: names replaced by neutral ones, strings by x-es, numbers by 0, comments removed. It keeps the structure that made the analysis fail, so the problem can be reproduced without the game."
+          "description": "Whether a crash report may include the anonymized code of the location the server was analysing: names replaced by neutral ones, the letters of strings and comments by x-es (their quotes, braces, markup and <<…>> code stay), numbers by 0. It keeps the structure that made the analysis fail, so the problem can be reproduced without the game."
         },
         "qsp.debug.performanceLog": {
           "type": "boolean",

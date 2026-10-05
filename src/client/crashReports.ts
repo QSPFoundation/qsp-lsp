@@ -17,7 +17,7 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { State, type LanguageClient } from 'vscode-languageclient/node';
 import { claimRun, isAlive, listRuns, packRun, pruneReports, removeRun, type CrashSummary, type RecordedRun } from './crashPackage';
-import { zip, type ZipEntry } from './zip';
+import { unzip, zip, type ZipEntry } from './zip';
 import * as logger from './logger';
 
 const KEEP_REPORTS = 5;
@@ -88,7 +88,7 @@ export function registerCrashReports(context: vscode.ExtensionContext, client: L
     };
     const { entries, summary } = packRun(recorderDir, run.pid, environment);
     const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const reportsDir = folder ? path.join(folder, '.qsp', 'crash-reports') : path.join(context.globalStorageUri.fsPath, 'crash-reports');
+    const reportsDir = reportsDirOf();
     fs.mkdirSync(reportsDir, { recursive: true });
     // Reports are for sending, not for the game's repository.
     const ignore = path.join(reportsDir, '.gitignore');
@@ -119,8 +119,8 @@ export function registerCrashReports(context: vscode.ExtensionContext, client: L
     if (pick === 'Add Anonymized Code') {
       if (await addCode(summary, pseudonyms, entries, zipPath, namesPath)) {
         const open = await vscode.window.showInformationMessage(
-          `QSP: the anonymized code of ${summary.location} was added to the crash report. Names are replaced, strings are x-es, `
-          + 'numbers are 0 and comments are gone. Please look it over before sending.',
+          `QSP: the anonymized code of ${summary.location} was added to the crash report. Names are replaced, the letters of strings and comments are x-es, `
+          + 'numbers are 0. Please look it over before sending.',
           'Open Folder',
         );
         if (open) await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(zipPath));
@@ -130,6 +130,11 @@ export function registerCrashReports(context: vscode.ExtensionContext, client: L
     } else if (pick === 'Open Folder') {
       await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(zipPath));
     }
+  };
+
+  const reportsDirOf = () => {
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return folder ? path.join(folder, '.qsp', 'crash-reports') : path.join(context.globalStorageUri.fsPath, 'crash-reports');
   };
 
   // The code comes from the running (restarted) server, anonymized with
@@ -159,7 +164,58 @@ export function registerCrashReports(context: vscode.ExtensionContext, client: L
     return true;
   };
 
+  // For a report whose offer to add the code was passed by: its table of
+  // names is still beside it, and the location's code is read as it is now.
+  const addCodeLater = async () => {
+    const dir = reportsDirOf();
+    const reports = (fs.existsSync(dir) ? fs.readdirSync(dir) : [])
+      .filter(f => /^crash-.*\.zip$/.test(f) && fs.existsSync(path.join(dir, f.replace(/\.zip$/, '.names.json'))))
+      .sort().reverse();
+    if (reports.length === 0) {
+      void vscode.window.showInformationMessage(`QSP: no crash report with its table of names in ${dir}.`);
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(reports, { placeHolder: 'Crash report to add the anonymized code to' });
+    if (!picked) return;
+    const zipPath = path.join(dir, picked);
+    const namesPath = zipPath.replace(/\.zip$/, '.names.json');
+    let entries: ZipEntry[];
+    let summary: CrashSummary | undefined;
+    let pseudonyms: Record<string, string>;
+    try {
+      entries = unzip(fs.readFileSync(zipPath));
+      const crash = entries.find(e => e.name === 'crash.json');
+      summary = crash ? (JSON.parse(crash.data.toString('utf8')) as { summary?: CrashSummary }).summary : undefined;
+      pseudonyms = JSON.parse(fs.readFileSync(namesPath, 'utf8')) as Record<string, string>;
+    } catch (err) {
+      void vscode.window.showWarningMessage(`QSP: could not read ${picked}: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    if (entries.some(e => e.name.startsWith('anonymized-'))) {
+      // Made by an earlier version, which kept less of the structure.
+      const replace = 'Replace';
+      const answer = await vscode.window.showInformationMessage(`QSP: ${picked} already has the anonymized code. Replace it with the code as it is now?`, replace);
+      if (answer !== replace) return;
+      entries = entries.filter(e => !e.name.startsWith('anonymized-'));
+    }
+    if (!summary?.location || !pseudonyms[summary.location]) {
+      void vscode.window.showInformationMessage(`QSP: ${picked} names no location the server was analysing.`);
+      return;
+    }
+    if (await addCode(summary, pseudonyms, entries, zipPath, namesPath)) {
+      const open = await vscode.window.showInformationMessage(
+        `QSP: the anonymized code of ${summary.location} (as it is now) was added to ${picked}. Names are replaced, the letters of strings and comments are x-es, `
+        + 'numbers are 0. Please look it over before sending.',
+        'Open Folder',
+      );
+      if (open) await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(zipPath));
+    } else {
+      void vscode.window.showWarningMessage(`QSP: could not produce the anonymized code of ${summary.location}: the language server did not answer, or the location is gone.`);
+    }
+  };
+
   context.subscriptions.push(
+    vscode.commands.registerCommand('qsp.addAnonymizedCodeToCrashReport', addCodeLater),
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('qsp.crashReports.enabled')) applySetting();
     }),

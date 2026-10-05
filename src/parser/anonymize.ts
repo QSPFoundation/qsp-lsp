@@ -5,10 +5,12 @@
 // blocks, calls, assignments) survives, the text doesn't. It works from
 // a whitelist: only grammar keywords, operators and punctuation pass
 // through as written. Names become neutral pseudonyms (`var_0003`,
-// `loc_0012`, `lbl_2`), strings become `x` of the same length, numbers
-// become 0, comments and the text between locations are dropped, and
-// anything else is masked letter by letter. Line breaks are kept so line
-// numbers still match.
+// `loc_0012`, `lbl_2`), numbers become 0, the text between locations is
+// dropped, and anything else, strings and comments included, is masked
+// letter by letter: letters become `x`, digits `0`. What the analysis
+// reads in them stays: quotes, braces, markup, `exec:` links and
+// `<<…>>` interpolations, whose code is anonymized as code. Line breaks
+// are kept so line numbers still match.
 
 import type Parser from 'web-tree-sitter';
 import { lookupBuiltin } from './builtins';
@@ -40,12 +42,14 @@ const KEEP_TYPES = new Set([
   'op_amp', 'op_and', 'op_arith', 'op_cmp', 'op_loc', 'op_mod', 'op_neg', 'op_no', 'op_obj', 'op_or', 'op_pos',
 ]);
 const STRING_TYPES = new Set(['string', 'single_quoted_string', 'double_quoted_string', 'raw_string']);
-// Free text: only its line breaks are kept.
-const DROP_TYPES = new Set(['comment_statement', 'inter_loc_text']);
+// Free text outside locations: only its line breaks are kept.
+const DROP_TYPES = new Set(['inter_loc_text']);
 
 const mask = (s: string) => s.replace(/[\p{L}_]/gu, 'x').replace(/\p{N}/gu, '0');
 const keepLines = (s: string) => s.replace(/[^\r\n]/g, '');
-const filler = (s: string) => s.replace(/[^\r\n]/g, 'x');
+// Text in strings and comments: masked, but an `exec:` link stays one,
+// so its code is still sub-parsed as the game's is.
+const maskText = (s: string) => s.split(/(exec:)/i).map((part, i) => (i % 2 === 1 ? part : mask(part))).join('');
 
 /** Anonymize `text`, which `tree` was parsed from (one location or a whole file). */
 export function anonymizeCode(tree: Parser.Tree, text: string, opts: AnonymizeOptions = {}): AnonymizedCode {
@@ -72,7 +76,7 @@ export function anonymizeCode(tree: Parser.Tree, text: string, opts: AnonymizeOp
   // Hidden grammar terminals (raw strings, newlines) show up between the
   // visible nodes, so the gaps are masked too, not copied.
   const emit = (node: Parser.SyntaxNode, replacement: string) => {
-    out += mask(text.slice(pos, node.startIndex)) + replacement;
+    out += maskText(text.slice(pos, node.startIndex)) + replacement;
     pos = node.endIndex;
   };
 
@@ -104,9 +108,9 @@ export function anonymizeCode(tree: Parser.Tree, text: string, opts: AnonymizeOp
       // A string naming a location (`gt 'kitchen'`) keeps pointing at it.
       const real = inner.split(q + q).join(q).trim();
       if (real && locations.has(real.toLowerCase())) return q + locations.get(real.toLowerCase())! + q;
-      return q + filler(inner) + q;
+      return q + maskText(inner) + q;
     }
-    return filler(t);
+    return maskText(t);
   };
 
   const visit = (node: Parser.SyntaxNode) => {
@@ -115,7 +119,14 @@ export function anonymizeCode(tree: Parser.Tree, text: string, opts: AnonymizeOp
       return;
     }
     if (STRING_TYPES.has(node.type)) {
-      emit(node, stringText(node));
+      // Interpolated code is code: walked like the rest, the text between masked.
+      if (node.descendantsOfType('string_interpolation').length === 0) {
+        emit(node, stringText(node));
+        return;
+      }
+    }
+    if (node.type === 'comment_statement') {
+      emit(node, maskText(node.text));
       return;
     }
     if (DROP_TYPES.has(node.type)) {
@@ -136,6 +147,6 @@ export function anonymizeCode(tree: Parser.Tree, text: string, opts: AnonymizeOp
   // Location names first, so `gt 'kitchen'` before `# kitchen` still maps.
   for (const node of tree.rootNode.descendantsOfType('location_name')) locationName(node.text);
   visit(tree.rootNode);
-  out += mask(text.slice(pos));
+  out += maskText(text.slice(pos));
   return { text: out, names };
 }

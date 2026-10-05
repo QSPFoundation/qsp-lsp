@@ -16,7 +16,7 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { claimRun, isAlive, listRuns, packRun, pruneReports, removeRun } from '../src/client/crashPackage';
-import { crc32, zip } from '../src/client/zip';
+import { crc32, unzip as readZip, zip } from '../src/client/zip';
 
 // Enough of a zip reader to check the writer: central directory → entries.
 function unzip(buf: Buffer): Map<string, Buffer> {
@@ -54,6 +54,28 @@ describe('zip', () => {
     expect([...files.keys()]).toEqual(['crash.json', 'память.csv']);
     expect(files.get('память.csv')!.equals(big)).toBe(true);
     expect(archive.length).toBeLessThan(big.length / 10);
+  });
+
+  // A report whose offer to add the code was passed by gets it later
+  // (QSP: Add Anonymized Code to Crash Report): the archive is read back.
+  it('reads back what it wrote, and stored files other tools write', () => {
+    const entries = [{ name: 'crash.json', data: Buffer.from('{"summary":{}}') }, { name: 'память.csv', data: Buffer.from('heap,'.repeat(1000)) }];
+    expect(readZip(zip(entries))).toEqual(entries);
+    // Make the first entry stored: method 0, its data as it is.
+    const plain = zip([{ name: 'a.txt', data: Buffer.from('x') }]);
+    const asStored = Buffer.from(plain);
+    asStored.writeUInt16LE(0, 8);
+    const centralAt = asStored.readUInt32LE(asStored.length - 22 + 16);
+    asStored.writeUInt16LE(0, centralAt + 10);
+    const dataAt = 30 + 'a.txt'.length;
+    const deflatedSize = asStored.readUInt32LE(18);
+    const rebuilt = Buffer.concat([asStored.subarray(0, dataAt), Buffer.from('x'), asStored.subarray(dataAt + deflatedSize)]);
+    rebuilt.writeUInt32LE(1, 18);
+    const newCentral = centralAt - deflatedSize + 1;
+    rebuilt.writeUInt32LE(1, newCentral + 20);
+    rebuilt.writeUInt32LE(newCentral, rebuilt.length - 22 + 16);
+    expect(readZip(rebuilt)).toEqual([{ name: 'a.txt', data: Buffer.from('x') }]);
+    expect(() => readZip(Buffer.from('not a zip at all, just some text'))).toThrow(/not a zip/);
   });
 });
 

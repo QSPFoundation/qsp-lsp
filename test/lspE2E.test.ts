@@ -500,7 +500,7 @@ describe('LSP e2e: anonymized location code for crash reports', () => {
     const result = await h.client.sendRequest('qsp/anonymizedLocation', {
       uri, name: 'кухня', locations: { 'кухня': 'f01_l0001', 'погреб': 'f01_l0002' },
     }) as { text: string; names: Record<string, string> };
-    expect(result.text).toBe("# f01_l0001\n$var_0001 = 'xxxxxxxxxxx'\ngt 'f01_l0002'\n--- xxxxx ---");
+    expect(result.text).toBe("# f01_l0001\n$var_0001 = 'xxxxxx xxxx'\ngt 'f01_l0002'\n--- xxxxx ---");
     expect(result.names).toEqual({ var_0001: 'рецепт' });
     expect(await h.client.sendRequest('qsp/anonymizedLocation', { uri, name: 'нет такой' })).toBeNull();
   });
