@@ -386,28 +386,73 @@ export function walkLocationBody(
     }
   };
 
-  const walked = new Set<number>();
-  const remaining = new Set<number>(blockInboundLocals.keys());
-  const maxIter = remaining.size + 1;
-  for (let iter = 0; iter < maxIter && remaining.size > 0; iter++) {
-    let picked: number | null = null;
-    for (const id of remaining) {
-      const callers = blockCallers.get(id);
-      let ready = true;
-      if (callers) {
-        for (const c of callers) {
-          if (c === 0) continue;
-          if (c === id) continue;
-          if (!walked.has(c)) { ready = false; break; }
-        }
-      }
-      if (ready) { picked = id; break; }
+  // Each block once the blocks that run it are walked, the first in order
+  // that is; in a cycle, the first left. Counted down rather than searched
+  // for: a search over the blocks left at each step took seconds for a
+  // few thousand blocks kept in variables.
+  const order = [...blockInboundLocals.keys()];
+  const waitingFor = new Int32Array(order.length);
+  const unblocks = new Map<number, number[]>();
+  order.forEach((id, i) => {
+    for (const c of blockCallers.get(id) ?? []) {
+      if (c === 0 || c === id) continue;
+      waitingFor[i]++;
+      let list = unblocks.get(c);
+      if (!list) unblocks.set(c, list = []);
+      list.push(i);
     }
-    if (picked === null) picked = remaining.values().next().value as number;
+  });
+  const done = new Uint8Array(order.length);
+  const ready = new MinHeap();
+  order.forEach((_, i) => { if (waitingFor[i] === 0) ready.push(i); });
+  let firstLeft = 0;
+  for (let n = 0; n < order.length; n++) {
+    let picked = ready.pop();
+    while (picked !== undefined && done[picked]) picked = ready.pop();
+    if (picked === undefined) {
+      while (done[firstLeft]) firstLeft++;
+      picked = firstLeft;
+    }
+    done[picked] = 1;
+    walkBlock(blockInboundLocals.get(order[picked])!);
+    for (const j of unblocks.get(order[picked]) ?? []) {
+      if (--waitingFor[j] === 0 && !done[j]) ready.push(j);
+    }
+  }
+}
 
-    const entry = blockInboundLocals.get(picked)!;
-    walked.add(picked);
-    remaining.delete(picked);
-    walkBlock(entry);
+// The smallest of the numbers pushed, popped first.
+class MinHeap {
+  private readonly items: number[] = [];
+
+  push(x: number): void {
+    const a = this.items;
+    a.push(x);
+    for (let i = a.length - 1; i > 0;) {
+      const up = (i - 1) >> 1;
+      if (a[up] <= a[i]) break;
+      [a[up], a[i]] = [a[i], a[up]];
+      i = up;
+    }
+  }
+
+  pop(): number | undefined {
+    const a = this.items;
+    if (a.length === 0) return undefined;
+    const top = a[0];
+    const last = a.pop()!;
+    if (a.length > 0) {
+      a[0] = last;
+      for (let i = 0; ;) {
+        const l = 2 * i + 1, r = l + 1;
+        let m = i;
+        if (l < a.length && a[l] < a[m]) m = l;
+        if (r < a.length && a[r] < a[m]) m = r;
+        if (m === i) break;
+        [a[m], a[i]] = [a[i], a[m]];
+        i = m;
+      }
+    }
+    return top;
   }
 }
