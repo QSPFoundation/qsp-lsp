@@ -130,13 +130,36 @@ export function isNeverRunBlock(block: Parser.SyntaxNode): boolean {
   return false;
 }
 
+// Each tree's parents found so far, by node id.
+const parents = new WeakMap<Parser.Tree, Map<number, Parser.SyntaxNode | null>>();
+
+// `node.parent`, remembered. Tree-sitter keeps no parent links: it finds a
+// parent by going down from the root, through every child before it on
+// the way, so climbing from each of a location's thousand statements cost
+// a thousand children each. A parent found is remembered for all its
+// children at once, one pass over them, and the next ones cost nothing.
+function rawParent(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
+  let known = parents.get(node.tree);
+  if (!known) parents.set(node.tree, known = new Map());
+  const cached = known.get(node.id);
+  if (cached !== undefined) return cached;
+  const parent = node.parent;
+  if (parent) {
+    for (const child of parent.children) known.set(child.id, parent);
+  }
+  known.set(node.id, parent);
+  return parent;
+}
+
 /** `node`'s parent; for a block's statement, the `code_block`. */
 export function parentOf(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
-  const parent = node.parent;
+  const parent = rawParent(node);
   const host = hosts.get(node.tree);
   if (!host) return parent;
   // The root of a block's tree, or the location node under it.
-  if (!parent || !parent.parent || (isLocationBlock(parent) && !parent.parent.parent)) return host;
+  if (!parent) return host;
+  const grand = rawParent(parent);
+  if (!grand || (isLocationBlock(parent) && !rawParent(grand))) return host;
   return parent;
 }
 
