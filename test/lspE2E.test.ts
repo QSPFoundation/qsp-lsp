@@ -832,7 +832,7 @@ describe('LSP e2e: opening a large file with a stored analysis', () => {
         textDocument: { uri, version: 2 }, contentChanges: [{ text: edited }],
       });
       let after = (await changed).diagnostics;
-      // The quick pass clears diagnostics before the parse publishes them.
+      // Older diagnostics may come first, from the open.
       while (!after.some(d => d.code === 'syntax')) after = (await h.nextDiagnosticsFor(uri)).diagnostics;
       expect(after).toEqual(before.filter(d => d !== unresolved));
     } finally {
@@ -1022,11 +1022,8 @@ describe('LSP e2e: a local passed to a call, after an edit of its location', () 
       expect(unread(await h.diagnosticsFor(uri))).toEqual([]);
 
       await new Promise(r => setTimeout(r, 900)); // the open's analysis is over
-      // The edit clears the diagnostics (fast tier), then sends the checked ones.
-      const checked = (async () => {
-        while ((await h.nextDiagnosticsFor(uri)).diagnostics.length > 0) { /* still the open's */ }
-        return h.nextDiagnosticsFor(uri);
-      })();
+      // The edit's diagnostics replace the open's; none are cleared before.
+      const checked = h.nextDiagnosticsFor(uri);
       h.client.sendNotification(DidChangeTextDocumentNotification.type, {
         textDocument: { uri, version: 2 },
         contentChanges: [{ range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } }, text: "pl 'привет'\n" }],

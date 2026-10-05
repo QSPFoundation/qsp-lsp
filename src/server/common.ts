@@ -916,11 +916,11 @@ export function createQspServer(
       suppressions: parseSuppressions(text, locationIndex),
     });
 
-    // Clear stale diagnostics immediately so the user doesn't see
-    // warnings/errors with outdated line numbers while the tree tier
-    // debounce is pending.  The tree tier will send fresh diagnostics
-    // once tree-sitter re-parses the document.
-    safeSendDiagnostics(connection, { uri: doc.uri, diagnostics: [] });
+    // The diagnostics published are kept until the tree tier replaces
+    // them: the editor moves their squiggles with the text meanwhile.
+    // Clearing them on every keystroke made the Problems panel flicker,
+    // and VS Code's table view (1.140) fails to redraw a list that
+    // shrinks under a selected row, leaving the panel empty.
 
     // In project mode, if the set of location names changed (rename,
     // add, or delete), re-diagnose all OTHER project files so their

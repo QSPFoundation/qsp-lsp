@@ -301,14 +301,14 @@ try {
     for (let i = 0; i < edits; i++) {
       const started = Date.now();
       const done = waitFor(m => m.method === 'textDocument/publishDiagnostics' && m.params.uri === openUri, 120);
-      // The open file's second publish after the edit is the full one
-      // (the first clears it); the other files' come in the same run.
+      // The open file's first publish after the edit is the full one;
+      // the other files' come in the same run.
       const others = new Set();
       let openPublishes = 0;
       const full = waitFor(m => {
         if (m.method !== 'textDocument/publishDiagnostics') return false;
         if (m.params.uri !== openUri) { others.add(m.params.uri); return false; }
-        return ++openPublishes === 2;
+        return ++openPublishes === 1;
       }, 300);
       send({
         method: 'textDocument/didChange',
