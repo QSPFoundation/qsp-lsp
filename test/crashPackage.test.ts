@@ -94,11 +94,21 @@ describe('crash runs', () => {
     // Killed with its editor: no clean mark, nothing unusual either.
     put('session-333.json', '{}');
     put('memory-333.csv', 'seconds,heapUsedMB,heapLimitMB,rssMB\n9000,183,4096,577\n');
+    // Grew fast while a large game loaded, then ran calmly until it was killed.
+    put('session-444.json', '{}');
+    put('breadcrumbs-444.jsonl', JSON.stringify({ t: 90.7, kind: 'heap-growth', heapMB: 429, growthMB: 287 }) + '\n');
+    put('memory-444.csv', 'seconds,heapUsedMB,heapLimitMB,rssMB\n1069.7,166,4192,472\n');
+    // Killed while stuck: the stall breadcrumbs go on to its end.
+    put('session-555.json', '{}');
+    put('breadcrumbs-555.jsonl', JSON.stringify({ t: 400, kind: 'stall', heapMB: 300 }) + '\n');
+    put('memory-555.csv', 'seconds,heapUsedMB,heapLimitMB,rssMB\n420,300,4096,600\n');
 
     const runs = listRuns(dir);
     expect(runs.find(r => r.pid === 222)!.clean).toBe(true);
     const crashed = runs.find(r => r.pid === 111)!;
     expect(runs.find(r => r.pid === 333)).toMatchObject({ clean: false, anomalies: false });
+    expect(runs.find(r => r.pid === 444)).toMatchObject({ clean: false, anomalies: false });
+    expect(runs.find(r => r.pid === 555)).toMatchObject({ clean: false, anomalies: true });
     expect(crashed).toMatchObject({ clean: false, anomalies: true, names: { workspaceFolders: ['file:///home/someone/Секретная_игра'] } });
 
     expect(claimRun(dir, 111)).toBe(true);

@@ -57,7 +57,7 @@ export function registerCrashReports(context: vscode.ExtensionContext, client: L
         if (!claimRun(recorderDir, run.pid)) continue;
         if (!run.anomalies) {
           removeRun(recorderDir, run.pid);
-          logger.log(`Language server process ${run.pid} ended without shutting down, with nothing unusual recorded; no crash report made.`);
+          logger.log(`Language server process ${run.pid} ended without shutting down, with nothing unusual recorded near its end; no crash report made.`);
           continue;
         }
         await report(run);

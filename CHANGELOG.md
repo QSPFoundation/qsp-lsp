@@ -28,6 +28,7 @@
 - Files in `libs/` show errors only (no warnings about a library's unused locations or variables), and a duplicate location names the library it clashes with.
 
 ### Fixes
+- A server closed with its editor is no longer reported as a crash because its heap once grew fast, while a large game loaded, long before: a run that ended without shutting down is a crash only if something was going wrong at its end (the heap past half its limit, a breadcrumb in its last two minutes, an uncaught error).
 - An edit no longer clears the file's problems until it is checked again (half a second later): the Problems panel stopped flickering on every key, and its table view no longer goes empty when the list shrinks under a selected row (a VS Code error, `Cannot read properties of undefined (reading 'element')`).
 - A location with many `{…}` blocks nested in blocks kept in variables is analysed in a fraction of the time: finding a node's parent no longer goes through every statement before it each time, and blocks run from other blocks are put in order without searching all of them at each step (800 such groups: 2.6 s instead of 5.7 s).
 - `ADDLIB` and `DELLIB`, the old names of `INCLIB` and `FREELIB` besides `ADDQST` and `KILLQST`, are known: highlighted, checked and reported as outdated like those. `CLOSE` without a file (it stops every sound) no longer reports a missing argument, and `DISABLESUBEX` is known as a system variable (unused by players 5.8.0 and later).

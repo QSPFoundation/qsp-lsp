@@ -16,10 +16,13 @@ export interface RecordedRun {
   /** It stopped normally (its recorder wrote clean-<pid>.json). */
   clean: boolean;
   /**
-   * Its recorder saw something wrong: the heap past half its limit or
-   * growing fast, the analysis stuck, an uncaught exception. A run that
-   * stopped without a clean mark and without any of these was most
-   * likely killed with its editor, not crashed.
+   * Its recorder saw something wrong still going on when it ended: an
+   * uncaught exception, a breadcrumb (the heap past a threshold or
+   * growing fast, the analysis stuck) in its last two minutes, or the
+   * heap past half its limit at the last sample. A run that stopped
+   * without a clean mark and without any of these was most likely killed
+   * with its editor, not crashed: a heap that grew while a large game
+   * loaded and then ran calmly for long is no crash.
    */
   anomalies: boolean;
   /** Its names file: the workspace it served and the pseudonym table. */
@@ -66,9 +69,33 @@ export function listRuns(dir: string): RecordedRun[] {
   return [...pids].map(pid => ({
     pid,
     clean: files.includes(`clean-${pid}.json`),
-    anomalies: files.includes(`breadcrumbs-${pid}.jsonl`),
+    anomalies: files.includes(`breadcrumbs-${pid}.jsonl`) && endedBadly(dir, pid),
     names: readJson(path.join(dir, `names-${pid}.json`)),
   }));
+}
+
+// How long before a run's end a breadcrumb still says what ended it.
+const RECENT_SECONDS = 120;
+
+function endedBadly(dir: string, pid: number): boolean {
+  let crumbs: { t?: number; kind?: string }[];
+  try {
+    crumbs = fs.readFileSync(path.join(dir, `breadcrumbs-${pid}.jsonl`), 'utf8')
+      .split('\n').filter(l => l.trim()).map(l => JSON.parse(l) as { t?: number; kind?: string });
+  } catch {
+    return true;
+  }
+  if (crumbs.some(c => c.kind === 'uncaught-exception' || c.kind === 'recorder-failed' || typeof c.t !== 'number')) return true;
+  let last: string[] | undefined;
+  try {
+    last = fs.readFileSync(path.join(dir, `memory-${pid}.csv`), 'utf8').trim().split('\n').at(-1)?.split(',');
+  } catch {
+    // No samples: nothing tells the end was calm.
+  }
+  const [seconds, heapMB, limitMB] = (last ?? []).map(Number);
+  if (!Number.isFinite(seconds)) return true;
+  if (heapMB >= limitMB / 2) return true;
+  return crumbs.some(c => c.t! >= seconds - RECENT_SECONDS);
 }
 
 /** Whether a process with this id is running. */
