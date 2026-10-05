@@ -214,6 +214,11 @@
         "category": "QSP"
       },
       {
+        "command": "qsp.exportAnonymizedSkeleton",
+        "title": "Export Anonymized Skeleton…",
+        "category": "QSP"
+      },
+      {
         "command": "qsp.diagnostics.turnOff",
         "title": "Turn Off a Diagnostic Check",
         "category": "QSP"
@@ -1068,6 +1073,7 @@
     "publish": "npx @vscode/vsce publish",
     "stress:gen": "node scripts/stress/genGame.mjs",
     "bench:stress": "node scripts/stress/bench.mjs",
+    "stress:skeleton": "node scripts/stress/skeleton.mjs",
     "build:webview": "esbuild src/webview/graph.ts --bundle --outfile=out/webview/graph.js --platform=browser --format=iife --target=es2020 --minify"
   },
   "overrides": {

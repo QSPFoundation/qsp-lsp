@@ -47,6 +47,7 @@ import { buildPerformanceReport } from './performanceReport';
 import { Pseudonyms } from './pseudonyms';
 import { MemoryGuard } from './memoryGuard';
 import { anonymizeCode } from '../parser/anonymize';
+import { GameSkeleton } from '../parser/skeleton';
 
 // Re-export FsProvider for backward compatibility.
 export type { FsProvider } from './serverUtils';
@@ -1552,6 +1553,32 @@ export function createQspServer(
     } finally {
       tree.delete();
     }
+  });
+
+  // A whole game's skeleton (parser/skeleton.ts), for QSP: Export
+  // Anonymized Skeleton and scripts/stress/skeleton.mjs. Files without
+  // `text` are read from disk. Runs in slices: a large game takes seconds.
+  connection.onRequest('qsp/anonymizedSkeleton', async (params: { files: { uri: string; text?: string }[] }) => {
+    if (!tsParser.isReady) return null;
+    const texts: string[] = [];
+    for (const f of params.files) {
+      let text = f.text;
+      if (text === undefined && fsProvider) {
+        text = await fsProvider.readFile(fsProvider.uriToPath(f.uri), fileEncoding).catch(() => undefined);
+      }
+      if (text === undefined) return null;
+      texts.push(stripBom(text));
+    }
+    const skeleton = new GameSkeleton((t) => tsParser.parseOnce(t));
+    function* steps(): Steps<string[]> {
+      for (const text of texts) yield* skeleton.learnSteps(text);
+      const out: string[] = [];
+      for (const text of texts) out.push(yield* skeleton.writeSteps(text));
+      return out;
+    }
+    const done = await runInSlices(steps(), { sliceMs: SLICE_MS, pause: pauseForWrites, cancelled: () => shuttingDown });
+    if (!done) return null;
+    return { files: params.files.map((f, i) => ({ uri: f.uri, text: done.value[i] })), names: skeleton.names() };
   });
 
   function buildReport() {

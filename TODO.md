@@ -2,29 +2,6 @@
 
 Work that is planned but not started: why it is wanted and what is known.
 
-## Anonymized game skeletons
-
-**Why.** Games that break or slow the analysis often can't be shared, not even
-their names. A skeleton of the whole game, like the `scripts/stress/genGame.mjs`
-games but with the real structure, would let anyone reproduce and benchmark it.
-
-**What.** **QSP: Export Anonymized Skeleton**: a copy of each project file with
-everything but the structure replaced, and the same code as a Node script for
-tests. Start from `src/parser/anonymize.ts` (one location, whitelist-based).
-For a whole game it must also:
-- give each name one pseudonym across the game, ignoring case;
-- rename word by word, keeping separators and digits (`room_12` → `w017_12`,
-  `'room_'` → `'w017_'`), so `gt 'room_' + n` still finds its targets;
-- turn strings that are names into their pseudonyms (`gs 'go', 'hall'`), not `xxx`;
-- keep numbers, and text sizes (`x` of the same length) for benchmarks;
-- anonymize code in strings (`exec:` links, `<<…>>`) as `embeddedExec.ts` /
-  `embeddedInterpolation.ts` parse it;
-- keep the pseudonym → name table on the user's machine only.
-
-**Check.** Location, jump and diagnostic counts, the `[jump graph]` line and the
-`[perf]` shape must match the original's; tests as in `test/anonymize.test.ts`
-that no name or text survives.
-
 ## Dynamic jumps through several hops
 
 `gt $to` resolves from the nearest write before it or before the jumps into its

@@ -506,6 +506,25 @@ describe('LSP e2e: anonymized location code for crash reports', () => {
   });
 });
 
+describe('LSP e2e: anonymized game skeleton', () => {
+  let h: Harness;
+  beforeAll(async () => { h = await startServer(); });
+  afterAll(() => h.shutdown());
+
+  it('renames the names of every file alike and masks the text', async () => {
+    const result = await h.client.sendRequest('qsp/anonymizedSkeleton', {
+      files: [
+        { uri: 'file:///game/a.qsps', text: "﻿# Кухня\n$рецепт = 'тайный соус'\ngt 'Погреб_' + 1\n--- Кухня ---\n" },
+        { uri: 'file:///game/b.qsps', text: "# Погреб_1\ngt 'кухня'\n--- Погреб_1 ---\n" },
+      ],
+    }) as { files: { uri: string; text: string }[]; names: Record<string, string> };
+    expect(result.files.map(f => f.uri)).toEqual(['file:///game/a.qsps', 'file:///game/b.qsps']);
+    expect(result.names).toEqual({ waaa: 'Кухня', waab: 'рецепт', waac: 'Погреб', Waaa: 'кухня' });
+    expect(result.files[0].text).toBe("# waaa\n$waab = 'xxxxxx xxxx'\ngt 'waac_' + 1\n--- xxxxx ---\n");
+    expect(result.files[1].text).toBe("# waac_1\ngt 'Waaa'\n--- xxxxxx_1 ---\n");
+  });
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // Quick fixes that silence a check
 // ──────────────────────────────────────────────────────────────────────

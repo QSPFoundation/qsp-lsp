@@ -186,6 +186,17 @@ export function isIdentifierStringContext(s: Parser.SyntaxNode): boolean {
   return false;
 }
 
+/** True when `s` is the pattern argument of a regex function (`strcomp`, `strfind`…). */
+export function isRegexPatternString(s: Parser.SyntaxNode): boolean {
+  let owner: Parser.SyntaxNode | null = s.parent;
+  if (owner && owner.type === 'string') owner = owner.parent;
+  const argHolder = owner;
+  if (owner && owner.type === 'paren_args') owner = owner.parent;
+  if (!owner || !argHolder) return false;
+  const nameLower = getCallNameLower(owner);
+  return nameLower !== null && REGEX_PATTERN_ARG.get(nameLower) === positionalArgIndex(argHolder, s);
+}
+
 function getCallNameLower(owner: Parser.SyntaxNode): string | null {
   switch (owner.type) {
     case 'statement':

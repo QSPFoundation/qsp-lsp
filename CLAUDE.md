@@ -100,13 +100,15 @@ Output bundles go to `out/` via esbuild. `out/`, `vendor/`, and generated `tree-
 **Performance data and crash reports users send us**
 ❌ Don't: put real file, location, variable, object or action names, or any game text, into `[perf]` log lines,
    `qsp/performanceReport` (`performanceReport.ts`), the crash recorder's files (`nodeRecorder.ts`), crash report zips
-   (`src/client/crashPackage.ts`) or anonymized code (`src/parser/anonymize.ts`). Users send these for games
-   whose content they can't share.
+   (`src/client/crashPackage.ts`), anonymized code (`src/parser/anonymize.ts`) or skeletons (`src/parser/skeleton.ts`).
+   Users send these for games whose content they can't share.
 ✅ Do: counts, sizes, durations, memory, grammar node types, the extension's own function names, and pseudonyms
-   (`f01`, `f01_l0007`, `var_0003` from `pseudonyms.ts` / `anonymize.ts`). The pseudonym → name table
-   (`names-<pid>.json`, `crash-*.names.json`) stays on the user's machine and never goes into a zip. Keep
-   `test/performanceReport.test.ts`, `test/crashPackage.test.ts` and `test/anonymize.test.ts` checking that no
-   name leaks. To reproduce a user's game, generate one of the same shape: `npm run stress:gen -- --shape report.json`.
+   (`f01`, `f01_l0007`, `var_0003` from `pseudonyms.ts` / `anonymize.ts`, `wabc` from `skeleton.ts`). The pseudonym → name
+   table (`names-<pid>.json`, `crash-*.names.json`, `qsp-skeleton-*.names.json`) stays on the user's machine and never goes
+   into a zip or a skeleton's folder. Keep `test/performanceReport.test.ts`, `test/crashPackage.test.ts`,
+   `test/anonymize.test.ts` and `test/skeleton.test.ts` checking that no name leaks. To reproduce a user's game, ask for
+   its skeleton (**QSP: Export Anonymized Skeleton**, `npm run stress:skeleton`), or generate one of the same shape:
+   `npm run stress:gen -- --shape report.json`.
 
 **Analysis cache** (`src/server/nodeCache.ts`, used by `projectMode.analyzeFileNow`, for open files by `analyzeAllLocations` in `common.ts`,
 and for the propagation of locals by `projectMode.rebuildAggregates`, keyed by the locations' interfaces)
@@ -152,6 +154,7 @@ and for the propagation of locals by `projectMode.rebuildAggregates`, keyed by t
 | UI tests (real VS Code, @vscode/test-cli) | `npm run test:ui` (headless Linux: `xvfb-run -a npm run test:ui`) |
 | MCP server bundle | `npm run build:mcp` (run: `node out/mcp/server.js --workspace <dir> [--verbose]`) |
 | Stress game (synthetic QSP project) | `npm run stress:gen -- --out <dir> [--locations 1000] [--chars 26000] [--files 1] [--shape report.json]` |
+| Anonymized skeleton of a real project (needs the server bundle) | `npm run stress:skeleton -- <project> --out <dir> [--names <file>]` |
 | Load test the server on a project | `npm run build:server:node && npm run bench:stress -- <dir> [--graph] [--edits 5] [--json out.json]` |
 | Everything CI runs (no packaging) | `npm run check` (= `scripts/build.sh --check`) |
 | Third-party notices (after a dependency change; CI checks it) | `node scripts/thirdPartyNotices.mjs` |

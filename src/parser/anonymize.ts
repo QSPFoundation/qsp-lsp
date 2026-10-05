@@ -33,9 +33,8 @@ export interface AnonymizedCode {
   names: Record<string, string>;
 }
 
-// Grammar keywords, operators and names of builtins: none of it comes
-// from the game.
-const KEEP_TYPES = new Set([
+/** Grammar keywords, operators and names of builtins: none of it comes from the game. */
+export const KEEP_TYPES: ReadonlySet<string> = new Set([
   'statement_name', 'function_name', 'type_prefix', 'assignment_operator',
   'act_keyword', 'if_keyword', 'elseif_keyword', 'else_keyword', 'end_keyword', 'local_keyword',
   'loop_keyword', 'while_keyword', 'step_keyword', 'set_keyword',
