@@ -12,8 +12,9 @@
  *   the interface, or nothing is saved.
  * - While no location's interface changes, the propagation of locals is
  *   kept (reusePropagation), with the edited locations' symbols swapped in;
- *   while the calls that pass locals stay the same, only the names the
- *   edited locations hold are propagated again:
+ *   otherwise only the names the edited locations hold, and, where they
+ *   call other locations with locals in scope, the names that reach them,
+ *   are propagated again:
  *   the aggregates must equal those built from scratch, positions and all
  *   (hover and navigation read them), in a project and in a single file.
  * - The hash is made once per location and kept with it; an analysis read
@@ -26,7 +27,10 @@ import type { TextDocument } from 'vscode-languageserver-textdocument';
 import { LocationSymbols, locationInterfaceHash, type DocumentSymbols } from '../src/parser';
 import { QspTreeSitterParser } from '../src/parser/treeSitter';
 import { ProjectModeService } from '../src/server/projectMode';
-import { buildFileAggregates, collectCallTypesPerTarget, fileAggregates, type PropagationBase, type SymbolAggregates } from '../src/server/aggregation';
+import {
+  buildFileAggregates, collectCallTypesPerTarget, emptyAggregates, fileAggregates, propagateLocals, propagationBase, reusePropagation,
+  type PropagationBase, type SymbolAggregates,
+} from '../src/server/aggregation';
 import { extractLocationSymbols } from '../src/server/locationAnalysis';
 import { compactDeserialized } from '../src/server/nodeCache';
 import type { DocumentState } from '../src/server/featureTypes';
@@ -247,6 +251,33 @@ describe('file interface', () => {
       expect(fileAggregates(state, A), text).toEqual(buildFileAggregates(state.symbols, A));
       before = state;
     }
+  });
+
+  // A new call changes what reaches its location's callees, for the names
+  // that reach the caller: `p` here, not `q`, whose providers are kept.
+  it('propagates again, when calls change, only the names that reach the changed location', () => {
+    const loc = (name: string, body: string) => {
+      const text = `# ${name}\n${body}--- ${name} ---\n`;
+      const tree = parser.parseOnce(text)!;
+      try {
+        return { locName: name, locSyms: extractLocationSymbols(tree, A, name, text, undefined), uri: A };
+      } finally {
+        tree.delete();
+      }
+    };
+    const locations = [loc('a', "local p = 1\ngs 'b'\n"), loc('b', 'pl p\n'), loc('c', "local q = 2\ngs 'd'\n"), loc('d', 'pl p, q\n')];
+    const before = emptyAggregates();
+    propagateLocals(locations, before);
+    const edited = [...locations];
+    edited[1] = loc('b', "pl p\ngs 'd'\n");
+    const after = emptyAggregates();
+    expect(reusePropagation(propagationBase(locations, before), edited, after)).toBe(true);
+    const fresh = emptyAggregates();
+    propagateLocals(edited, fresh);
+    expect(after.propagatedLocals).toEqual(fresh.propagatedLocals);
+    expect(after.propagationCallers).toEqual(fresh.propagationCallers);
+    expect([...after.propagatedLocals.get('d')!.keys()]).toEqual(['p', 'q']);
+    expect(after.propagatedLocals.get('d')!.get('q')).toBe(before.propagatedLocals.get('d')!.get('q'));
   });
 
   it('diagnoses every file when a file is added or removed', async () => {

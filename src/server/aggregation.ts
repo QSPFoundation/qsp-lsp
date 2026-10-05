@@ -525,169 +525,7 @@ export function* propagateLocalsSteps(
     }
   }
 
-  // Step 2: For each call edge, resolve which local QspSymbols are the
-  // providers, then propagate transitively via depth-parameterised
-  // recursion.  The `forwarded` memo guarantees each (target, var,
-  // provider) triple is visited at most once, so the call graph is
-  // traversed in O(edges) regardless of cycles; `MAX_PROPAGATION_DEPTH`
-  // is a belt-and-braces stack-overflow guard for pathological inputs
-  // (QSP games rarely exceed call depth 20).
-  const result = out.propagatedLocals;
-  const MAX_PROPAGATION_DEPTH = 1000;
-
-  // Every local reaches every location its callers call, transitively, so
-  // in a game where most locations reach most others each (target, var)
-  // would collect a provider from nearly every location: locations² per
-  // name, which ran large games out of memory. A (target, var) pair takes
-  // at most MAX_PROVIDERS, plus any provider that brings a type prefix or
-  // a value-bearing definition it hasn't seen: the diagnostics read only
-  // those (the union of prefixes, "is any provider assigned"), and they
-  // stay exact because every pair passes on everything it took. Hover and
-  // navigation list a sample, as they list at most a few dozen anyway.
-  const MAX_PROVIDERS = 8;
-  // A provider is its local's symbol: one per (location, name, scope).
-  // What the target is to the variable is worked out once per pair: the
-  // walk reaches a pair once for every provider arriving, millions of
-  // times in a large game.
-  // Arrays and a string rather than sets: a pair holds a dozen providers
-  // at most, and a large game has hundreds of thousands of pairs.
-  interface PairState {
-    syms: QspSymbol[];
-    /** Type prefixes seen, as one string (`$#`). */
-    prefixes: string;
-    valueBearing: boolean;
-    /** Has a non-local reference to it: reads *and* writes. */
-    uses: boolean;
-    /** Declares it `local` somewhere (see `shadowedPropagations` below). */
-    shadows: boolean;
-    /** Its top-level view is its own local: the value goes no further. */
-    stops: boolean;
-    callees: Set<string> | undefined;
-  }
-  // var → target → state; nested maps spare a string key per call.
-  const forwarded = new Map<string, Map<string, PairState>>();
-
-  // A provider turned away because a pair is full still reaches every
-  // location that uses the variable downstream, and must still count as
-  // used (propagatedSyms, for unusedVariables). reachesUse(var) holds the
-  // locations from which a provider passed along would reach such a use.
-  const reachesUseMemo = new Map<string, Set<string>>();
-  const reachesUse = (varName: string): Set<string> => {
-    let set = reachesUseMemo.get(varName);
-    if (set) return set;
-    set = new Set();
-    const queue: string[] = [];
-    for (const [key, info] of locIndex) {
-      const sym = info.locSyms.findVariable(varName);
-      if (sym && !sym.isLocal && sym.references.length > 0) { set.add(key); queue.push(key); }
-    }
-    while (queue.length > 0) {
-      for (const caller of propagationCallersOf(queue.pop()!)) {
-        if (set.has(caller)) continue;
-        // A caller whose own top-level view of the name is local stops it.
-        if (locIndex.get(caller)?.locSyms.findVariable(varName)?.isLocal) continue;
-        set.add(caller);
-        queue.push(caller);
-      }
-    }
-    reachesUseMemo.set(varName, set);
-    return set;
-  };
-  const propagationCallersOf = (loc: string): Iterable<string> => out.propagationCallers.get(loc) ?? [];
-
-  // `args` and `result` are QSP built-in variables with their own
-  // dedicated call semantics (ARGS holds the callee's argument array;
-  // RESULT is the callee's return value).  They must never be treated
-  // as caller-propagated locals.
-  const NO_PROPAGATE = CALL_FRAME_BUILTINS;
-
-  function propagate(
-    targetLoc: string,
-    varName: string,
-    providers: PropagatedLocal[],
-    depth: number,
-  ): void {
-    if (depth > MAX_PROPAGATION_DEPTH) return;
-
-    // Take the providers this pair hasn't routed yet, within its limit.
-    let byTarget = forwarded.get(varName);
-    if (!byTarget) { byTarget = new Map(); forwarded.set(varName, byTarget); }
-    let state = byTarget.get(targetLoc);
-    if (!state) {
-      const targetInfo = locIndex.get(targetLoc);
-      if (!targetInfo) return;
-      const targetSym = targetInfo.locSyms.findVariable(varName);
-      state = {
-        syms: [], prefixes: '', valueBearing: false,
-        uses: !!targetSym && !targetSym.isLocal && targetSym.references.length > 0,
-        shadows: targetInfo.locSyms.localNames.has(varName),
-        stops: targetSym?.isLocal === true,
-        callees: propagationEdges.get(targetLoc),
-      };
-      byTarget.set(targetLoc, state);
-    }
-    const targetUsesIt = state.uses;
-    const fresh: PropagatedLocal[] = [];
-    for (const p of providers) {
-      if (state.syms.includes(p.sym)) continue;
-      let bringsPrefix = false;
-      if (p.sym.prefixes) for (const x of p.sym.prefixes) if (!state.prefixes.includes(x)) { bringsPrefix = true; break; }
-      const bringsValue = !state.valueBearing && p.sym.hasValueDefinition === true;
-      if (state.syms.length >= MAX_PROVIDERS && !bringsPrefix && !bringsValue) {
-        if (targetUsesIt || reachesUse(varName).has(targetLoc)) out.propagatedSyms.add(p.sym);
-        continue;
-      }
-      state.syms.push(p.sym);
-      if (p.sym.prefixes) for (const x of p.sym.prefixes) if (!state.prefixes.includes(x)) state.prefixes += x;
-      if (p.sym.hasValueDefinition) state.valueBearing = true;
-      fresh.push(p);
-    }
-    if (fresh.length === 0) return;
-
-    // Record providers when the target actually uses the variable.
-    if (targetUsesIt) {
-      let targetMap = result.get(targetLoc);
-      if (!targetMap) { targetMap = new Map(); result.set(targetLoc, targetMap); }
-      const existing = targetMap.get(varName);
-      if (existing) {
-        existing.push(...fresh);
-      } else {
-        targetMap.set(varName, [...fresh]);
-      }
-      for (const p of fresh) out.propagatedSyms.add(p.sym);
-    }
-
-    // Record any `local varName` declaration in the target as a
-    // shadow of the propagated value, regardless of whether the target
-    // also uses `varName` non-locally elsewhere.  This catches `local x`
-    // declarations nested inside code blocks (inline dynamic/dyneval
-    // arg blocks, which share the caller's scope, or stored blocks
-    // dispatched via `dynamic $code`) that would otherwise be hidden
-    // when the target's top-level scope already references `x` non-
-    // locally — `findVariable` returns the non-local in that case.
-    //
-    // `localNames` is the authoritative set of base names with at
-    // least one `local` declaration somewhere in the location.
-    if (state.shadows) {
-      let shadowMap = out.shadowedPropagations.get(targetLoc);
-      if (!shadowMap) { shadowMap = new Map(); out.shadowedPropagations.set(targetLoc, shadowMap); }
-      const existing = shadowMap.get(varName);
-      if (existing) existing.push(...fresh);
-      else shadowMap.set(varName, [...fresh]);
-    }
-
-    // If the top-level (non-local) view of the target IS the local
-    // declaration (i.e. there's no non-local use), propagation is
-    // fully consumed and does not flow further.
-    if (state.stops || !state.callees) return;
-
-    // Otherwise propagate the fresh providers to callees.
-    for (const nextTarget of state.callees) {
-      propagate(nextTarget, varName, fresh, depth + 1);
-    }
-  }
-
-  // Build reverse index: targetLoc → set of caller locs
+  // Reverse index: targetLoc → set of caller locs
   const callers = out.propagationCallers;
   for (const [callerLoc, targets] of propagationEdges) {
     for (const target of targets) {
@@ -697,49 +535,241 @@ export function* propagateLocalsSteps(
     }
   }
 
-  // Process all direct call edges
-  let edgesSinceCheck = 255;   // so the first edge asks
-  propagation:
-  for (const [callerLoc, edges] of initialLocals) {
-    const callerInfo = locIndex.get(callerLoc);
-    if (!callerInfo) continue;
+  // Step 2: what reaches each (target, name) pair. A provider is a local
+  // passed by a call from where it is defined; it reaches the call's
+  // target and, from there, every location the target calls, unless the
+  // target's own top-level view of the name is local (it stops there).
+  //
+  // Every local reaches every location its callers call, so in a game
+  // where most locations reach most others a pair would take a provider
+  // from nearly every location: locations² per name, which ran large games
+  // out of memory. A pair keeps the first MAX_PROVIDERS of those that reach
+  // it, in the order of the calls that make them, plus any later one that
+  // brings a type prefix or a value-bearing definition the earlier ones
+  // don't: the diagnostics read only those (the union of prefixes, "is any
+  // provider assigned"). Hover and navigation list a sample, as they list
+  // at most a few dozen anyway.
+  //
+  // Chosen that way, what a pair keeps doesn't depend on the order the
+  // providers arrive in, and the choice from a union is the choice from
+  // the choices of its parts. So every location of a cycle of calls keeps
+  // the same, and a name is propagated in one pass over the cycles
+  // (strongly connected components) of its call graph, callers first; and
+  // propagating some names again gives what propagating all of them would
+  // (reusePropagation).
+  const MAX_PROVIDERS = 8;
+  const keys = [...locIndex.keys()];
+  const infos = keys.map(k => locIndex.get(k)!);
+  const nodeOf = new Map(keys.map((k, i) => [k, i]));
+  const calls: number[][] = keys.map(k => {
+    const out: number[] = [];
+    for (const t of propagationEdges.get(k) ?? []) {
+      const n = nodeOf.get(t);
+      if (n !== undefined) out.push(n);
+    }
+    return out;
+  });
 
+  // `args` and `result` are QSP built-in variables with their own
+  // dedicated call semantics (ARGS holds the callee's argument array;
+  // RESULT is the callee's return value).  They must never be treated
+  // as caller-propagated locals.
+  const NO_PROPAGATE = CALL_FRAME_BUILTINS;
+
+  // Providers numbered in the order of the calls that make them.
+  const providers: PropagatedLocal[] = [];
+  const rankOf = new Map<QspSymbol, number>();
+  // name → node and provider rank of each call passing it, in pairs.
+  const starts = new Map<string, number[]>();
+  // name → caller node → targets: calls passing on a name the caller
+  // doesn't define there. It reaches them through the call graph anyway,
+  // unless the caller stops it; then it goes along these calls only.
+  const passedOn = new Map<string, Map<number, number[]>>();
+  for (const [callerLoc, edges] of initialLocals) {
+    const caller = nodeOf.get(callerLoc)!;
+    const callerInfo = infos[caller];
     for (const edge of edges) {
-      yield;
-      // Here rather than in propagate(): it runs millions of times, and
-      // the heartbeat reads the clock.
-      heartbeat();
-      if (shouldStop && ++edgesSinceCheck >= 256) {
-        edgesSinceCheck = 0;
-        if (shouldStop()) {
-          result.clear();
-          out.propagatedSyms.clear();
-          out.shadowedPropagations.clear();
-          break propagation;
-        }
-      }
+      const target = nodeOf.get(edge.target);
+      if (target === undefined) continue;
       for (const [varName, scopeId] of edge.locals) {
         if (NO_PROPAGATE.has(varName)) continue;
         if (onlyNames && !onlyNames.has(varName)) continue;
-        // Find the provider QspSymbol — the local in the caller at the exact scope
-        const localKey = `local\0${scopeId}\0${varName}`;
-        const localSym = callerInfo.locSyms.variables.get(localKey);
+        // The provider is the local in the caller at the exact scope.
+        const localSym = callerInfo.locSyms.variables.get(`local\0${scopeId}\0${varName}`);
         if (!localSym || !localSym.definition) {
-          // Caller doesn't define it — it might be a pass-through.
-          // Check if caller itself receives it from upstream.
-          const callerProviders = result.get(callerLoc)?.get(varName);
-          if (callerProviders && callerProviders.length > 0) {
-            propagate(edge.target, varName, callerProviders, 1);
-          }
+          let byCaller = passedOn.get(varName);
+          if (!byCaller) passedOn.set(varName, byCaller = new Map());
+          let targets = byCaller.get(caller);
+          if (!targets) byCaller.set(caller, targets = []);
+          targets.push(target);
           continue;
         }
-        const provider: PropagatedLocal = {
-          providerLoc: callerLoc,
-          providerUri: callerInfo.uri,
-          sym: localSym,
-        };
-        propagate(edge.target, varName, [provider], 1);
+        let rank = rankOf.get(localSym);
+        if (rank === undefined) {
+          rank = providers.length;
+          providers.push({ providerLoc: callerLoc, providerUri: callerInfo.uri, sym: localSym });
+          rankOf.set(localSym, rank);
+        }
+        let list = starts.get(varName);
+        if (!list) starts.set(varName, list = []);
+        list.push(target, rank);
       }
+    }
+  }
+
+  // Ranks in order, each once: the choice a pair keeps of them.
+  const choose = (ranks: number[]): number[] => {
+    if (ranks.length <= MAX_PROVIDERS) return ranks;
+    const kept: number[] = [];
+    let prefixes = '';
+    let valueBearing = false;
+    for (const r of ranks) {
+      const sym = providers[r].sym;
+      let brings = !valueBearing && sym.hasValueDefinition === true;
+      if (sym.prefixes) for (const x of sym.prefixes) if (!prefixes.includes(x)) brings = true;
+      if (kept.length >= MAX_PROVIDERS && !brings) continue;
+      kept.push(r);
+      if (sym.prefixes) for (const x of sym.prefixes) if (!prefixes.includes(x)) prefixes += x;
+      if (sym.hasValueDefinition) valueBearing = true;
+    }
+    return kept;
+  };
+  const union = (lists: number[][]): number[] => {
+    if (lists.length === 1) return lists[0];
+    const all = lists.flat().sort((x, y) => x - y);
+    let n = 0;
+    for (let i = 0; i < all.length; i++) if (i === 0 || all[i] !== all[i - 1]) all[n++] = all[i];
+    all.length = n;
+    return all;
+  };
+
+  const result = out.propagatedLocals;
+  const count = keys.length;
+  const order = new Int32Array(count);      // DFS number, -1 unvisited
+  const low = new Int32Array(count);
+  const comp = new Int32Array(count);       // component, -1 while open
+  const onStack = new Uint8Array(count);
+  const stopsAt = new Int8Array(count);     // -1 not looked up yet
+  const NONE: number[] = [];
+  let work = 0;
+
+  for (const [varName, startList] of starts) {
+    yield;
+    heartbeat();
+    if (shouldStop?.()) {
+      result.clear();
+      out.propagatedSyms.clear();
+      out.shadowedPropagations.clear();
+      break;
+    }
+    order.fill(-1);
+    comp.fill(-1);
+    stopsAt.fill(-1);
+    const passed = passedOn.get(varName);
+    const stops = (n: number) => {
+      if (stopsAt[n] < 0) stopsAt[n] = infos[n].locSyms.findVariable(varName)?.isLocal === true ? 1 : 0;
+      return stopsAt[n] === 1;
+    };
+    const next = (n: number) => (stops(n) ? passed?.get(n) ?? NONE : calls[n]);
+
+    // Tarjan's algorithm, without recursion: call chains run deep.
+    const components: number[][] = [];
+    const stack: number[] = [];
+    const frames: Array<{ node: number; i: number }> = [];
+    let counter = 0;
+    for (let s = 0; s < startList.length; s += 2) {
+      if (order[startList[s]] >= 0) continue;
+      const enter = (n: number) => {
+        order[n] = low[n] = counter++;
+        stack.push(n);
+        onStack[n] = 1;
+        frames.push({ node: n, i: 0 });
+      };
+      enter(startList[s]);
+      while (frames.length > 0) {
+        if (++work % 4096 === 0) yield;
+        const frame = frames[frames.length - 1];
+        const succ = next(frame.node);
+        if (frame.i < succ.length) {
+          const t = succ[frame.i++];
+          if (order[t] < 0) enter(t);
+          else if (onStack[t]) low[frame.node] = Math.min(low[frame.node], order[t]);
+          continue;
+        }
+        frames.pop();
+        const n = frame.node;
+        if (frames.length > 0) {
+          const up = frames[frames.length - 1].node;
+          low[up] = Math.min(low[up], low[n]);
+        }
+        if (low[n] === order[n]) {
+          const members: number[] = [];
+          let m: number;
+          do {
+            m = stack.pop()!;
+            onStack[m] = 0;
+            comp[m] = components.length;
+            members.push(m);
+          } while (m !== n);
+          components.push(members);
+        }
+      }
+    }
+
+    // Components come out callees first: walk them backwards, callers
+    // first, handing each one's choice to the components it calls.
+    const entering = new Map<number, number[]>();
+    for (let s = 0; s < startList.length; s += 2) {
+      let list = entering.get(startList[s]);
+      if (!list) entering.set(startList[s], list = []);
+      list.push(startList[s + 1]);
+    }
+    const incoming: number[][][] = [];
+    const kept: number[][] = new Array(components.length);
+    for (let c = components.length - 1; c >= 0; c--) {
+      const lists = incoming[c] ?? [];
+      for (const n of components[c]) {
+        const own = entering.get(n);
+        if (own) lists.push(union([own.slice().sort((x, y) => x - y)]));
+      }
+      kept[c] = choose(union(lists.length > 0 ? lists : [NONE]));
+      for (const n of components[c]) {
+        for (const t of next(n)) {
+          if (comp[t] !== c) (incoming[comp[t]] ??= []).push(kept[c]);
+        }
+      }
+    }
+
+    // A provider counts as used (propagatedSyms, for unusedVariables) when
+    // what it reaches uses the name, even if no pair there keeps it.
+    const usesAt = (n: number) => {
+      const sym = infos[n].locSyms.findVariable(varName);
+      return !!sym && !sym.isLocal && sym.references.length > 0;
+    };
+    const reachesUse = new Uint8Array(components.length);
+    for (let c = 0; c < components.length; c++) {
+      for (const n of components[c]) {
+        const uses = usesAt(n);
+        if (uses) reachesUse[c] = 1;
+        const shadows = infos[n].locSyms.localNames.has(varName);
+        if (kept[c].length > 0 && (uses || shadows)) {
+          const list = kept[c].map(r => providers[r]);
+          const into = (map: Map<string, Map<string, PropagatedLocal[]>>) => {
+            let byVar = map.get(keys[n]);
+            if (!byVar) map.set(keys[n], byVar = new Map());
+            byVar.set(varName, list);
+          };
+          if (uses) into(result);
+          // Any `local varName` declaration in the target shadows the
+          // propagated value, even one nested in a code block while the
+          // top level uses it non-locally (`localNames` has them all).
+          if (shadows) into(out.shadowedPropagations);
+        }
+        for (const t of next(n)) if (comp[t] !== c && reachesUse[comp[t]]) reachesUse[c] = 1;
+      }
+    }
+    for (let s = 0; s < startList.length; s += 2) {
+      if (reachesUse[comp[startList[s]]]) out.propagatedSyms.add(providers[startList[s + 1]].sym);
     }
   }
 
@@ -773,9 +803,12 @@ export function propagationBase(
  * runs name by name:
  * - while every location has the interface it had then, it would come out
  *   the same, and is kept whole;
- * - when some changed but call the same locations with locals in scope as
- *   before, only the names whose facts there changed (propagationFacts)
- *   can come out differently: those are propagated again, the rest kept.
+ * - when some changed, only the names whose facts there changed
+ *   (propagationFacts) can come out differently, and, where a location
+ *   calls other locations with locals in scope than before, the names
+ *   passed to calls that can lead to it: those are propagated again, the
+ *   rest kept (see propagateLocals: a name comes out the same propagated
+ *   alone or with the others).
  * Kept providers of locations analysed since are new objects, so they are
  * swapped for those under the same key in `variables` (scope ids are part
  * of the interface). Returns false, having done nothing, when neither
@@ -801,6 +834,7 @@ export function* reusePropagationSteps(
   if (!base || base.locations.length !== allLocations.length) return false;
   const swap = new Map<QspSymbol, QspSymbol>();
   const redo = new Set<string>();
+  const callsChanged: string[] = [];
   let swapOk = true;
   const swapByKey = (before: LocationSymbols, now: LocationSymbols, strict: boolean) => {
     for (const [key, sym] of before.variables) {
@@ -820,7 +854,7 @@ export function* reusePropagationSteps(
       if (!swapOk) return false;
       continue;
     }
-    if (!sameLocalsCalls(before.locSyms, locSyms)) return false;
+    if (!sameLocalsCalls(before.locSyms, locSyms)) callsChanged.push(locSyms.locationName.toLowerCase());
     const was = propagationFacts(before.locSyms), is = propagationFacts(locSyms);
     for (const [name, facts] of was) if (is.get(name) !== facts) redo.add(name);
     for (const name of is.keys()) if (!was.has(name)) redo.add(name);
@@ -829,6 +863,10 @@ export function* reusePropagationSteps(
   }
   const from = base.agg;
   out.propagationCallers = from.propagationCallers;
+  if (callsChanged.length > 0) {
+    out.propagationCallers = localsCallers(allLocations);
+    for (const name of namesLeadingTo(callsChanged, [out.propagationCallers, from.propagationCallers], allLocations)) redo.add(name);
+  }
   if (swap.size === 0 && redo.size === 0) {
     out.propagatedLocals = from.propagatedLocals;
     out.shadowedPropagations = from.shadowedPropagations;
@@ -886,6 +924,51 @@ export function* reusePropagationSteps(
   out.propagatedSyms = new Set(fresh.propagatedSyms);
   for (const sym of from.propagatedSyms) if (!redo.has(sym.nameLower)) out.propagatedSyms.add(swap.get(sym) ?? sym);
   return true;
+}
+
+// Caller locations of each location, by the calls that pass locals
+// (propagationCallers).
+function localsCallers(allLocations: Iterable<{ locName: string; locSyms: LocationSymbols }>): Map<string, Set<string>> {
+  const callers = new Map<string, Set<string>>();
+  for (const { locName, locSyms } of allLocations) {
+    for (const [, ref] of locSyms.locationRefs) {
+      if (!ref.references.some(r => r.localsInScope)) continue;
+      let s = callers.get(ref.nameLower);
+      if (!s) callers.set(ref.nameLower, s = new Set());
+      s.add(locName.toLowerCase());
+    }
+  }
+  return callers;
+}
+
+// The names passed to calls that can lead to one of `changed` (in either
+// call graph, given as callers): only their propagation goes through it.
+function namesLeadingTo(
+  changed: string[],
+  callerMaps: Array<Map<string, Set<string>>>,
+  allLocations: Iterable<{ locSyms: LocationSymbols }>,
+): Set<string> {
+  const reach = new Set(changed);
+  const queue = [...changed];
+  while (queue.length > 0) {
+    const loc = queue.pop()!;
+    for (const map of callerMaps) {
+      for (const caller of map.get(loc) ?? []) {
+        if (!reach.has(caller)) {
+          reach.add(caller);
+          queue.push(caller);
+        }
+      }
+    }
+  }
+  const names = new Set<string>();
+  for (const { locSyms } of allLocations) {
+    for (const [, ref] of locSyms.locationRefs) {
+      if (!reach.has(ref.nameLower)) continue;
+      for (const r of ref.references) for (const name of r.localsInScope?.keys() ?? []) names.add(name);
+    }
+  }
+  return names;
 }
 
 // What the propagation reads of a location, name by name: its symbols of

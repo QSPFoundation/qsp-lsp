@@ -25,17 +25,6 @@ For a whole game it must also:
 `[perf]` shape must match the original's; tests as in `test/anonymize.test.ts`
 that no name or text survives.
 
-## Propagation of locals when calls change
-
-The propagation of locals is kept across edits that change no interface, and
-redone only for the changed names when the calls that pass locals stay the same
-(`reusePropagation` in `src/server/aggregation.ts`). An edit that changes which
-locations a location calls with locals in scope (`sameLocalsCalls`) still redoes
-it for the whole project: in slices now, so requests are answered, but it took
-~36 s (measured before the rebuilds got cheaper) on a pathological synthetic game
-(1500 locations calling each other, shared local names). Redo it only for what the changed calls reach. Real games take
-milliseconds.
-
 ## Dynamic jumps through several hops
 
 `gt $to` resolves from the nearest write before it or before the jumps into its
