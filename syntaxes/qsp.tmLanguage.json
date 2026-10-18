@@ -3,39 +3,49 @@
   "name": "QSP",
   "scopeName": "source.qsp",
   "patterns": [
-    { "include": "#location-header" },
-    { "include": "#location-end" },
-    { "include": "#comment" },
-    { "include": "#label" },
-    { "include": "#string-double" },
-    { "include": "#string-single" },
-    { "include": "#code-block" },
-    { "include": "#keyword-control" },
-    { "include": "#keyword-statement" },
-    { "include": "#keyword-function" },
-    { "include": "#keyword-operator-word" },
-    { "include": "#user-call" },
-    { "include": "#variable-typed" },
-    { "include": "#number" },
-    { "include": "#operator" },
-    { "include": "#separator" },
-    { "include": "#identifier" }
+    { "include": "#location" },
+    { "include": "#outside-location" }
   ],
   "repository": {
-    "location-header": {
-      "match": "^(#)\\s*(.+?)\\s*$",
-      "captures": {
+    "location": {
+      "name": "meta.location.qsp",
+      "begin": "^(#)\\s*(\\S.*?)\\s*$",
+      "beginCaptures": {
+        "0": { "name": "meta.location.header.qsp" },
         "1": { "name": "punctuation.definition.location.qsp" },
         "2": { "name": "entity.name.section.location.qsp" }
       },
-      "name": "meta.location.header.qsp"
-    },
-    "location-end": {
-      "match": "^(--.*)$",
-      "captures": {
+      "end": "^(--.*)$",
+      "endCaptures": {
+        "0": { "name": "meta.location.end.qsp" },
         "1": { "name": "punctuation.definition.location.end.qsp" }
       },
-      "name": "meta.location.end.qsp"
+      "patterns": [
+        { "include": "#code" }
+      ]
+    },
+    "outside-location": {
+      "match": ".+",
+      "name": "comment.block.outside-location.qsp"
+    },
+    "code": {
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#label" },
+        { "include": "#string-double" },
+        { "include": "#string-single" },
+        { "include": "#code-block" },
+        { "include": "#keyword-control" },
+        { "include": "#keyword-statement" },
+        { "include": "#keyword-function" },
+        { "include": "#keyword-operator-word" },
+        { "include": "#user-call" },
+        { "include": "#variable-typed" },
+        { "include": "#number" },
+        { "include": "#operator" },
+        { "include": "#separator" },
+        { "include": "#identifier" }
+      ]
     },
     "comment": {
       "name": "comment.line.bang.qsp",
@@ -150,7 +160,7 @@
       "beginCaptures": { "0": { "name": "punctuation.section.block.begin.qsp" } },
       "endCaptures": { "0": { "name": "punctuation.section.block.end.qsp" } },
       "patterns": [
-        { "include": "$self" }
+        { "include": "#code" }
       ]
     },
     "keyword-control": {
