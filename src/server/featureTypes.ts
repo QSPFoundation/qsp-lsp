@@ -137,13 +137,15 @@ export interface ServerContext {
   /**
    * Semantic tokens of a file parsed location by location, made for the
    * locations that have none yet; with `lines`, only of the locations
-   * those lines touch.
+   * those lines touch. The lines of `text` outside every location are
+   * comments.
    */
   buildTokensFromCache(
     locationIndex: LocationEntry[],
     cache: Map<string, PerLocationParseResult>,
     project?: TokenFacts,
     lines?: { start: number; end: number },
+    text?: string,
   ): SemanticTokens;
   /** Fold ranges (start and end line) of a file parsed location by location, made for the locations that have none yet. */
   buildFoldsFromCache(locationIndex: LocationEntry[], cache: Map<string, PerLocationParseResult>): Array<{ startLine: number; endLine: number }>;

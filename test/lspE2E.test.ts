@@ -1114,6 +1114,53 @@ describe('LSP e2e: blocks passed as arguments', () => {
   }, 30_000);
 });
 
+// Text outside every location is ignored by QSP. No location's tree holds
+// it, and TextMate would colour it as code, a quote in it opening a string
+// that runs into the next location: the server marks it as comments.
+describe('LSP e2e: text between locations', () => {
+  let h: Harness;
+  beforeAll(async () => { h = await startServer(); }, 30_000);
+  afterAll(() => { h?.shutdown(); });
+
+  const decode = (data: number[], text: string) => {
+    const lines = text.split('\n');
+    const tokens: Array<{ line: number; text: string; type: string }> = [];
+    let line = 0, char = 0;
+    for (let i = 0; i < data.length; i += 5) {
+      line += data[i];
+      char = data[i] === 0 ? char + data[i + 1] : data[i + 1];
+      tokens.push({ line, text: lines[line].substr(char, data[i + 2]), type: TOKEN_TYPES[data[i + 3]] });
+    }
+    return tokens;
+  };
+
+  it('highlights the lines before, between and after locations as comments', async () => {
+    const uri = 'file:///between.qsps';
+    const text = "Don't forget: GAME['hero'] bonus\r\n\r\n# a\r\npl 'a'\r\n--- a ---\r\nnote: it's {open\r\n# b\r\nx = 1\r\n--- b ---\r\ntrailing \"text\r\n";
+    h.client.sendNotification(DidOpenTextDocumentNotification.type, {
+      textDocument: { uri, languageId: 'qsp', version: 1, text },
+    });
+    await h.diagnosticsFor(uri);
+    // Before the full request: once made, its tokens answer ranges too.
+    const range = await h.client.sendRequest(SemanticTokensRangeRequest.type, {
+      textDocument: { uri }, range: { start: { line: 4, character: 0 }, end: { line: 6, character: 0 } },
+    });
+    expect(decode(range.data, text).filter(t => t.type === 'comment')).toEqual([
+      { line: 5, text: "note: it's {open", type: 'comment' },
+    ]);
+
+    const { data } = await h.client.sendRequest(SemanticTokensRequest.type, { textDocument: { uri } });
+    const tokens = decode(data, text);
+    const comments = tokens.filter(t => t.type === 'comment');
+    expect(comments).toEqual([
+      { line: 0, text: "Don't forget: GAME['hero'] bonus", type: 'comment' },
+      { line: 5, text: "note: it's {open", type: 'comment' },
+      { line: 9, text: 'trailing "text', type: 'comment' },
+    ]);
+    expect(tokens).toContainEqual({ line: 7, text: 'x', type: 'variable' });
+  }, 30_000);
+});
+
 // A `{…}` kept in a variable is the text it holds: code only when
 // something may run the variable.
 describe('LSP e2e: blocks kept in variables', () => {

@@ -25,7 +25,7 @@ import {
   type SyntaxError,
   type WasmLoader,
 } from '../parser';
-import { collectSemanticTokenTuples, SEMANTIC_TOKENS_LEGEND, GOTO_MODIFIER_BIT, NAMESPACE_TOKEN_TYPE, STRING_TOKEN_TYPE } from './semanticTokens';
+import { collectSemanticTokenTuples, SEMANTIC_TOKENS_LEGEND, COMMENT_TOKEN_TYPE, GOTO_MODIFIER_BIT, NAMESPACE_TOKEN_TYPE, STRING_TOKEN_TYPE } from './semanticTokens';
 import {
   buildRegexSymbols,
   extractLocationSymbolsFromText,
@@ -109,15 +109,33 @@ function collectPeerDocs(
   return out;
 }
 
-/** Build merged semantic tokens from per-location caches; `tokensOf` makes those a location lacks. */
+/**
+ * Build merged semantic tokens from per-location caches; `tokensOf` makes those a location lacks.
+ * The lines of `text` outside every location are comments, as QSP reads them.
+ */
 function buildTokensFromCache(
   locationIndex: LocationEntry[],
   cache: Map<string, PerLocationParseResult>,
   tokensOf: (entry: PerLocationParseResult) => Uint32Array,
   project?: TokenFacts,
   lines?: { start: number; end: number },
+  text?: string,
 ) {
   const builder = new SemanticTokensBuilder();
+  // No location's tree holds the text between locations, and TextMate
+  // colours it as code: a quote there would open a string running into
+  // the next location.
+  const textLines = text?.split('\n');
+  const commentLines = (from: number, to: number) => {
+    if (!textLines) return;
+    const first = Math.max(from, lines?.start ?? 0);
+    const last = Math.min(to, lines?.end ?? Infinity, textLines.length - 1);
+    for (let line = first; line <= last; line++) {
+      const length = textLines[line].replace(/\r$/, '').length;
+      if (length > 0) builder.push(line, 0, length, COMMENT_TOKEN_TYPE, 0);
+    }
+  };
+  let nextLine = 0;
   // Same key scheme as perLocationCache's writers (analyzeDocumentPerLocation /
   // tryIncrementalPerLocationUpdate) — see perLocationCacheKeys' doc comment.
   // Plain `loc.nameLower` would only ever hit the FIRST of two same-named
@@ -125,6 +143,8 @@ function buildTokensFromCache(
   // semantic tokens at all.
   const cacheKeys = perLocationCacheKeys(locationIndex);
   for (const [i, loc] of locationIndex.entries()) {
+    commentLines(nextLine, loc.startLine - 1);
+    nextLine = loc.endLine + 1;
     if (lines && (loc.endLine < lines.start || loc.startLine > lines.end)) continue;
     const cached = cache.get(cacheKeys[i]);
     if (!cached) continue;
@@ -146,6 +166,7 @@ function buildTokensFromCache(
       );
     }
   }
+  commentLines(nextLine, Infinity);
   return builder.build();
 }
 
@@ -1491,9 +1512,9 @@ export function createQspServer(
     projectFileUris: project.projectFileUris,
     tsParser,
     collectCallTypesPerTarget: () => collectCallTypesPerTarget(documentStates),
-    buildTokensFromCache: (locationIndex, cache, project, lines) => perf.phase(
+    buildTokensFromCache: (locationIndex, cache, project, lines, text) => perf.phase(
       'semantic tokens',
-      () => buildTokensFromCache(locationIndex, cache, locationTokens, project, lines),
+      () => buildTokensFromCache(locationIndex, cache, locationTokens, project, lines, text),
       () => `${locationIndex.length} locations${lines ? `, lines ${lines.end - lines.start + 1}` : ''}`,
     ),
     buildFoldsFromCache: (locationIndex, cache) => perf.phase(

@@ -767,7 +767,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
     if (state?.cachedSemanticTokens) return state.cachedSemanticTokens;
 
     if (state?.perLocationCache && state.locationIndex) {
-      const tokens = ctx.buildTokensFromCache(state.locationIndex, state.perLocationCache, tokenFactsNow(uri));
+      const tokens = ctx.buildTokensFromCache(state.locationIndex, state.perLocationCache, tokenFactsNow(uri), undefined, documents.get(uri)?.getText());
       state.cachedSemanticTokens = tokens;
       return tokens;
     }
@@ -781,7 +781,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
     if (state?.cachedSemanticTokens) return state.cachedSemanticTokens;
     if (state?.perLocationCache && state.locationIndex) {
       const lines = { start: params.range.start.line, end: params.range.end.line };
-      return ctx.buildTokensFromCache(state.locationIndex, state.perLocationCache, tokenFactsNow(params.textDocument.uri), lines);
+      return ctx.buildTokensFromCache(state.locationIndex, state.perLocationCache, tokenFactsNow(params.textDocument.uri), lines, documents.get(params.textDocument.uri)?.getText());
     }
     return { data: [] };
   });

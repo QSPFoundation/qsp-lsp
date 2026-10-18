@@ -75,6 +75,8 @@ export const GOTO_MODIFIER_BIT = 1 << TOKEN_MODIFIERS.indexOf(MOD_GOTO);
 export const NAMESPACE_TOKEN_TYPE = typeIndex.get(SemanticTokenTypes.namespace) ?? 0;
 /** Token type index for strings. */
 export const STRING_TOKEN_TYPE = typeIndex.get(SemanticTokenTypes.string) ?? 0;
+/** Token type index for comments (and the text between locations). */
+export const COMMENT_TOKEN_TYPE = typeIndex.get(SemanticTokenTypes.comment) ?? 0;
 
 function tokenType(t: SemanticTokenTypes): number {
   return typeIndex.get(t) ?? 0;
