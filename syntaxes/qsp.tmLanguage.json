@@ -235,8 +235,20 @@
       }
     },
     "keyword-operator-word": {
-      "match": "(?i)\\b(and|or|no|mod|obj|loc)\\b",
-      "name": "keyword.operator.word.qsp"
+      "patterns": [
+        {
+          "comment": "OBJ and LOC give a number (true or false): #obj and #loc are them too.",
+          "match": "(?i)(#)(obj|loc)\\b",
+          "captures": {
+            "1": { "name": "storage.type.function.qsp" },
+            "2": { "name": "keyword.operator.word.qsp" }
+          }
+        },
+        {
+          "match": "(?i)\\b(and|or|no|mod|obj|loc)\\b",
+          "name": "keyword.operator.word.qsp"
+        }
+      ]
     },
     "user-call": {
       "patterns": [

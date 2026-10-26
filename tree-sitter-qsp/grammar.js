@@ -669,8 +669,8 @@ module.exports = grammar({
 
     na_unary: $ => choice(
       prec(8,  seq(alias(ci('no'),  $.op_no),  $._na_expression)),
-      prec(11, seq(alias(ci('obj'), $.op_obj), $._na_expression)),
-      prec(11, seq(alias(ci('loc'), $.op_loc), $._na_expression)),
+      prec(11, seq(optional(alias('#', $.type_prefix)), alias(ci('obj'), $.op_obj), $._na_expression)),
+      prec(11, seq(optional(alias('#', $.type_prefix)), alias(ci('loc'), $.op_loc), $._na_expression)),
       prec(18, seq(alias('-', $.op_neg),       $._na_expression)),
       prec(18, seq(alias('+', $.op_pos),       $._na_expression)),
     ),
@@ -705,8 +705,8 @@ module.exports = grammar({
 
     ext_unary: $ => choice(
       prec(8,  seq(alias(ci('no'),  $.op_no),  $._ext_expression)),
-      prec(11, seq(alias(ci('obj'), $.op_obj), $._ext_expression)),
-      prec(11, seq(alias(ci('loc'), $.op_loc), $._ext_expression)),
+      prec(11, seq(optional(alias('#', $.type_prefix)), alias(ci('obj'), $.op_obj), $._ext_expression)),
+      prec(11, seq(optional(alias('#', $.type_prefix)), alias(ci('loc'), $.op_loc), $._ext_expression)),
       prec(18, seq(alias('-', $.op_neg),       $._ext_expression)),
       prec(18, seq(alias('+', $.op_pos),       $._ext_expression)),
     ),
@@ -741,8 +741,8 @@ module.exports = grammar({
 
     ml_unary: $ => choice(
       prec(8,  seq(alias(ci('no'),  $.op_no),  optional($._nls), $._ml_expression)),
-      prec(11, seq(alias(ci('obj'), $.op_obj), optional($._nls), $._ml_expression)),
-      prec(11, seq(alias(ci('loc'), $.op_loc), optional($._nls), $._ml_expression)),
+      prec(11, seq(optional(alias('#', $.type_prefix)), alias(ci('obj'), $.op_obj), optional($._nls), $._ml_expression)),
+      prec(11, seq(optional(alias('#', $.type_prefix)), alias(ci('loc'), $.op_loc), optional($._nls), $._ml_expression)),
       prec(18, seq(alias('-', $.op_neg),       optional($._nls), $._ml_expression)),
       prec(18, seq(alias('+', $.op_pos),       optional($._nls), $._ml_expression)),
     ),

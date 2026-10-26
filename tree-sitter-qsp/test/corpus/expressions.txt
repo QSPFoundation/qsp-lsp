@@ -1134,3 +1134,41 @@ y = iif(?, ?abc, 1)
               name: (identifier_text))
             (number_literal)))))
     (location_end)))
+
+================
+OBJ and LOC with the numeric prefix
+================
+# test
+x = #obj 'key' + #loc('room') + #objx
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        (variable_list
+          (variable_ref
+            (identifier_text)))
+        (assignment_operator)
+        (na_unary
+          (type_prefix)
+          (op_obj)
+          (na_binary
+            (string
+              (single_quoted_string))
+            (op_arith)
+            (na_unary
+              (type_prefix)
+              (op_loc)
+              (na_binary
+                (paren_expr
+                  (string
+                    (single_quoted_string)))
+                (op_arith)
+                (variable_ref
+                  (type_prefix)
+                  (identifier_text))))))))
+    (location_end)))

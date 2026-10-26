@@ -466,7 +466,8 @@ export function extractObjOperator(
   docUri: string,
   scopeId: number,
 ): void {
-  const first = node.namedChild(0);
+  // `#obj` / `#loc`: the prefix comes first.
+  const first = node.namedChildren.find(c => c.type !== 'type_prefix');
   if (!first) return;
 
   if (first.type === 'op_obj') {

@@ -175,6 +175,12 @@ describe('qsp.tmLanguage.json on syntax_test_qsp.qsps', () => {
     expect(line.some(t => t.text.includes('?abc') && t.scopes.includes('constant.language.undefined.qsp'))).toBe(false);
   });
 
+  it('colours #obj and #loc as the operators, and #objx as a variable', () => {
+    const [, line] = tokenize("# a\nx = #obj 'k' + #loc('s') + #objx\n--- a ---");
+    const scopeOf = (text: string) => line.find(t => t.text === text)!.scopes.at(-1);
+    expect([scopeOf('obj'), scopeOf('loc'), scopeOf('objx')]).toEqual(['keyword.operator.word.qsp', 'keyword.operator.word.qsp', 'variable.other.readwrite.qsp']);
+  });
+
   it('colours the whole file as it did when checked', async () => {
     const compact = tokens.map((ts, i) => `${i + 1}: ` + ts
       .filter(t => t.text.length > 0)

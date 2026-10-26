@@ -29,6 +29,7 @@
 - Files in `libs/` show errors only (no warnings about a library's unused locations or variables), and a duplicate location names the library it clashes with.
 
 ### Fixes
+- `#obj` and `#loc` are known: the library declares `OBJ` and `LOC` as functions that give a number (true or false), so they take the numeric prefix like any such function, instead of being reported as unexpected syntax. Reported by Aleks Versus.
 - In the instant (TextMate) highlighting, the code of an `exec:` link ends with its `href` value, as the analysis reads it, instead of at `</a>`: a string that opens `<a href="exec:…">` and leaves `</a>` to another string (or to none) no longer keeps the link open past its own quote and colours every string after it inside out. Reported by Aleks Versus.
 - A `}` in a comment that pairs with no `{` (`! the «}» closes nothing here`) is part of the comment instead of breaking it into syntax errors. Checked on the Sublime Text package's QSP syntax showcase, now part of the tests. Reported by Aleks Versus.
 - In the instant (TextMate) highlighting, a comment or the note after `end` inside a `{…}` block ends at the block's closing `}`, as QSP reads it: a block closed on a comment line (`dynamic {*pl a` / `! comment}`) no longer stays open and colours the rest of the file as its code. The note after `end` keeps its braces and quotes, as in a comment. Reported by Aleks Versus.

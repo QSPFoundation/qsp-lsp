@@ -430,7 +430,7 @@ QSP {
     binaryStandardOperator  = "<>" | "!" | "<=" | "=<" | ">=" | "=>" | "=" | "<" | ">" | "+" | "-" | "*" | "/"
     binaryExtendedOperator  = binaryStandardOperator | "&"
 
-    unaryKeywordOperator    = "no" | "obj" | "loc"
+    unaryKeywordOperator    = "no" | "#"? "obj" | "#"? "loc"   // Here: the library declares OBJ and LOC as functions giving a number, so #obj and #loc are them too
     unaryStandardOperator   = "-" | "+"   // Here: unary plus, as the newest library (QSP_OP_AFFIRMATION) and older players read it
 
     /* Priority | Operations
