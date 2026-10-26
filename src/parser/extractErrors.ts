@@ -129,6 +129,16 @@ function friendlyNodeName(type: string): string {
 function friendlyMissingMessage(node: Parser.SyntaxNode): string {
   const t = node.type;
 
+  // Nothing where a condition or a loop's step goes (`loop while :`,
+  // `if :`): the missing name stands in for the expression after the keyword.
+  let slot: Parser.SyntaxNode | null = node;
+  for (let depth = 0; slot && depth < 3 && !slot.previousSibling; depth++) slot = slot.parent;
+  const before = slot?.previousSibling?.type;
+  if (before === 'while_keyword') return "Expected a condition after 'while'";
+  if (before === 'if_keyword' || before === 'elseif_keyword') return `Expected a condition after '${slot!.previousSibling!.text.trim().toLowerCase()}'`;
+  if (before === 'act_keyword') return "Expected an action name after 'act'";
+  if (before === 'step_keyword') return "Expected a statement after 'step'";
+
   // Walk up to find a meaningful parent context.
   if (t === 'identifier_text' || t === 'user_name') {
     let p: Parser.SyntaxNode | null = node.parent;
@@ -497,6 +507,28 @@ const COLON_KEYWORDS = new Set([
   'if_keyword', 'elseif_keyword', 'act_keyword', 'loop_keyword',
 ]);
 
+/**
+ * What is wrong with the header of a `loop` that didn't parse, from the
+ * nodes after its keyword (index `i` in `node`) on the same line:
+ * `loop [init] while <condition> [step <statement>]:`. Undefined when
+ * every part is there, colon included: the error is elsewhere.
+ */
+function loopHeaderProblem(node: Parser.SyntaxNode, i: number): string | undefined {
+  const row = node.child(i)!.startPosition.row;
+  const rest: Parser.SyntaxNode[] = [];
+  for (let j = i + 1; j < node.childCount && node.child(j)!.startPosition.row === row; j++) rest.push(node.child(j)!);
+  // `step: x=1` reads its colon as the start of a label, or of an ERROR.
+  const startsWithColon = (n: Parser.SyntaxNode) => n.text.trimStart().startsWith(':');
+  const isColon = (n: Parser.SyntaxNode | undefined) => n === undefined || startsWithColon(n);
+  const whileAt = rest.findIndex(n => n.type === 'while_keyword');
+  if (whileAt < 0) return "Expected 'while' and a condition after 'loop'";
+  if (isColon(rest[whileAt + 1]) || rest[whileAt + 1].type === 'step_keyword') return "Expected a condition after 'while'";
+  const stepAt = rest.findIndex(n => n.type === 'step_keyword');
+  if (stepAt >= 0 && isColon(rest[stepAt + 1])) return "Expected a statement after 'step'";
+  if (!rest.some(startsWithColon)) return "Missing ':' after 'loop'";
+  return undefined;
+}
+
 /** Parents where a bare number where a varName is expected is a PEG-
  *  level violation (`varName = ~digit nonDelimiterChar+`). */
 const VARNAME_PARENT_TYPES = new Set([
@@ -731,12 +763,22 @@ function refineErrorNode(node: Parser.SyntaxNode): RefinedError {
       const child = node.child(i)!;
       if (COLON_KEYWORDS.has(child.type)) {
         const kw = child.text.trim().toLowerCase();
+        // A colon right after the keyword: what it heads is missing (`if : pl 1`).
+        // It may be the ERROR's last child, the colon starting what follows.
+        const after = node.nextSibling?.startPosition.row === child.startPosition.row ? node.nextSibling : null;
+        const next = node.child(i + 1) ?? after;
+        const nothingBefore = next !== null && next.text.trimStart().startsWith(':');
+        const message = child.type === 'loop_keyword' ? loopHeaderProblem(node, i)
+          : !nothingBefore ? `Missing ':' after '${kw}'`
+          : child.type === 'act_keyword' ? "Expected an action name after 'act'"
+          : `Expected a condition after '${kw}'`;
+        if (!message) break;
         return { summarized: true, diagnostics: [{
           startRow: node.startPosition.row,
           startCol: node.startPosition.column,
           endRow: node.endPosition.row,
           endCol: node.endPosition.column,
-          message: `Missing ':' after '${kw}'`,
+          message,
         }] };
       }
     }
@@ -769,6 +811,18 @@ function refineErrorNode(node: Parser.SyntaxNode): RefinedError {
     const child = node.child(i)!;
     if (!COLON_KEYWORDS.has(child.type)) continue;
     const kwRow = child.startPosition.row;
+    if (child.type === 'loop_keyword') {
+      const message = loopHeaderProblem(node, i);
+      if (!message) continue;
+      const lineStartOffset = kwRow === node.startPosition.row ? node.startPosition.column : 0;
+      return { summarized: true, diagnostics: [{
+        startRow: kwRow,
+        startCol: lineStartOffset,
+        endRow: kwRow,
+        endCol: child.endPosition.column + 80, // rough line span; LSP trims to line
+        message,
+      }] };
+    }
     let hasColon = false;
     for (let j = i + 1; j < node.childCount; j++) {
       const sib = node.child(j)!;

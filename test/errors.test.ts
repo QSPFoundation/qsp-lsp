@@ -230,6 +230,32 @@ result = 1
     });
   });
 
+  // A broken header names what is missing, not a colon that is there
+  // (`loop while i<9 step:` used to report "Missing ':' after 'loop'").
+  it('names the missing part of a loop, if or act header', () => {
+    const cases: Array<[string, string]> = [
+      ['loop while i<9 step:\n  x=1\nend', "Expected a statement after 'step'"],
+      ['loop while i<9 step: x=1', "Expected a statement after 'step'"],
+      ['loop while i<9 step\n  x=1\nend', "Expected a statement after 'step'"],
+      ['loop :\n  x=1\nend', "Expected 'while' and a condition after 'loop'"],
+      ['loop while :\n  x=1\nend', "Expected a condition after 'while'"],
+      ['loop while i<9\n  x=1\nend', "Missing ':' after 'loop'"],
+      ['if :\n  x=1\nend', "Expected a condition after 'if'"],
+      ['if : x=1', "Expected a condition after 'if'"],
+      ['if 1:\n  x=1\nelseif :\n  x=2\nend', "Expected a condition after 'elseif'"],
+      ['act : x=1', "Expected an action name after 'act'"],
+      ['if 1 x=1', "Missing ':' after 'if'"],
+    ];
+    for (const [code, message] of cases) {
+      const tree = parser.parseOnce(`# test\ni=0\nx=0\n${code}\npl x\n---\n`)!;
+      expect(extractErrors(tree).map(e => e.message), code).toEqual([message]);
+      tree.delete();
+    }
+    const fine = parser.parseOnce('# test\nloop local i=0 while i<9 step i+=1:\n  pl i\nend\n---\n')!;
+    expect(extractErrors(fine)).toEqual([]);
+    fine.delete();
+  });
+
   it('should report MISSING node with descriptive message', () => {
     // `act:` without a name triggers a MISSING identifier_text node
     const tree = parser.parseOnce(`# test
@@ -244,7 +270,7 @@ end
     const expectedMsg = errors.find(e => /expected/i.test(e.message));
     expect(expectedMsg).toBeDefined();
     // Should use friendly name, not raw grammar node type
-    expect(expectedMsg!.message).toBe("Expected an identifier");
+    expect(expectedMsg!.message).toBe("Expected an action name after 'act'");
     // Must NOT contain underscores from raw node types
     expect(expectedMsg!.message).not.toContain('_');
   });
