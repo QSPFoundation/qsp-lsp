@@ -78,7 +78,7 @@ QSP {
     */
 
     commentStatement        = "!" commentText
-    commentText             = (rawStringLiteral | rawCodeBlock | commentChar)*
+    commentText             = (rawStringLiteral | rawCodeBlock | commentChar | "}")*
     commentChar             = ~(newline | "'" | "\"" | "{" | "}") any
 
     /* ====================

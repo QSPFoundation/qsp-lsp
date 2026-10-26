@@ -911,6 +911,33 @@ Comment with multiple brace blocks
     (location_end)))
 
 ================
+Comment with a closing brace and no opening one
+================
+# test
+! the «}» closes nothing here, {but this} pairs
+x = 1
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (comment_statement
+        (comment_text
+          (raw_code_block
+            (block_body)))))
+    (single_line_block
+      (assignment_statement
+        (variable_list
+          (variable_ref
+            (identifier_text)))
+        (assignment_operator)
+        (number_literal)))
+    (location_end)))
+
+================
 Comment with mixed string and brace block
 ================
 # test

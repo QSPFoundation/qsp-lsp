@@ -304,12 +304,15 @@ module.exports = grammar({
     // making comments multi-line when they contain those constructs.
     comment_statement: $ => prec.right(seq('!', optional($.comment_text))),
 
-    // PEG: commentText = (rawStringLiteral | rawCodeBlock | commentChar)*
+    // PEG: commentText = (rawStringLiteral | rawCodeBlock | commentChar | "}")*
     // PEG: commentChar = ~(newline | "'" | "\"" | "{" | "}") any
+    // A `}` with no `{` before it is text: in a block it would have ended
+    // the block (block_body), so here nothing is open for it to close.
     comment_text: $ => prec.right(repeat1(choice(
       $._raw_string,
       $.raw_code_block,
       /[^\r\n{}'"]+/,
+      '}',
     ))),
 
     // ══════════════════════════════════════════════════════════════════════════
