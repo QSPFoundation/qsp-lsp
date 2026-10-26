@@ -31,6 +31,7 @@
     "code": {
       "patterns": [
         { "include": "#comment" },
+        { "include": "#end-note" },
         { "include": "#label" },
         { "include": "#string-double" },
         { "include": "#string-single" },
@@ -160,7 +161,44 @@
       "beginCaptures": { "0": { "name": "punctuation.section.block.begin.qsp" } },
       "endCaptures": { "0": { "name": "punctuation.section.block.end.qsp" } },
       "patterns": [
+        { "include": "#comment-in-block" },
+        { "include": "#end-note-in-block" },
         { "include": "#code" }
+      ]
+    },
+    "comment-in-block": {
+      "comment": "QSP ends a block at its first unpaired }, a comment's too: braces and quotes in the comment pair up first.",
+      "name": "comment.line.bang.qsp",
+      "begin": "(?:^|(?<=&)|(?<=:))\\s*(!)",
+      "end": "$|(?=\\})",
+      "beginCaptures": { "1": { "name": "punctuation.definition.comment.qsp" } },
+      "patterns": [
+        { "include": "#comment-brace" },
+        { "include": "#comment-single-string" },
+        { "include": "#comment-double-string" }
+      ]
+    },
+    "end-note": {
+      "comment": "Text after end, up to & or the line's end, is a note: its braces and quotes may span lines.",
+      "begin": "(?i)(?:^|(?<=&))\\s*(end)\\b",
+      "end": "(?=&|$)",
+      "beginCaptures": { "1": { "name": "keyword.control.qsp" } },
+      "contentName": "variable.other.enummember.note.qsp",
+      "patterns": [
+        { "include": "#comment-brace" },
+        { "include": "#comment-single-string" },
+        { "include": "#comment-double-string" }
+      ]
+    },
+    "end-note-in-block": {
+      "begin": "(?i)(?:^|(?<=&))\\s*(end)\\b",
+      "end": "(?=&|$|\\})",
+      "beginCaptures": { "1": { "name": "keyword.control.qsp" } },
+      "contentName": "variable.other.enummember.note.qsp",
+      "patterns": [
+        { "include": "#comment-brace" },
+        { "include": "#comment-single-string" },
+        { "include": "#comment-double-string" }
       ]
     },
     "keyword-control": {

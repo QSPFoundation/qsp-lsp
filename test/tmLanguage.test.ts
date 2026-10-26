@@ -28,6 +28,24 @@ describe('qsp.tmLanguage.json', () => {
     expect(JSON.stringify(grammar)).not.toContain('$self');
   });
 
+  it('ends a comment or an end note in a block at an unpaired }, which ends the block', () => {
+    // QSP ends a block at its first `}` that pairs with nothing, whatever
+    // the line is: `dynamic {*pl a` / `! comment}` closes the block.
+    expect(grammar.repository['code-block'].patterns).toEqual([
+      { include: '#comment-in-block' }, { include: '#end-note-in-block' }, { include: '#code' },
+    ]);
+    // Where an end pattern first matches in `} more`: at the `}` or at the line's end.
+    const endsAt = (name: string) => new RegExp(grammar.repository[name].end!).exec('} more')!.index;
+    for (const name of ['comment-in-block', 'end-note-in-block']) {
+      expect(endsAt(name), name).toBe(0);
+      // Braces and quotes in it pair up first.
+      expect(grammar.repository[name].patterns).toContainEqual({ include: '#comment-brace' });
+    }
+    // Outside a block a `}` is text.
+    expect(endsAt('comment')).toBe(6);
+    expect(endsAt('end-note')).toBe(6);
+  });
+
   it('starts and ends a location where the location index does', () => {
     const begin = new RegExp(grammar.repository.location.begin!);
     const end = new RegExp(grammar.repository.location.end!);
