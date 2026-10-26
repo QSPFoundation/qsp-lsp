@@ -73,7 +73,7 @@ export const ACTION_REF_NAMES = new Set(['delact', 'del act']);
  * `copyarr` also reads its second string arg as a proper-usage source
  * reference — handled inline in the statement walker.
  */
-export const VAR_DEF_STMT_NAMES = new Set(['setvar', 'scanstr', 'unpackarr', 'copyarr']);
+export const VAR_DEF_STMT_NAMES = new Set(['setvar', 'insvar', 'scanstr', 'unpackarr', 'copyarr']);
 
 /**
  * Statements whose first string argument is a variable name being mutated.
@@ -96,7 +96,7 @@ export const SIDE_EFFECT_WRITE_STMTS = new Set([
 
 /** Functions whose first argument is a variable name (reference). */
 export const VAR_REF_FUNC_NAMES = new Set([
-  'arrsize', 'arrtype', 'arritem', 'arrpack', 'arrpos', 'arrcomp',
+  'arrsize', 'arrtype', 'arrkey', 'arritem', 'arrpack', 'arrpos', 'arrcomp',
 ]);
 
 /** Functions that reference a variable name ONLY when called with a single argument. */

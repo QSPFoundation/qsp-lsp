@@ -65,13 +65,13 @@ const STATEMENTS = [
   'view',
   'wait',
   'xgoto', 'xgt',
-  'setvar',
+  'setvar', 'insvar',
 ];
 
 // Functions that need an argument: written without parentheses, they take
 // the operand after them (`len $s`).
 const FUNCTIONS = [
-  'arrcomp', 'arritem', 'arrpack', 'arrpos', 'arrsize', 'arrtype',
+  'arrcomp', 'arritem', 'arrkey', 'arrpack', 'arrpos', 'arrsize', 'arrtype',
   'desc', 'dyneval',
   'func',
   'getobj',
@@ -678,6 +678,7 @@ module.exports = grammar({
     _na_primary: $ => choice(
       $.paren_expr,
       $.number_literal,
+      $.undefined_literal,
       $.string,
       $.code_block,
       $.tuple,
@@ -713,6 +714,7 @@ module.exports = grammar({
     _ext_primary: $ => choice(
       $.paren_expr,
       $.number_literal,
+      $.undefined_literal,
       $.string,
       $.code_block,
       $.tuple,
@@ -748,6 +750,7 @@ module.exports = grammar({
     _ml_primary: $ => choice(
       $.paren_expr,
       $.number_literal,
+      $.undefined_literal,
       $.string,
       $.code_block,
       $.tuple,
@@ -919,6 +922,13 @@ module.exports = grammar({
 
     number_literal: $ => /\d+/,
 
+    // PEG: undefinedLiteral = "?"
+    // No value: what a variable of any type holds before it is set. A `?`
+    // followed by name characters is a name (`?abc`), as older players read
+    // it: identifier_text never matches a `?` alone, so the two tokens never
+    // compete (when they did, error recovery read broken code differently).
+    undefined_literal: $ => '?',
+
     // ══════════════════════════════════════════════════════════════════════════
     // CODE BLOCKS
     // ══════════════════════════════════════════════════════════════════════════
@@ -962,11 +972,13 @@ module.exports = grammar({
     // lint — see `checkReservedWordMisuse` in src/parser/extractErrors.ts.
     //
     // First char: non-delimiter, non-digit, non-typePrefix (#$%), non-@
-    //   (`@` at start always introduces a user call: `@foo` / `@@foo`).
+    //   (`@` at start always introduces a user call: `@foo` / `@@foo`), and
+    //   a `?` only with more name after it (`?` alone is undefined_literal).
     // Rest: any non-delimiter char — `@` and `.` ARE allowed inside a name,
     //   so `a@b`, `a.b`, `foo@bar` are valid variable / location names
-    //   (matches PEG `nonDelimiterChar+`, where delimiter set has no `@`/`.`).
-    identifier_text: $ => /[^\s&'"()\[\]=!<>+\-\/*:,{}@0-9#$%][^\s&'"()\[\]=!<>+\-\/*:,{}]*/,
+    //   (PEG `nameChar+`: the newest library's delimiters `\ ; ^ @ ?` are
+    //   still name characters here, as older players read them).
+    identifier_text: $ => /(?:[^\s&'"()\[\]=!<>+\-\/*:,{}@0-9#$%?]|\?[^\s&'"()\[\]=!<>+\-\/*:,{}])[^\s&'"()\[\]=!<>+\-\/*:,{}]*/,
 
     // ══════════════════════════════════════════════════════════════════════════
     // WHITESPACE / NEWLINES

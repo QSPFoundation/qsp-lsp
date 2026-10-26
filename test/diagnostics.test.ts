@@ -3114,6 +3114,22 @@ dynamic $never
     });
   });
 
+  // ── ? (no value) ───────────────────────────────────────────────────
+  // `?` alone is the undefined value of the newest library, not a
+  // variable named `?`; inside a name (`?abc`) it is part of the name.
+  describe('the undefined value ?', () => {
+    it('is no variable', () => {
+      const code = "# a\n$x = ?\nif $x = ? or n <> ?: pl 1\nz = iif(1, ?, 2) + (?)\n*pl $x + 'a<<?>>b' + $str(z)\n---\n";
+      const diags = run(code, { uninitializedVariables: true, unusedVariables: true, mixedVariablePrefixes: true });
+      expect(diags.map(d => d.message)).toEqual(["Variable 'n' is used but never assigned"]);
+    });
+
+    it('leaves a name that starts with ? a name', () => {
+      const diags = run('# a\npl ?abc\n---\n', { uninitializedVariables: true });
+      expect(diags.map(d => d.message)).toEqual(["Variable '?abc' is used but never assigned"]);
+    });
+  });
+
   // ── invalidBuiltinArgCount ─────────────────────────────────────────
   describe('invalidBuiltinArgCount', () => {
     function argDiags(code: string) {
@@ -3186,6 +3202,13 @@ dynamic $never
       for (const line of ['if i!COUNTOBJ+1:\nend', 'x = rnd - 1', 'x = countobj -1', 'x = msecscount+1']) {
         expect(argDiags(`# a\ni = 1\n${line}\n---\n`), line).toEqual([]);
       }
+    });
+
+    // INSVAR and ARRKEY came with the newest library.
+    it('knows INSVAR (2 to 4 arguments) and ARRKEY (1 or 2)', () => {
+      expect(argDiags(`# a\ninsvar '$a', 1\ninsvar '$a', 1, 2, 3\nk = arrkey('$a') + arrkey('$a', 1)\n---\n`)).toEqual([]);
+      expect(argDiags(`# a\ninsvar '$a'\n---\n`).map(d => d.message)).toEqual([expect.stringMatching(/Statement 'insvar' expects 2 to 4 arguments, got 1 argument$/)]);
+      expect(argDiags(`# a\nk = arrkey('$a', 1, 2)\n---\n`).map(d => d.message)).toEqual([expect.stringMatching(/Function 'arrkey' expects 1 to 2 arguments, got 3 arguments$/)]);
     });
 
     it('flags too few args on a fixed-arity function (iif takes 3)', () => {

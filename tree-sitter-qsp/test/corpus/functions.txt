@@ -506,3 +506,38 @@ x = len -1
             (op_neg)
             (number_literal)))))
     (location_end)))
+
+================
+INSVAR and ARRKEY
+================
+# test
+insvar '$a', 'b', 2
+k = arrkey('$a', 1)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (string
+          (single_quoted_string))
+        (string
+          (single_quoted_string))
+        (number_literal)))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (paren_args
+            (string
+              (single_quoted_string))
+            (number_literal)))))
+    (location_end)))

@@ -169,6 +169,12 @@ describe('qsp.tmLanguage.json on syntax_test_qsp.qsps', () => {
     expect(lines[8][0].scopes).toContain('meta.location.end.qsp');
   });
 
+  it('colours ? alone as no value, and ?abc as a name', () => {
+    const [, line] = tokenize('# a\n$x = ? & y = ?abc + (?)\n--- a ---');
+    expect(line.filter(t => t.scopes.includes('constant.language.undefined.qsp')).map(t => t.text)).toEqual(['?', '?']);
+    expect(line.some(t => t.text.includes('?abc') && t.scopes.includes('constant.language.undefined.qsp'))).toBe(false);
+  });
+
   it('colours the whole file as it did when checked', async () => {
     const compact = tokens.map((ts, i) => `${i + 1}: ` + ts
       .filter(t => t.text.length > 0)

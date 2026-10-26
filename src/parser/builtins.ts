@@ -86,6 +86,7 @@ export const QSP_STATEMENTS: BuiltinInfo[] = [
   { name: 'menu', kind: 'statement', description: 'Show a menu from the array with the given name', signature: 'MENU [$array name]' },
   // Variables & arrays
   { name: 'setvar', kind: 'statement', description: 'Assign a value to the specified array element at the given index', signature: 'SETVAR [$variable name],[value],[index]' },
+  { name: 'insvar', kind: 'statement', description: 'Insert a value into an array: at its end, at the given position (moving the elements after it), or under the given key. With a fourth argument, move the element at the position (or key) given third to the position given fourth', signature: 'INSVAR [$variable name],[value],[index],[#new position]' },
   { name: 'killvar', kind: 'statement', description: 'Delete all variables / the specified variable / the value at the specified index', signature: 'KILLVAR [$variable name],[index]' },
   { name: 'copyarr', kind: 'statement', description: 'Copy the contents of one array into another array', signature: 'COPYARR [$destination array],[$source array],[#start index],[#count]' },
   { name: 'sortarr', kind: 'statement', description: 'Sort an array', signature: 'SORTARR [$array name],[#reverse order]' },
@@ -133,6 +134,7 @@ export const QSP_FUNCTIONS: BuiltinInfo[] = [
   { name: 'curacts', kind: 'function', description: 'Returns all current actions as code', signature: 'CURACTS', validPrefixes: '$', returnType: '$' },
   { name: 'arrsize', kind: 'function', description: 'Returns the number of elements in the specified array', signature: 'ARRSIZE([$array name])', validPrefixes: '#', returnType: '#' },
   { name: 'arrtype', kind: 'function', description: "Returns the type prefix (''/'#'/'$'/'%') of the value of the element in the specified array", signature: 'ARRTYPE([$array name],[index])', validPrefixes: '$', returnType: '$' },
+  { name: 'arrkey', kind: 'function', description: 'Returns the key of the element at the given position in the specified array (0 by default); no value (?) if the element has no key', signature: 'ARRKEY([$array name],[#position])', validPrefixes: '$#%' },
   { name: 'arritem', kind: 'function', description: 'Returns the value of the element in the specified array', signature: 'ARRITEM([$array name],[index])', validPrefixes: '$#%' },
   { name: 'arrpack', kind: 'function', description: 'Returns a tuple obtained from the specified part of the array', signature: 'ARRPACK([$array name],[#start],[#length])', validPrefixes: '%', returnType: '%' },
   { name: 'arrpos', kind: 'function', description: 'Search the array for an element with the specified value', signature: 'ARRPOS([$array name],[value],[#start index])', validPrefixes: '#', returnType: '#' },
@@ -278,6 +280,7 @@ const ARG_CONSTRAINTS: Record<string, ArgRange> = {
   menu: { min: 1, max: 3 },
   // ── Variables & arrays ──────────────────────────────────────────
   setvar: { min: 2, max: 3 },
+  insvar: { min: 2, max: 4 },
   killvar: { min: 0, max: 2 },
   copyarr: { min: 2, max: 4 },
   sortarr: { min: 1, max: 2 },
@@ -324,6 +327,7 @@ const ARG_CONSTRAINTS: Record<string, ArgRange> = {
   curacts: { min: 0, max: 0 },
   arrsize: { min: 1, max: 1 },
   arrtype: { min: 1, max: 2 },
+  arrkey: { min: 1, max: 2 },
   arritem: { min: 1, max: 2 },
   arrpack: { min: 1, max: 3 },
   arrpos: { min: 2, max: 3 },

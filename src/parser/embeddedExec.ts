@@ -82,7 +82,7 @@ const SKIP_ARG0 = new Set<string>([
   'play', 'close', 'view', 'opengame', 'savegame', 'openqst',
   'inclib', 'addqst', 'addlib',
   // Variable-name refs
-  'setvar', 'killvar', 'sortarr', 'scanstr', 'unpackarr', 'menu',
+  'setvar', 'insvar', 'killvar', 'sortarr', 'scanstr', 'unpackarr', 'menu',
   // Dynamic-code arg (handled by the dynamic-block pass)
   'dynamic',
 ]);
@@ -92,7 +92,7 @@ const SKIP_ARG0_FN = new Set<string>([
   // Location-ref functions
   'func', 'desc', 'loc', 'isplay',
   // Variable-name functions
-  'arrsize', 'arrtype', 'arritem', 'arrpack', 'arrpos', 'arrcomp',
+  'arrsize', 'arrtype', 'arrkey', 'arritem', 'arrpack', 'arrpos', 'arrcomp',
   // Dynamic-code arg
   'dyneval',
 ]);

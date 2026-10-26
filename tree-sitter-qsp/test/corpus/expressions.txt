@@ -1098,3 +1098,39 @@ x = +5
           (op_pos)
           (number_literal))))
     (location_end)))
+
+================
+Undefined value
+================
+# test
+$x = ?
+y = iif(?, ?abc, 1)
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (undefined_literal)))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_func_call
+          name: (function_name)
+          (paren_args
+            (undefined_literal)
+            (ml_variable_ref
+              name: (identifier_text))
+            (number_literal)))))
+    (location_end)))

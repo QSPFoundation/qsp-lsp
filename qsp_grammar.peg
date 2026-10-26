@@ -78,6 +78,7 @@ QSP {
     */
 
     commentStatement        = "!" commentText
+    /* Here: a "}" with no "{" before it is text (in a block it would have ended the block). */
     commentText             = (rawStringLiteral | rawCodeBlock | commentChar | "}")*
     commentChar             = ~(newline | "'" | "\"" | "{" | "}") any
 
@@ -150,9 +151,9 @@ QSP {
     */
 
     userCallStatement          = userCallStatementEmptyArgs | userCallStatementWithArgs | userCallStatementNoArgs
-    userCallStatementNoArgs    = "@@" userStatementName
-    userCallStatementEmptyArgs = "@@" userStatementName ws "(" mws ")"
-    userCallStatementWithArgs  = "@@" userStatementName ws ( parenthesizedArgument1plusList | nonAmpersandArgument1plusList )
+    userCallStatementNoArgs    = "@@" ws userStatementName
+    userCallStatementEmptyArgs = "@@" ws userStatementName ws "(" mws ")"
+    userCallStatementWithArgs  = "@@" ws userStatementName ws ( parenthesizedArgument1plusList | nonAmpersandArgument1plusList )
 
     /* ====================
        FUNCTION CALLS
@@ -184,7 +185,7 @@ QSP {
 
     functionCallNoArgs              = funcNameWithPrefix &delimiterChar
     functionCallEmptyArgs           = funcNameWithPrefix &delimiterChar ws "(" mws ")"
-    // A function that needs no argument takes one only in parentheses: `countobj+1` is a sum.
+    // Here: a function that needs no argument takes one only in parentheses: `countobj+1` is a sum.
     functionCallSingleArg           = ~noArgFuncName funcNameWithPrefix &delimiterChar ws ( parenthesizedExpression | expression )
     functionCallMultiArgs           = funcNameWithPrefix &delimiterChar ws parenthesizedArgument2plusList
 
@@ -194,12 +195,12 @@ QSP {
 
     nonAmpersandFunctionCallSingleArg = ~noArgFuncName funcNameWithPrefix &delimiterChar ws ( parenthesizedExpression | nonAmpersandExpression )
 
-    userFunctionCallNoArgs          = "@" userFunctionName
-    userFunctionCallEmptyArgs       = "@" userFunctionName ws "(" mws ")"
-    userFunctionCallWithArgs        = "@" userFunctionName ws parenthesizedArgument1plusList
+    userFunctionCallNoArgs          = "@" ws userFunctionName
+    userFunctionCallEmptyArgs       = "@" ws userFunctionName ws "(" mws ")"
+    userFunctionCallWithArgs        = "@" ws userFunctionName ws parenthesizedArgument1plusList
 
-    multilineUserFunctionCallEmptyArgs = "@" userFunctionName mws "(" mws ")"
-    multilineUserFunctionCallWithArgs  = "@" userFunctionName mws parenthesizedArgument1plusList
+    multilineUserFunctionCallEmptyArgs = "@" ws userFunctionName mws "(" mws ")"
+    multilineUserFunctionCallWithArgs  = "@" ws userFunctionName mws parenthesizedArgument1plusList
 
     /* ====================
        OTHER STATEMENTS
@@ -209,6 +210,7 @@ QSP {
     labelStatement                  = ":" ws labelName
     implicitStatement               = nonAmpersandExpression
 
+    /* Here: brackets are part of a label (`:i[16]`), unlike in a note. */
     labelName                       = (rawStringLiteral | rawCodeBlock | labelChar)+
     labelChar                       = ~(statementSeparator | newline | "'" | "\"" | "{" | "}") any
 
@@ -251,6 +253,7 @@ QSP {
 
     primaryExpression               = parenthesizedExpression
                                     | numberLiteral
+                                    | undefinedLiteral
                                     | interpolatedString /* Try to parse it as a string with subexpressions */
                                     | rawStringLiteral
                                     | codeBlock
@@ -261,6 +264,7 @@ QSP {
 
     multilinePrimaryExpression      = parenthesizedExpression
                                     | numberLiteral
+                                    | undefinedLiteral
                                     | interpolatedString /* Try to parse it as a string with subexpressions */
                                     | rawStringLiteral
                                     | codeBlock
@@ -271,6 +275,7 @@ QSP {
 
     nonAmpersandPrimaryExpression   = parenthesizedExpression
                                     | numberLiteral
+                                    | undefinedLiteral
                                     | interpolatedString
                                     | rawStringLiteral
                                     | codeBlock
@@ -332,6 +337,7 @@ QSP {
     quoteEscape                  = "\"\""
 
     numberLiteral                = digit+
+    undefinedLiteral             = "?"
 
     /* ====================
        INTERPOLATED STRINGS
@@ -353,10 +359,11 @@ QSP {
        ====================
     */
 
-    /* A block is a string whose end is found by its braces and quotes; what's
+    /* Here: a block is a string whose end is found by its braces and quotes; what's
        inside is code only when something runs it (dynamic, dyneval), and is
        then parsed as a location body on its own. */
     codeBlock                  = rawCodeBlock
+
     rawCodeBlock               = "{" (rawStringLiteral | rawCodeBlock | rawCodeBlockChar)* "}"
     rawCodeBlockChar           = ~("{" | "}" | "'" | "\"") any
 
@@ -368,9 +375,11 @@ QSP {
     userStatementName     = nonDelimiterChar+
     userFunctionName      = nonDelimiterChar+
     funcNameWithPrefix    = typePrefix? functionName
-    noArgFuncName         = typePrefix? noArgFunctionName &delimiterChar
-    varName               = ~(keyword delimiterChar) ~digit nonDelimiterChar+
+    /* Here: names keep "\\", ";", "^", "@" and "?", which players before the newest
+       library allow in them (`a@b`, `?abc`); "?" alone is undefinedLiteral. */
+    varName               = ~(keyword delimiterChar) ~digit ~(undefinedLiteral delimiterChar) nameChar+
     varNameWithPrefix     = typePrefix? varName
+    noArgFuncName         = typePrefix? noArgFunctionName &delimiterChar
 
     keyword               = functionName
                           | statementName
@@ -378,12 +387,13 @@ QSP {
                           | binaryKeywordOperator
                           | unaryKeywordOperator
 
-    delimiterChar       = end | newline | " " | "\t" | "&" | "'" | "\"" | "(" | ")" | "[" | "]" | "=" | "!" | "<" | ">" | "+" | "-" | "/" | "*" | ":" | "," | "{" | "}"
+    delimiterChar       = end | newline | " " | "\t" | "&" | "'" | "\"" | "(" | ")" | "[" | "]" | "{" | "}" | "=" | "!" | "<" | ">" | "+" | "-" | "/" | "*" | "\\" | "," | ":" | ";" | "^" | "@" | "?"
     nonDelimiterChar    = ~delimiterChar any
+    nameChar            = ~(end | newline | " " | "\t" | "&" | "'" | "\"" | "(" | ")" | "[" | "]" | "{" | "}" | "=" | "!" | "<" | ">" | "+" | "-" | "/" | "*" | "," | ":") any
 
     typePrefix          = "#" | "$" | "%"
     newline             = "\n" | "\r\n"
-    lineContinuation    = space "_" space* newline   // QSP trims each line before joining
+    lineContinuation    = space "_" space* newline   // Here: QSP trims each line before joining
     statementSeparator  = "&"
     ws                  = (lineContinuation | space)*
     mws                 = (space | newline)*
@@ -421,7 +431,7 @@ QSP {
     binaryExtendedOperator  = binaryStandardOperator | "&"
 
     unaryKeywordOperator    = "no" | "obj" | "loc"
-    unaryStandardOperator   = "-" | "+"
+    unaryStandardOperator   = "-" | "+"   // Here: unary plus, as the newest library (QSP_OP_AFFIRMATION) and older players read it
 
     /* Priority | Operations
        ---------|--------------------------------
@@ -474,6 +484,7 @@ QSP {
                             | "settimer"
                             | "dynamic"
                             | "setvar"
+                            | "insvar"
                             | "killvar"
                             | "copyarr"
                             | "sortarr"
@@ -515,6 +526,7 @@ QSP {
                             | "curacts"
                             | "arrsize"
                             | "arrtype"
+                            | "arrkey"
                             | "arritem"
                             | "arrpack"
                             | "arrpos"
