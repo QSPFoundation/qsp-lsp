@@ -3116,10 +3116,17 @@ dynamic $never
 
   // ── #obj, #loc ─────────────────────────────────────────────────────
   // The library declares OBJ and LOC as functions giving a number (true or
-  // false), so `#obj` and `#loc` are them too.
+  // false), so `#obj` and `#loc` are them too; with the name in
+  // parentheses they still name an object or a location.
   describe('obj and loc', () => {
     it('take the numeric prefix', () => {
       const code = "# start\naddobj 'ключ'\na = #obj 'ключ'\nif #OBJ 'ключ' and #loc 'other': pl a\n--- start ---\n# other\n--- other ---\n";
+      const diags = run(code, { unusedObjects: true, unusedLocations: true, unresolvedLocationRefs: true });
+      expect(diags.map(d => d.message)).toEqual([]);
+    });
+
+    it('name an object or a location in parentheses too', () => {
+      const code = "# start\naddobj 'ключ'\nif #obj('ключ') and #loc('other') and loc(('third')): pl 1\n--- start ---\n# other\n--- other ---\n# third\n--- third ---\n";
       const diags = run(code, { unusedObjects: true, unusedLocations: true, unresolvedLocationRefs: true });
       expect(diags.map(d => d.message)).toEqual([]);
     });

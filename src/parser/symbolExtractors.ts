@@ -471,17 +471,25 @@ export function extractObjOperator(
   if (!first) return;
 
   if (first.type === 'op_obj') {
-    const firstString = findStringInFirstArg(node);
+    const firstString = operandString(node);
     if (!firstString) return;
     const { name: refName, loc } = extractExactQuotedRefInfo(firstString, docUri);
     locSymbols.addObjectRef(refName, loc);
   } else if (first.type === 'op_loc') {
-    const firstString = findStringInFirstArg(node);
+    const firstString = operandString(node);
     if (!firstString) return;
     const { name: refName, loc } = extractQuotedRefInfo(firstString, docUri);
     loc.localsInScope = locSymbols.getLocalsInScope(scopeId);
     locSymbols.addLocationRef(refName, loc);
   }
+}
+
+// The name `obj` / `loc` checks, written bare or in parentheses
+// (`loc 'room'`, `loc('room')`).
+function operandString(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
+  let operand = node.namedChildren.at(-1) ?? null;
+  while (operand?.type === 'paren_expr' && operand.namedChildCount === 1) operand = operand.namedChild(0);
+  return operand ? findDirectString(operand) : null;
 }
 
 // ── Variable-from-string reference ────────────────────────────────────
