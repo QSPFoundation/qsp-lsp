@@ -1109,6 +1109,8 @@
     "tree-sitter-cli": "^0.24.7",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.0.0",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.2",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }
