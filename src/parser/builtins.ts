@@ -20,6 +20,12 @@ export interface BuiltinInfo {
    *   '%' → tuple    (QSP_TYPE_TUPLE)
    */
   returnType?: '#' | '$' | '%';
+  /**
+   * What a system variable holds: '#' a number, written `name` or `#name`;
+   * '$' text, written `$name`. Omitted for `args` and `result`, which
+   * hold any type.
+   */
+  valueType?: '#' | '$';
   /** Minimum number of positional arguments accepted.  Omitted = no
    *  lower-bound check (don't warn on too few args). */
   minArgs?: number;
@@ -160,26 +166,26 @@ export const QSP_FUNCTIONS: BuiltinInfo[] = [
 export const QSP_VARIABLES: BuiltinInfo[] = [
   { name: 'args', kind: 'variable', description: 'Array with procedure/function parameters', signature: 'ARGS / $ARGS / %ARGS' },
   { name: 'result', kind: 'variable', description: 'Variable contains the result returned by the current function', signature: 'RESULT / $RESULT / %RESULT' },
-  { name: 'disablescroll', kind: 'variable', description: 'If the variable is not 0, it forbids automatic text scrolling when outputting', signature: 'DISABLESCROLL' },
-  { name: 'disablesubex', kind: 'variable', description: 'If the variable is not 0, it disables the calculation of subexpressions (<<…>>) in strings. Not used by players 5.8.0 and later', signature: 'DISABLESUBEX' },
-  { name: 'nosave', kind: 'variable', description: 'If the variable is not 0, saving the game state by the user is impossible', signature: 'NOSAVE' },
-  { name: 'debug', kind: 'variable', description: 'If the variable is not 0, the game identifier check is disabled when loading the state', signature: 'DEBUG' },
-  { name: 'counter', kind: 'variable', description: 'Variable contains the name of the counter location', signature: '$COUNTER' },
-  { name: 'ongload', kind: 'variable', description: 'Variable contains the name of the state-loading handler location', signature: '$ONGLOAD' },
-  { name: 'ongsave', kind: 'variable', description: 'Variable contains the name of the state-saving handler location', signature: '$ONGSAVE' },
-  { name: 'onnewloc', kind: 'variable', description: 'Variable contains the name of the new-location transition handler location', signature: '$ONNEWLOC' },
-  { name: 'onactsel', kind: 'variable', description: 'Variable contains the name of the action-selection handler location', signature: '$ONACTSEL' },
-  { name: 'onobjsel', kind: 'variable', description: 'Variable contains the name of the object-selection handler location', signature: '$ONOBJSEL' },
-  { name: 'onobjadd', kind: 'variable', description: 'Variable contains the name of the object-addition handler location', signature: '$ONOBJADD' },
-  { name: 'onobjdel', kind: 'variable', description: 'Variable contains the name of the object-deletion handler location', signature: '$ONOBJDEL' },
-  { name: 'usercom', kind: 'variable', description: 'Variable contains the name of the input-line handler location', signature: '$USERCOM' },
-  { name: 'usehtml', kind: 'variable', description: 'If the variable is not 0, enables the use of HTML', signature: 'USEHTML' },
-  { name: 'bcolor', kind: 'variable', description: 'Variable contains the background color', signature: 'BCOLOR' },
-  { name: 'fcolor', kind: 'variable', description: 'Variable contains the main font color', signature: 'FCOLOR' },
-  { name: 'lcolor', kind: 'variable', description: 'Variable contains the main link color', signature: 'LCOLOR' },
-  { name: 'fsize', kind: 'variable', description: 'Variable contains the main font size', signature: 'FSIZE' },
-  { name: 'fname', kind: 'variable', description: 'Variable contains the name of the main font', signature: '$FNAME' },
-  { name: 'backimage', kind: 'variable', description: 'Variable contains the path to the background image', signature: '$BACKIMAGE' },
+  { name: 'disablescroll', kind: 'variable', valueType: '#', description: 'If the variable is not 0, it forbids automatic text scrolling when outputting', signature: 'DISABLESCROLL' },
+  { name: 'disablesubex', kind: 'variable', valueType: '#', description: 'If the variable is not 0, it disables the calculation of subexpressions (<<…>>) in strings. Not used by players 5.8.0 and later', signature: 'DISABLESUBEX' },
+  { name: 'nosave', kind: 'variable', valueType: '#', description: 'If the variable is not 0, saving the game state by the user is impossible', signature: 'NOSAVE' },
+  { name: 'debug', kind: 'variable', valueType: '#', description: 'If the variable is not 0, the game identifier check is disabled when loading the state', signature: 'DEBUG' },
+  { name: 'counter', kind: 'variable', valueType: '$', description: 'Variable contains the name of the counter location', signature: '$COUNTER' },
+  { name: 'ongload', kind: 'variable', valueType: '$', description: 'Variable contains the name of the state-loading handler location', signature: '$ONGLOAD' },
+  { name: 'ongsave', kind: 'variable', valueType: '$', description: 'Variable contains the name of the state-saving handler location', signature: '$ONGSAVE' },
+  { name: 'onnewloc', kind: 'variable', valueType: '$', description: 'Variable contains the name of the new-location transition handler location', signature: '$ONNEWLOC' },
+  { name: 'onactsel', kind: 'variable', valueType: '$', description: 'Variable contains the name of the action-selection handler location', signature: '$ONACTSEL' },
+  { name: 'onobjsel', kind: 'variable', valueType: '$', description: 'Variable contains the name of the object-selection handler location', signature: '$ONOBJSEL' },
+  { name: 'onobjadd', kind: 'variable', valueType: '$', description: 'Variable contains the name of the object-addition handler location', signature: '$ONOBJADD' },
+  { name: 'onobjdel', kind: 'variable', valueType: '$', description: 'Variable contains the name of the object-deletion handler location', signature: '$ONOBJDEL' },
+  { name: 'usercom', kind: 'variable', valueType: '$', description: 'Variable contains the name of the input-line handler location', signature: '$USERCOM' },
+  { name: 'usehtml', kind: 'variable', valueType: '#', description: 'If the variable is not 0, enables the use of HTML', signature: 'USEHTML' },
+  { name: 'bcolor', kind: 'variable', valueType: '#', description: 'Variable contains the background color', signature: 'BCOLOR' },
+  { name: 'fcolor', kind: 'variable', valueType: '#', description: 'Variable contains the main font color', signature: 'FCOLOR' },
+  { name: 'lcolor', kind: 'variable', valueType: '#', description: 'Variable contains the main link color', signature: 'LCOLOR' },
+  { name: 'fsize', kind: 'variable', valueType: '#', description: 'Variable contains the main font size', signature: 'FSIZE' },
+  { name: 'fname', kind: 'variable', valueType: '$', description: 'Variable contains the name of the main font', signature: '$FNAME' },
+  { name: 'backimage', kind: 'variable', valueType: '$', description: 'Variable contains the path to the background image', signature: '$BACKIMAGE' },
 ];
 
 export const QSP_KEYWORDS: BuiltinInfo[] = [

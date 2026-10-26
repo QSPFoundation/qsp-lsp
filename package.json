@@ -771,6 +771,11 @@
           "default": true,
           "description": "Warn when a function is called with an incompatible type prefix ($, #, %)."
         },
+        "qsp.diagnostics.systemVariablePrefix": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn when a system variable is written with a prefix of another type than it holds: a number (usehtml, nosave, bcolor…) as $usehtml or %usehtml, text (onnewloc, usercom, fname…) as onnewloc or #fname. QSP converts the value on every use."
+        },
         "qsp.diagnostics.invalidBuiltinArgCount": {
           "type": "boolean",
           "default": true,

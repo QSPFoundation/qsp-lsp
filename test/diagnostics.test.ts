@@ -3114,6 +3114,30 @@ dynamic $never
     });
   });
 
+  // ── systemVariablePrefix ───────────────────────────────────────────
+  // A system variable holds a number (usehtml) or text (fname); another
+  // prefix converts the value on every use. A name in a string, a local
+  // of that name, and args/result (any type) are left alone.
+  describe('systemVariablePrefix', () => {
+    const prefixDiags = (code: string) => run(code, { systemVariablePrefix: true }).map(d => `${d.range.start.line}:${d.range.start.character} ${d.message}`);
+
+    it('flags a number written as text or a tuple, and text written as a number', () => {
+      const code = "# a\n$usehtml = '1'\n%nosave = 1\nfname = 'Arial'\n#onnewloc = 'a'\n*pl '<<$bcolor>>'\n--- a ---\n";
+      expect(prefixDiags(code)).toEqual([
+        "1:1 System variable 'usehtml' holds a number: write it 'usehtml' or '#usehtml', not '$usehtml'",
+        "2:1 System variable 'nosave' holds a number: write it 'nosave' or '#nosave', not '%nosave'",
+        "3:0 System variable 'fname' holds text: write it '$fname'",
+        "4:1 System variable 'onnewloc' holds text: write it '$onnewloc'",
+        "5:8 System variable 'bcolor' holds a number: write it 'bcolor' or '#bcolor', not '$bcolor'",
+      ]);
+    });
+
+    it('leaves the right prefixes, names in strings, locals and args/result alone', () => {
+      const code = "# a\nusehtml = 1 & #nosave = 1 & $fname = 'Arial' & $onnewloc = 'a'\nkillvar '$bcolor'\nlocal $fsize = 'x'\npl $fsize\nargs[0] = 1 & $result = 'x' & %args = (1, 2)\n--- a ---\n";
+      expect(prefixDiags(code)).toEqual([]);
+    });
+  });
+
   // ── #obj, #loc ─────────────────────────────────────────────────────
   // The library declares OBJ and LOC as functions giving a number (true or
   // false), so `#obj` and `#loc` are them too; with the name in

@@ -10,10 +10,12 @@ import {
   type SymbolLocation,
   type QspSymbol,
   type PrefixWarning,
+  type SystemVariablePrefixWarning,
   type ArgCountWarning,
   type DeprecationWarning,
   type VariableBinding,
 } from './symbolTypes';
+import { lookupBuiltin } from './builtins';
 import { shiftError, type SyntaxError } from './extractErrors';
 import type { ArgBlock } from './argBlocks';
 import type { StoredBlock } from './storedBlocks';
@@ -66,6 +68,8 @@ export class LocationSymbols {
   public readonly actionRefs = new Map<string, QspSymbol>();
   /** Warnings for function calls with incompatible type prefixes. */
   public readonly prefixWarnings: PrefixWarning[] = [];
+  /** System variables written with a prefix of another type than they hold. */
+  public readonly systemVariablePrefixWarnings: SystemVariablePrefixWarning[] = [];
   /** Warnings for builtins called with wrong number of positional args. */
   public readonly argCountWarnings: ArgCountWarning[] = [];
   /** Warnings for deprecated/outdated builtin statements or functions. */
@@ -392,6 +396,10 @@ export class LocationSymbols {
     prefix = '',
     scopeId = 0,
     hasValue = isDefinition,
+    // Only a reference in code: a name in a string (`killvar '$x'`) is
+    // the variable whatever its prefix, and code from `exec:` links and
+    // interpolations comes with its warnings already made.
+    checkSystemPrefix = false,
   ): void {
     const baseName = name.toLowerCase();
     let sym: QspSymbol | undefined;
@@ -462,6 +470,14 @@ export class LocationSymbols {
     }
     sym.references.push(loc);
     sym.prefixes!.add(prefix);
+    if (checkSystemPrefix && !sym.isLocal) {
+      // A number reads as `name` or `#name`, text as `$name`; another
+      // prefix converts the value on every use (`$usehtml`, `fname`).
+      const valueType = lookupBuiltin(baseName)?.valueType;
+      if (valueType && (valueType === '$' ? prefix !== '$' : prefix !== '' && prefix !== '#')) {
+        this.systemVariablePrefixWarnings.push({ loc, varName: name, prefix, valueType });
+      }
+    }
   }
 
   addLabel(name: string, loc: SymbolLocation, namespace = 0): void {
@@ -746,6 +762,7 @@ export class LocationSymbols {
       for (const act of source.actions) copy.actions.push(act);
       for (const loc of source.unreachableLabels) copy.unreachableLabels.push(loc);
       for (const pw of source.prefixWarnings) copy.prefixWarnings.push(pw);
+      for (const sw of source.systemVariablePrefixWarnings) copy.systemVariablePrefixWarnings.push(sw);
       for (const aw of source.argCountWarnings) copy.argCountWarnings.push(aw);
       for (const dw of source.deprecationWarnings) copy.deprecationWarnings.push(dw);
       for (const e of source.embeddedExecErrors) copy.embeddedExecErrors.push(e);
@@ -819,6 +836,9 @@ export class LocationSymbols {
     for (const act of source.actions) copy.actions.push(shiftSym(act));
     for (const pw of source.prefixWarnings) {
       copy.prefixWarnings.push({ ...pw, loc: shift(pw.loc) });
+    }
+    for (const sw of source.systemVariablePrefixWarnings) {
+      copy.systemVariablePrefixWarnings.push({ ...sw, loc: shift(sw.loc) });
     }
     for (const aw of source.argCountWarnings) {
       copy.argCountWarnings.push({ ...aw, loc: shift(aw.loc) });

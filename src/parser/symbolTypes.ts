@@ -316,6 +316,16 @@ export interface PrefixWarning {
   validPrefixes: string;
 }
 
+/** A system variable written with a prefix of another type than it holds (`$usehtml`, `fname`). */
+export interface SystemVariablePrefixWarning {
+  loc: SymbolLocation;
+  /** As written, without the prefix. */
+  varName: string;
+  prefix: string;
+  /** What the variable holds: '#' a number, '$' text. */
+  valueType: '#' | '$';
+}
+
 /**
  * Warning for a built-in statement/function called with the wrong
  * number of positional arguments.  The range covers the call's name

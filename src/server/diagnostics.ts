@@ -58,6 +58,7 @@ export interface DiagnosticSettings {
   unusedVariables: boolean;
   unusedObjects: boolean;
   invalidFunctionPrefix: boolean;
+  systemVariablePrefix: boolean;
   invalidBuiltinArgCount: boolean;
   deprecatedBuiltins: boolean;
   mixedVariablePrefixes: boolean;

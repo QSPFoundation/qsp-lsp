@@ -274,6 +274,7 @@ All diagnostic checks are enabled by default. Set to `false` to disable a specif
 | `qsp.diagnostics.unusedVariables` | `true` | Hint about variables assigned but never read |
 | `qsp.diagnostics.unusedObjects` | `true` | Hint about objects added but never referenced |
 | `qsp.diagnostics.invalidFunctionPrefix` | `true` | Warn when function called with wrong type prefix |
+| `qsp.diagnostics.systemVariablePrefix` | `true` | Warn when a system variable is written with a prefix of another type than it holds (`$usehtml`, `fname`) |
 | `qsp.diagnostics.invalidBuiltinArgCount` | `true` | Warn when built-in called with wrong arg count |
 | `qsp.diagnostics.deprecatedBuiltins` | `true` | Warn about outdated built-ins (e.g. `ADDQST` instead of `INCLIB`) and strike them through |
 | `qsp.diagnostics.mixedVariablePrefixes` | `true` | Info when variable uses inconsistent type prefixes |

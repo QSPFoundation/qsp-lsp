@@ -292,6 +292,24 @@ export function checkInvalidFunctionPrefix(
   }
 }
 
+/** A system variable written with a prefix of another type than it holds. */
+export function checkSystemVariablePrefix(
+  ctx: DiagnosticCtx,
+  locSyms: LocationSymbols,
+): void {
+  for (const w of locSyms.systemVariablePrefixWarnings) {
+    const holds = w.valueType === '$'
+      ? `holds text: write it '$${w.varName}'`
+      : `holds a number: write it '${w.varName}' or '#${w.varName}', not '${w.prefix}${w.varName}'`;
+    ctx.push(
+      DiagnosticSeverity.Warning,
+      ctx.locRange(w.loc),
+      `System variable '${w.varName}' ${holds}`,
+      { code: 'systemVariablePrefix', name: w.varName },
+    );
+  }
+}
+
 /** Wrong number of positional arguments to a built-in statement/function. */
 export function checkInvalidArgCount(
   ctx: DiagnosticCtx,
@@ -355,6 +373,7 @@ export function checkLocationSymbols(
   if (ctx.settings.unusedLabels)               checkUnusedLabels(ctx, locSyms);
   if (ctx.settings.unusedObjects && !referencesIncomplete) checkUnusedObjects(ctx, locSyms, referencedObjects, namedInText);
   if (ctx.settings.invalidFunctionPrefix)      checkInvalidFunctionPrefix(ctx, locSyms);
+  if (ctx.settings.systemVariablePrefix)       checkSystemVariablePrefix(ctx, locSyms);
   if (ctx.settings.invalidBuiltinArgCount)     checkInvalidArgCount(ctx, locSyms);
   if (ctx.settings.mixedLocationCallTypes)     checkMixedCallTypes(ctx, locSyms, callTypesPerTarget);
 

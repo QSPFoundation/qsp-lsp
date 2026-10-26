@@ -88,7 +88,7 @@ export function extractVariable(
     if (idx !== undefined) loc.argsIndex = idx;
   }
 
-  locSymbols.addVariable(name, loc, isLocal, lhsKind === 'definition', prefix, scopeId, hasValue);
+  locSymbols.addVariable(name, loc, isLocal, lhsKind === 'definition', prefix, scopeId, hasValue, true);
 }
 
 /**
