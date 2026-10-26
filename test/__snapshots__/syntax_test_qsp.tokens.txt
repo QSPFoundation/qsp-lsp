@@ -169,7 +169,7 @@
 169: "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Для работы всех прочих модулей и самих игровых скриптов необходимо подключение стандартных библиотек easy.libs</div>" string.quoted.double
 170: 
 171: 
-172: "<center>" string.quoted.double | "<a href='" string.quoted.double | "exec" string.quoted.double > keyword.control.exec | ":" string.quoted.double > punctuation.separator.exec | " goto " string.quoted.double | "\"\"" string.quoted.double > constant.character.escape | "[start]" string.quoted.double | "\"\"" string.quoted.double > constant.character.escape | "'>Назад" string.quoted.double | "</a>" string.quoted.double | "</center></td></tr></table></font></center></qhtml>" string.quoted.double | "\"" string.quoted.double > punctuation.definition.string.end
+172: "<center>" string.quoted.double | "<a href='" string.quoted.double | "exec" string.quoted.double > keyword.control.exec | ":" string.quoted.double > punctuation.separator.exec | " goto " string.quoted.double | "\"\"" string.quoted.double > constant.character.escape | "[start]" string.quoted.double | "\"\"" string.quoted.double > constant.character.escape | "'" string.quoted.double | ">Назад</a></center></td></tr></table></font></center></qhtml>" string.quoted.double | "\"" string.quoted.double > punctuation.definition.string.end
 173: "-- st.game_info ---------------------------------" meta.location.end > punctuation.definition.location.end
 174: 
 175: "#" meta.location.header > punctuation.definition.location | " " meta.location.header | "newerland" meta.location.header > entity.name.section.location

@@ -72,6 +72,7 @@ describe('qsp.tmLanguage.json on syntax_test_qsp.qsps', () => {
   const text = fs.readFileSync(path.join(__dirname, 'fixtures', 'syntax_test_qsp.qsps'), 'utf8');
   const lines = text.split('\n');
   let tokens: Token[][];
+  let tokenize: (text: string) => Token[][];
 
   beforeAll(async () => {
     const wasm = fs.readFileSync(require.resolve('vscode-oniguruma/release/onig.wasm'));
@@ -84,12 +85,15 @@ describe('qsp.tmLanguage.json on syntax_test_qsp.qsps', () => {
       loadGrammar: async () => textmate.parseRawGrammar(fs.readFileSync(grammarPath, 'utf8'), grammarPath),
     });
     const qsp = (await registry.loadGrammar('source.qsp'))!;
-    let stack = textmate.INITIAL;
-    tokens = lines.map((line) => {
-      const result = qsp.tokenizeLine(line, stack);
-      stack = result.ruleStack;
-      return result.tokens.map(t => ({ text: line.slice(t.startIndex, t.endIndex), scopes: t.scopes }));
-    });
+    tokenize = (code) => {
+      let stack = textmate.INITIAL;
+      return code.split('\n').map((line) => {
+        const result = qsp.tokenizeLine(line, stack);
+        stack = result.ruleStack;
+        return result.tokens.map(t => ({ text: line.slice(t.startIndex, t.endIndex), scopes: t.scopes }));
+      });
+    };
+    tokens = tokenize(text);
   });
 
   // 1-based, as an editor shows them.
@@ -138,6 +142,31 @@ describe('qsp.tmLanguage.json on syntax_test_qsp.qsps', () => {
     expect(has(102, 'string.quoted.double.qsp')).toBe(true);
     // Braces in a note span lines, as in a comment.
     expect(note(105)).toContain('продолжается здесь');
+  });
+
+  it('ends the code of an exec: link with its href, whether or not the string closes the tag', () => {
+    // `</a>` in another string (or nowhere) used to keep the link open
+    // past its string's quote, inverting every string after it.
+    const code = [
+      '# a',
+      `$args['hr.b']='<a href="exec:gosub ''back.varriors''" class="plain" id="avs_back_btn">'`,
+      "$args['hr.b.n']='Назад'",
+      `$args['/hr.b']="</a>"`,
+      `*pl "<a href='exec:gt ""дом""'>x"`,
+      `*pl '<a href=''exec:gt "лес"''>z' + 'после'`,
+      `*pl '<a href="exec:gt 1'`,
+      'x = 1',
+      '--- a ---',
+    ].join('\n');
+    const lines = tokenize(code);
+    const stringEnds = (n: number) => lines[n].filter(t => t.scopes.includes('punctuation.definition.string.end.qsp')).length;
+    expect(lines[1].find(t => t.text === 'exec')!.scopes).toContain('keyword.control.exec.qsp');
+    expect(lines[1].at(-1)!.scopes).toContain('punctuation.definition.string.end.qsp');
+    expect(lines[1].find(t => t.text.includes('class='))!.scopes.at(-1)).toBe('string.quoted.single.qsp');
+    // Every string on lines 1–6 closes on its own line.
+    expect([1, 2, 3, 4, 5, 6].map(stringEnds)).toEqual([2, 2, 2, 1, 2, 1]);
+    expect(lines[7].map(t => t.scopes.at(-1))).toContain('variable.other.readwrite.qsp');
+    expect(lines[8][0].scopes).toContain('meta.location.end.qsp');
   });
 
   it('colours the whole file as it did when checked', async () => {

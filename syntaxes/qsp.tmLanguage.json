@@ -110,7 +110,7 @@
       "endCaptures": { "0": { "name": "punctuation.definition.string.end.qsp" } },
       "patterns": [
         { "match": "''", "name": "constant.character.escape.qsp" },
-        { "include": "#exec-link" },
+        { "include": "#exec-link-in-single" },
         { "include": "#string-interpolation" }
       ]
     },
@@ -122,19 +122,31 @@
       "endCaptures": { "0": { "name": "punctuation.definition.string.end.qsp" } },
       "patterns": [
         { "match": "\"\"", "name": "constant.character.escape.qsp" },
-        { "include": "#exec-link" },
+        { "include": "#exec-link-in-double" },
         { "include": "#string-interpolation" }
       ]
     },
-    "exec-link": {
-      "begin": "(?i)<a\\s(?:[^>]*?\\s)?href\\s*=\\s*[\"']{1,2}\\s*(exec)(:)",
-      "end": "(?i)</a>",
+    "exec-link-in-single": {
+      "comment": "The code of an exec: link is the href value: it ends at the attribute's quote (\" or '') or before the string's own ', never at </a>, which the string may not hold.",
+      "begin": "(?i)<a\\s(?:[^>]*?\\s)?href\\s*=\\s*(\"|'')\\s*(exec)(:)",
+      "end": "\\1|(?='(?!'))",
       "beginCaptures": {
-        "1": { "name": "keyword.control.exec.qsp" },
-        "2": { "name": "punctuation.separator.exec.qsp" }
+        "2": { "name": "keyword.control.exec.qsp" },
+        "3": { "name": "punctuation.separator.exec.qsp" }
       },
       "patterns": [
         { "match": "''", "name": "constant.character.escape.qsp" },
+        { "include": "#string-interpolation" }
+      ]
+    },
+    "exec-link-in-double": {
+      "begin": "(?i)<a\\s(?:[^>]*?\\s)?href\\s*=\\s*('|\"\")\\s*(exec)(:)",
+      "end": "\\1|(?=\"(?!\"))",
+      "beginCaptures": {
+        "2": { "name": "keyword.control.exec.qsp" },
+        "3": { "name": "punctuation.separator.exec.qsp" }
+      },
+      "patterns": [
         { "match": "\"\"", "name": "constant.character.escape.qsp" },
         { "include": "#string-interpolation" }
       ]
