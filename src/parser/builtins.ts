@@ -117,7 +117,7 @@ export const QSP_STATEMENTS: BuiltinInfo[] = [
 ];
 
 export const QSP_FUNCTIONS: BuiltinInfo[] = [
-  { name: 'desc', kind: 'function', description: 'Returns the base description text of the location', signature: 'DESC([$location])', validPrefixes: '$', returnType: '$' },
+  { name: 'desc', kind: 'function', description: 'Returns the base description text of the location', signature: 'DESC($location)', validPrefixes: '$', returnType: '$' },
   { name: 'max', kind: 'function', description: 'Returns the maximum value among the arguments', signature: 'MAX([expression 1],[expression 2], ...)', validPrefixes: '$#%' },
   { name: 'min', kind: 'function', description: 'Returns the minimum value among the arguments', signature: 'MIN([expression 1],[expression 2], ...)', validPrefixes: '$#%' },
   { name: 'rand', kind: 'function', description: 'Returns a random number between the specified values', signature: 'RAND([#expression 1],[#expression 2],[#normal distribution mode])', validPrefixes: '#', returnType: '#' },

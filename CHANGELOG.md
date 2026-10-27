@@ -30,6 +30,7 @@
 - Files in `libs/` show errors only (no warnings about a library's unused locations or variables), and a duplicate location names the library it clashes with.
 
 ### Fixes
+- The hover and completion of `DESC` showed its argument as optional (`DESC([$location])`); QSP requires it, as the argument count check already said: `DESC($location)`.
 - A `loop`, `if`, `elseif` or `act` header that doesn't parse names what is missing instead of always a colon: `loop while i<9 step:` reports `Expected a statement after 'step'`, `loop :` `Expected 'while' and a condition after 'loop'`, `loop while :` `Expected a condition after 'while'`, `if : pl 1` `Expected a condition after 'if'`, `act :` `Expected an action name after 'act'`. `Missing ':'` is left for a header that has everything but the colon. Reported by Aleks Versus.
 - `#obj` and `#loc` are known: the library declares `OBJ` and `LOC` as functions that give a number (true or false), so they take the numeric prefix like any such function, instead of being reported as unexpected syntax. Reported by Aleks Versus.
 - `obj` and `loc` with the name in parentheses (`loc('room')`, `#obj('key')`) count as a use of that location or object, as they did without parentheses.
