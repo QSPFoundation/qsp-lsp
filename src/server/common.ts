@@ -34,7 +34,8 @@ import { fileAggregatesSteps, collectCallTypesPerTarget as collectCallTypesPerTa
 import { diagnosticsSteps, type DiagnosticSettings } from './diagnostics';
 import { registerLspFeatures, type DocumentState, type PerLocationParseResult } from './lspFeatures';
 import type { TokenFacts } from './featureTypes';
-import { stripBom, shiftErrors, dropIdleTrees, makeLocSymLoc, perLocationCacheKeys, safeSendDiagnostics, safeConnectionCall, safeConsole, QSP_FILE_EXTENSIONS, type FsProvider } from './serverUtils';
+import { stripBom, shiftErrors, dropIdleTrees, makeLocSymLoc, perLocationCacheKeys, safeSendDiagnostics, safeConnectionCall, safeConsole, QSP_FILE_EXTENSIONS, type AnalysisWorkers, type FsProvider } from './serverUtils';
+import { SPLIT_MIN_CHARS } from './fileAnalysis';
 import { ProjectModeService, type RebuildOptions } from './projectMode';
 import { runInSlices, type Steps } from './slices';
 import { analyzeParsedLocation, collectFoldLines } from './locationAnalysis';
@@ -874,6 +875,7 @@ export function createQspServer(
     const tt = treeTimers.get(uri);
     if (tt) { clearTimeout(tt); treeTimers.delete(uri); }
     status.forget(uri);
+    openFileAnalyses.delete(uri);
     // The editor's analysis, kept if the file on disk turns out to hold the
     // same text: the trees go, but symbols and syntax errors are what a
     // closed project file needs, and re-analysing a large one takes seconds.
@@ -1160,11 +1162,13 @@ export function createQspServer(
   // stored on disk. Undefined when there is none, or it doesn't match the
   // locations one to one (symbols are keyed by name, so duplicates collapse).
   function storedLocations(
-    key: string, prevState: DocumentState | undefined, locationIndex: readonly LocationEntry[],
+    uri: string, key: string | undefined, text: string, prevState: DocumentState | undefined, locationIndex: readonly LocationEntry[],
   ): StoredLocation[] | undefined {
-    const stored = prevState?.storedAnalysis?.key === key
-      ? { symbols: prevState.symbols, syntaxErrors: prevState.storedAnalysis.syntaxErrors }
-      : project.readAnalysis(key);
+    const kept = prevState?.storedAnalysis;
+    const fromWorkers = openFileAnalyses.get(uri);
+    const stored = fromWorkers?.text === text ? fromWorkers.analysis
+      : kept && key && kept.key === key ? { symbols: prevState!.symbols, syntaxErrors: kept.syntaxErrors }
+        : key ? project.readAnalysis(key) : undefined;
     if (!stored || stored.symbols.locations.size !== locationIndex.length) return undefined;
     const result: StoredLocation[] = [];
     const indexOf = new Map<LocationEntry, number>();
@@ -1373,7 +1377,7 @@ export function createQspServer(
     return true;
   }
 
-  function analyzeDocumentPerLocation(doc: TextDocument, text: string): void {
+  function analyzeDocumentPerLocation(doc: TextDocument, text: string, inWorkers = true): void {
     // ── Try O(1-location) incremental update first ────────────────
     // Requires: fast tier already ran (locationIndex is current) and
     // a previous full analysis populated the perLocationCache.
@@ -1381,12 +1385,63 @@ export function createQspServer(
     if (prevState?.perLocationCache && prevState.locationIndex.length > 0) {
       if (perf.phase('location update', () => tryIncrementalPerLocationUpdate(doc, text, prevState))) return;
     }
+    if (inWorkers && !prevState?.perLocationCache && project.workers && text.length >= SPLIT_MIN_CHARS
+        && !hasStoredAnalysis(doc.uri, text, prevState)) {
+      if (!openFilesInWorkers.has(doc.uri)) analyzeOpenFileInWorkers(doc, text, project.workers);
+      return;
+    }
 
     perf.phase(
       'per-location analysis',
       () => analyzeAllLocations(doc, text, prevState),
       (n) => `${n} locations, ${formatChars(text.length)}`,
     );
+  }
+
+  // ── A large file opened: its analysis in the worker threads ──────────
+  //
+  // A file opened with no analysis of its text stored (edited elsewhere, or
+  // opened the first time) would hold the main thread for tens of seconds:
+  // like a closed project file, it is analysed in the worker threads, a
+  // part per thread, and then taken as stored (storedLocations), no
+  // location parsed here until a feature needs it. Edits made meanwhile
+  // wait for it; the text they leave goes to the threads again.
+  const openFilesInWorkers = new Set<string>();
+  // An opened file's analysis from the threads, until its full analysis takes it.
+  const openFileAnalyses = new Map<string, { text: string; analysis: { symbols: DocumentSymbols; syntaxErrors: SyntaxError[] } }>();
+
+  function hasStoredAnalysis(uri: string, text: string, prevState: DocumentState | undefined): boolean {
+    if (openFileAnalyses.get(uri)?.text === text) return true;
+    const key = project.analysisKey(uri, text);
+    return !!key && (prevState?.storedAnalysis?.key === key || project.hasAnalysis(key));
+  }
+
+  function analyzeOpenFileInWorkers(doc: TextDocument, text: string, workers: AnalysisWorkers): void {
+    const uri = doc.uri;
+    openFilesInWorkers.add(uri);
+    status.begin(uri);
+    const started = Date.now();
+    void project.analyzeInWorkers(workers, uri, text, buildLocationIndex(text)).then((result) => {
+      openFilesInWorkers.delete(uri);
+      status.end(uri);
+      const current = documents.get(uri);
+      if (!current || shuttingDown) return;
+      const now = stripBom(current.getText());
+      let analysis: ReturnType<typeof project.readWorkerAnalysis>;
+      try {
+        analysis = result && perf.phase('open file from workers', () => project.readWorkerAnalysis(uri, result),
+          () => `${formatChars(text.length)}, ${Date.now() - started} ms in the threads`);
+      } catch {
+        // Unreadable: analysed here below.
+      }
+      if (analysis && now === text) {
+        const key = project.analysisKey(uri, text);
+        if (key) project.storeAnalysis(key, analysis.symbols, analysis.syntaxErrors);
+        openFileAnalyses.set(uri, { text, analysis });
+      }
+      // A failed thread leaves the file to this one; a changed text goes to the threads again.
+      analyzeDocumentPerLocation(current, now, !!analysis);
+    });
   }
 
   // Every location parsed (or reused from the cache) and merged into the
@@ -1411,7 +1466,10 @@ export function createQspServer(
     const cacheKeys = perLocationCacheKeys(locationIndex);
     // Opened from scratch: the analysis may be stored already, or worth storing.
     const analysisKey = prevCache ? undefined : project.analysisKey(doc.uri, text);
-    const stored = analysisKey ? perf.step('stored analysis', () => storedLocations(analysisKey, prevState, locationIndex)) : undefined;
+    const stored = analysisKey || (!prevCache && openFileAnalyses.get(doc.uri)?.text === text)
+      ? perf.step('stored analysis', () => storedLocations(doc.uri, analysisKey, text, prevState, locationIndex))
+      : undefined;
+    openFileAnalyses.delete(doc.uri);
     let complete = true;
 
     for (const [i, loc] of locationIndex.entries()) {

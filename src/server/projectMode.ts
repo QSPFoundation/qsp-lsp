@@ -49,7 +49,7 @@ import type { DiagnosticSettings } from './diagnostics';
 import type { DocumentState } from './lspFeatures';
 import { diagnosticsSteps } from './diagnostics';
 import { runInSlices, runNow, timed, type Steps } from './slices';
-import { analyzeFileText, type CachedFileAnalysis } from './fileAnalysis';
+import { analyzeFileText, joinFileAnalyses, splitLocations, SPLIT_MIN_CHARS, type CachedFileAnalysis } from './fileAnalysis';
 import { parseSuppressions } from '../common/suppressions';
 import { PerfLog, formatChars } from './perfLog';
 import { stripBom, QSP_FILE_EXTENSIONS, safeSendDiagnostics, safeConnectionCall, safeConsole, type AnalysisCache, type AnalysisWorkers, type FsProvider } from './serverUtils';
@@ -76,6 +76,9 @@ export interface RebuildOptions {
 }
 
 export type { CachedFileAnalysis } from './fileAnalysis';
+
+/** A file's analysis, or a part of it, as a worker thread hands it over. */
+type WorkerResult = Awaited<ReturnType<AnalysisWorkers['analyze']>>;
 
 // A file's analysis as the cache or a worker hands it over, made a working one again.
 function reviveAnalysis(value: unknown): CachedFileAnalysis | undefined {
@@ -224,8 +227,6 @@ export class ProjectModeService {
     }
 
     await Promise.all(inWorkers);
-    // Their memory is the analysis's no longer.
-    workers?.dispose();
     if (load !== this.loads) return;
 
     // Also add all currently open documents
@@ -353,6 +354,11 @@ export class ProjectModeService {
     return this.analysisCache?.key('file symbols', uri, this.embeddedExecEnabled ? 'exec' : 'no exec', text);
   }
 
+  /** Whether the cache has an analysis under `key`, without reading it. */
+  hasAnalysis(key: string): boolean {
+    return this.analysisCache?.has?.(key) ?? false;
+  }
+
   /** The analysis stored on disk under `key`. */
   readAnalysis(key: string): CachedFileAnalysis | undefined {
     return reviveAnalysis(this.perf.step('cache read', () => this.analysisCache?.get(key)));
@@ -436,17 +442,13 @@ export class ProjectModeService {
       }
       this.cacheStats.misses++;
     }
-    let result: { bytes: Uint8Array; read: () => unknown } | undefined;
-    try {
-      result = await workers.analyze(uri, text, this.embeddedExecEnabled);
-    } catch (err) {
-      this.log.warn(`[QSP] A worker thread could not analyse a project file, analysing it here: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    const locationIndex = buildLocationIndex(text);
+    const result = await this.analyzeInWorkers(workers, uri, text, locationIndex);
     if (load !== this.loads || this.documents.get(uri)) return;
     this.perf.phase('project file from worker', () => {
       let analysis: CachedFileAnalysis | undefined;
       try {
-        analysis = result && reviveAnalysis(this.perf.step('read', result.read));
+        analysis = result && this.readWorkerAnalysis(uri, result);
       } catch {
         // Unreadable: analysed here below.
       }
@@ -456,11 +458,42 @@ export class ProjectModeService {
       }
       if (key) {
         const cache = this.analysisCache;
-        if (cache?.putSerialized) this.perf.step('cache write', () => cache.putSerialized!(key, result!.bytes));
+        const bytes = result!.length === 1 ? result![0].bytes : undefined;
+        if (bytes && cache?.putSerialized) this.perf.step('cache write', () => cache.putSerialized!(key, bytes));
         else this.storeAnalysis(key, analysis.symbols, analysis.syntaxErrors);
       }
-      this.setFileState(uri, text, buildLocationIndex(text), key, analysis.symbols, analysis.syntaxErrors);
+      this.setFileState(uri, text, locationIndex, key, analysis.symbols, analysis.syntaxErrors);
     }, () => formatChars(text.length));
+  }
+
+  /**
+   * A file's analysis from the worker threads: in one piece, or a large one
+   * in a part per thread. Undefined when a thread failed; the caller then
+   * analyses the file itself.
+   */
+  async analyzeInWorkers(
+    workers: AnalysisWorkers, uri: string, text: string, locationIndex: readonly LocationEntry[],
+  ): Promise<WorkerResult[] | undefined> {
+    const ranges = workers.size > 1 && text.length >= SPLIT_MIN_CHARS
+      ? splitLocations(locationIndex, workers.size)
+      : [undefined];
+    try {
+      return await Promise.all(ranges.map(range => workers.analyze(uri, text, this.embeddedExecEnabled, range)));
+    } catch (err) {
+      this.log.warn(`[QSP] A worker thread could not analyse a project file, analysing it here: ${err instanceof Error ? err.message : String(err)}`);
+      return undefined;
+    }
+  }
+
+  /** The file's analysis from what `analyzeInWorkers` gave, read on this thread. */
+  readWorkerAnalysis(uri: string, result: readonly WorkerResult[]): CachedFileAnalysis | undefined {
+    const parts: CachedFileAnalysis[] = [];
+    for (const part of result) {
+      const analysis = reviveAnalysis(this.perf.step('read', part.read));
+      if (!analysis) return undefined;
+      parts.push(analysis);
+    }
+    return parts.length === 1 ? parts[0] : this.perf.step('join', () => joinFileAnalyses(uri, parts));
   }
 
   // One location at a time, like the editor (fileAnalysis.ts).

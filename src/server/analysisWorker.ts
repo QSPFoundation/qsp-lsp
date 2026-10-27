@@ -17,6 +17,8 @@ export interface AnalysisRequest {
   uri: string;
   text: string;
   embeddedExec: boolean;
+  /** Only these locations of the file's location index (see AnalysisWorkers.analyze). */
+  locations?: { from: number; to: number };
 }
 
 /** What a worker answers: the analysis serialized, or why there is none. */
@@ -30,7 +32,9 @@ const ready = parser.init(wasmLoader, wasmDir);
 
 port.on('message', (request: AnalysisRequest) => {
   void ready.then(() => {
-    const analysis = analyzeFileText(parser, request.uri, request.text, buildLocationIndex(request.text), request.embeddedExec);
+    let locationIndex = buildLocationIndex(request.text);
+    if (request.locations) locationIndex = locationIndex.slice(request.locations.from, request.locations.to);
+    const analysis = analyzeFileText(parser, request.uri, request.text, locationIndex, request.embeddedExec);
     const serialized = v8.serialize(analysis);
     // Its own buffer, so it moves to the main thread instead of being copied.
     const bytes = serialized.byteOffset === 0 && serialized.byteLength === serialized.buffer.byteLength

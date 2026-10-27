@@ -68,6 +68,10 @@ export class NodeAnalysisCache implements AnalysisCache {
     return path.join(this.dir, key + ENTRY_EXT);
   }
 
+  has(key: string): boolean {
+    return fs.existsSync(this.file(key));
+  }
+
   get(key: string): unknown {
     const file = this.file(key);
     let bytes: Buffer;

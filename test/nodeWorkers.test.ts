@@ -104,3 +104,32 @@ describe('a project loaded in worker threads', () => {
     }
   }, 120_000);
 });
+
+describe('a large file in a part per thread', () => {
+  // Past SPLIT_MIN_CHARS: split between the threads, closed or opened.
+  const big = Array.from({ length: 700 }, (_, n) => game(n) + `! ${'x'.repeat(1500)}\n`).join('');
+
+  it('has the diagnostics of the file analysed in one go, closed and opened', async () => {
+    expect(big.length).toBeGreaterThan(1_000_000);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qsp-workers-big-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'big.qsps'), big);
+      const run = async (workers?: AnalysisWorkerPool) => {
+        const host = new QspHost(dir, { wasmLoader: loadWasm }, () => {}, undefined, [], workers);
+        await host.start();
+        const closed = host.allDiagnostics().get([...host.allDiagnostics().keys()].find(u => u.endsWith('big.qsps'))!);
+        const opened = await host.checkText(big);
+        host.dispose();
+        return { closed, opened };
+      };
+      const here = await run();
+      expect(here.closed!.length).toBeGreaterThanOrEqual(700);
+      const there = await run(new AnalysisWorkerPool(script, outDir, 3));
+      expect(there.closed).toEqual(here.closed);
+      expect(there.opened).toEqual(here.opened);
+      expect(there.opened.length).toBeGreaterThanOrEqual(700);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 180_000);
+});

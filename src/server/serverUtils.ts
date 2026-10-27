@@ -51,6 +51,8 @@ export interface AnalysisCache {
   put(key: string, value: unknown): void;
   /** Store a value already serialized by `AnalysisWorkers`, without serializing it again. */
   putSerialized?(key: string, bytes: Uint8Array): void;
+  /** Whether there is a value under `key`, without reading it. */
+  has?(key: string): boolean;
 }
 
 /**
@@ -61,9 +63,15 @@ export interface AnalysisCache {
  * main thread, which costs about a tenth of the analysis.
  */
 export interface AnalysisWorkers {
-  /** Rejects when no thread could analyse the file; the caller does it then. */
-  analyze(uri: string, text: string, embeddedExec: boolean): Promise<{ bytes: Uint8Array; read: () => unknown }>;
-  /** Stop the threads; `analyze` starts them again. */
+  /** How many files, or parts of one, are analysed at once. */
+  readonly size: number;
+  /**
+   * Rejects when no thread could analyse the file; the caller does it then.
+   * With `locations`, only the locations `from` to `to` (exclusive) of its
+   * location index, in the file's coordinates, for the caller to join.
+   */
+  analyze(uri: string, text: string, embeddedExec: boolean, locations?: { from: number; to: number }): Promise<{ bytes: Uint8Array; read: () => unknown }>;
+  /** Stop the threads; `analyze` starts them again. Idle ones stop by themselves. */
   dispose(): void;
 }
 

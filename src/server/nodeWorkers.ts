@@ -3,8 +3,8 @@
 // Like clangd's background index: the project load analyses files in a few
 // threads at once (analysisWorker.ts), each with its own tree-sitter, and
 // the main thread only revives the results, so it keeps answering requests.
-// Threads start on the first file and stop when the load is done: each holds
-// its own copy of the grammar and its analysis heap.
+// Threads start on the first file and stop when none has had work for a few
+// seconds: each holds its own copy of the grammar and its analysis heap.
 
 import * as os from 'os';
 import * as v8 from 'v8';
@@ -33,28 +33,34 @@ interface Thread {
   job: Job | undefined;
 }
 
+/** Threads with nothing to do for this long stop. */
+const IDLE_MS = 5_000;
+
 /** A pool of `size` analysis threads running `script` (out/server/analysisWorker.js). */
 export class AnalysisWorkerPool implements AnalysisWorkers {
   private readonly threads: Thread[] = [];
   private readonly queue: Job[] = [];
   private nextId = 0;
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly script: string,
     /** The extension's out/ directory, where the WASM files are. */
     private readonly outDir: string,
-    private readonly size = workerCount(),
+    readonly size = workerCount(),
   ) {}
 
-  analyze(uri: string, text: string, embeddedExec: boolean): Promise<{ bytes: Uint8Array; read: () => unknown }> {
+  analyze(uri: string, text: string, embeddedExec: boolean, locations?: { from: number; to: number }): Promise<{ bytes: Uint8Array; read: () => unknown }> {
     if (this.size < 1) return Promise.reject(new Error('no worker threads on this machine'));
     return new Promise((resolve, reject) => {
-      this.queue.push({ request: { id: this.nextId++, uri, text, embeddedExec }, resolve, reject });
+      this.queue.push({ request: { id: this.nextId++, uri, text, embeddedExec, locations }, resolve, reject });
       this.dispatch();
     });
   }
 
   dispose(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = undefined;
     for (const thread of this.threads.splice(0)) {
       thread.job?.reject(new Error('worker threads stopped'));
       void thread.worker.terminate();
@@ -63,12 +69,18 @@ export class AnalysisWorkerPool implements AnalysisWorkers {
   }
 
   private dispatch(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = undefined;
     while (this.queue.length > 0) {
       let thread = this.threads.find(t => !t.job);
       if (!thread && this.threads.length < this.size) thread = this.start();
       if (!thread) return;
       thread.job = this.queue.shift()!;
       thread.worker.postMessage(thread.job.request);
+    }
+    if (this.threads.length > 0 && this.threads.every(t => !t.job)) {
+      this.idleTimer = setTimeout(() => this.dispose(), IDLE_MS);
+      this.idleTimer.unref?.();
     }
   }
 
