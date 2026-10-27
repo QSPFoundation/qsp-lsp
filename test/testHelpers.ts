@@ -70,6 +70,7 @@ export const ALL_DIAGS_OFF: DiagnosticSettings = {
   unusedObjects: false,
   invalidFunctionPrefix: false,
   systemVariablePrefix: false,
+  unsupportedSyntax: false,
   invalidBuiltinArgCount: false,
   deprecatedBuiltins: false,
   mixedVariablePrefixes: false,
@@ -81,6 +82,7 @@ export const ALL_DIAGS_OFF: DiagnosticSettings = {
   extraArgsToTargetWithoutArgs: false,
   shadowsCallFrameBuiltin: false,
   shadowsPropagatedLocal: false,
+  syntaxVersion: '5.9.5',
   maxErrorsPerLocation: 1000,
   maxLocationLines: 0,
 };

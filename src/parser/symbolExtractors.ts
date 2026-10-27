@@ -38,7 +38,7 @@ import {
   isSingleArgCall,
   collapseNewlines,
 } from './walkHelpers';
-import { lookupValidPrefixes, lookupArgConstraints, lookupDeprecated } from './builtins';
+import { lookupValidPrefixes, lookupArgConstraints, lookupDeprecated, argCountValidEverywhere, lookupBuiltin } from './builtins';
 import { parseVarStringArg } from './variableBindings';
 import { argPatternsOf, targetPatternOf } from './targetPattern';
 
@@ -88,7 +88,7 @@ export function extractVariable(
     if (idx !== undefined) loc.argsIndex = idx;
   }
 
-  locSymbols.addVariable(name, loc, isLocal, lhsKind === 'definition', prefix, scopeId, hasValue, true);
+  locSymbols.addVariable(name, loc, isLocal, lhsKind === 'definition', prefix, scopeId, hasValue, prefixNode?.text ?? '');
 }
 
 /**
@@ -394,9 +394,11 @@ export function checkArgCount(
   if (!info) return;
 
   const actual = countCallArgs(node);
+  // The counts differ between syntax versions (COUNTOBJ, ARRITEM): the
+  // diagnostic reads them for the version chosen.
+  if (argCountValidEverywhere(nameText, actual)) return;
   const min = info.minArgs;
   const max = info.maxArgs;
-  if (actual >= min && (max === undefined || actual <= max)) return;
 
   const kind: 'statement' | 'function' =
     node.type === 'statement' ? 'statement' : 'function';
@@ -404,6 +406,72 @@ export function checkArgCount(
   const loc: SymbolLocation = nodeLoc(nameNode, docUri);
 
   locSymbols.argCountWarnings.push({ loc, name: nameText, kind, actual, min, max });
+}
+
+// Characters that end a name in 5.9.6 but are part of one in 5.9.5.
+const NAME_DELIMITERS_596 = /[\\;^@?]/;
+
+/**
+ * Record a construct that only some syntax versions have (see
+ * `SyntaxFeatureUse`). Called for every node the walker visits.
+ */
+export function noteSyntaxFeature(
+  node: Parser.SyntaxNode,
+  locSymbols: LocationSymbols,
+  docUri: string,
+): void {
+  const uses = locSymbols.syntaxFeatureUses;
+  switch (node.type) {
+    case 'undefined_literal':
+      uses.push({ loc: nodeLoc(node, docUri), feature: 'undefinedValue' });
+      return;
+    case 'op_pos':
+      uses.push({ loc: nodeLoc(node, docUri), feature: 'unaryPlus' });
+      return;
+    case 'line_continuation_ext': {
+      // The token starts at `_`; the blanks before it are skipped. 5.9.5
+      // joins a line only when it ends in a space and `_`.
+      if (node.tree.rootNode.text.charAt(node.startIndex - 1) !== '\t') return;
+      const { row, column } = node.startPosition;
+      uses.push({
+        loc: { uri: docUri, line: row, column, endLine: row, endColumn: column + 1 },
+        feature: 'tabContinuation',
+      });
+      return;
+    }
+    case 'variable_ref':
+    case 'ml_variable_ref': {
+      const nameNode = node.childForFieldName('name');
+      if (nameNode && !nameNode.isMissing && NAME_DELIMITERS_596.test(nameNode.text)) {
+        uses.push({ loc: nodeLoc(nameNode, docUri), feature: 'nameDelimiter', name: nameNode.text });
+      }
+      return;
+    }
+    case 'user_func_call':
+    case 'ml_user_func_call':
+    case 'user_call_statement': {
+      const opener = node.child(0);
+      const nameNode = node.childForFieldName('name');
+      if (opener && nameNode && !nameNode.isMissing && opener.endIndex !== nameNode.startIndex) {
+        uses.push({
+          loc: { uri: docUri, line: opener.endPosition.row, column: opener.endPosition.column, endLine: nameNode.startPosition.row, endColumn: nameNode.startPosition.column },
+          feature: 'spaceAfterAt',
+          name: opener.type,
+        });
+      }
+      return;
+    }
+    case 'statement':
+    case 'na_func_call':
+    case 'ext_func_call':
+    case 'ml_func_call': {
+      const nameNode = node.childForFieldName('name');
+      if (!nameNode || nameNode.isMissing) return;
+      const name = nameNode.text.toLowerCase();
+      if (lookupBuiltin(name)?.since) uses.push({ loc: nodeLoc(nameNode, docUri), feature: 'builtin', name });
+      return;
+    }
+  }
 }
 
 /**

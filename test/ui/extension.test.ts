@@ -283,3 +283,27 @@ suite('QSP extension', () => {
     }
   });
 });
+
+suite('QSP syntax version', () => {
+  test('the workspace setting decides what is an error, and the picker command exists', async () => {
+    assert.ok((await vscode.commands.getCommands(true)).includes('qsp.selectSyntaxVersion'));
+    const uri = fixtureUri('syntax-version.qsps');
+    await vscode.workspace.fs.writeFile(uri, Buffer.from('# version\nx = ?\npl x\n--- version ---\n'));
+    const config = vscode.workspace.getConfiguration('qsp');
+    try {
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+      const isVersionError = (d: vscode.Diagnostic) =>
+        (typeof d.code === 'object' ? d.code.value : d.code) === 'unsupportedSyntax';
+      await waitFor('the 5.9.5 error on ?', () =>
+        vscode.languages.getDiagnostics(uri).some(isVersionError) ? true : undefined);
+
+      await config.update('syntaxVersion', '5.9.6', vscode.ConfigurationTarget.Workspace);
+      await waitFor('the error gone in 5.9.6', () =>
+        vscode.languages.getDiagnostics(uri).some(isVersionError) ? undefined : true);
+    } finally {
+      await config.update('syntaxVersion', undefined, vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+      await vscode.workspace.fs.delete(uri);
+    }
+  });
+});

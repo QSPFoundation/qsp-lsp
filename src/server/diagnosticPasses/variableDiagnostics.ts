@@ -237,6 +237,8 @@ export function* checkTypeMismatch(
   symbols: DocumentSymbols,
 ): Steps {
   const typeLabel = (p: string) => p === '$' ? 'string' : p === '%' ? 'tuple' : 'numeric';
+  // In 5.9.6 a variable without a prefix holds a value of any type.
+  const untyped = ctx.settings.syntaxVersion !== '5.9.5';
 
   for (const [, locSyms] of symbols.locations) {
     yield;
@@ -245,6 +247,7 @@ export function* checkTypeMismatch(
       for (const b of bindings) {
         if (!b.isValueBearing) continue;
         if (b.writePrefix === undefined || b.rhsTypePrefix === undefined) continue;
+        if (untyped && (b.untypedWrite || b.untypedRhs)) continue;
         const op = b.compoundOp ?? '=';
         const allowed = ASSIGN_TYPE_RULES[b.writePrefix]?.[op];
         if (!allowed || !allowed.includes(b.rhsTypePrefix)) {

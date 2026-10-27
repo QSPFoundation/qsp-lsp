@@ -12,6 +12,7 @@ import {
   type PrefixWarning,
   type SystemVariablePrefixWarning,
   type ArgCountWarning,
+  type SyntaxFeatureUse,
   type DeprecationWarning,
   type VariableBinding,
 } from './symbolTypes';
@@ -72,6 +73,8 @@ export class LocationSymbols {
   public readonly systemVariablePrefixWarnings: SystemVariablePrefixWarning[] = [];
   /** Warnings for builtins called with wrong number of positional args. */
   public readonly argCountWarnings: ArgCountWarning[] = [];
+  /** Constructs only some syntax versions have. */
+  public readonly syntaxFeatureUses: SyntaxFeatureUse[] = [];
   /** Warnings for deprecated/outdated builtin statements or functions. */
   public readonly deprecationWarnings: DeprecationWarning[] = [];
   /**
@@ -396,10 +399,11 @@ export class LocationSymbols {
     prefix = '',
     scopeId = 0,
     hasValue = isDefinition,
-    // Only a reference in code: a name in a string (`killvar '$x'`) is
-    // the variable whatever its prefix, and code from `exec:` links and
-    // interpolations comes with its warnings already made.
-    checkSystemPrefix = false,
+    // The prefix as written ('' for none), given only for a reference in
+    // code: a name in a string (`killvar '$x'`) is the variable whatever
+    // its prefix, and code from `exec:` links and interpolations comes
+    // with its warnings already made.
+    writtenPrefix?: string,
   ): void {
     const baseName = name.toLowerCase();
     let sym: QspSymbol | undefined;
@@ -470,12 +474,12 @@ export class LocationSymbols {
     }
     sym.references.push(loc);
     sym.prefixes!.add(prefix);
-    if (checkSystemPrefix && !sym.isLocal) {
-      // A number reads as `name` or `#name`, text as `$name`; another
-      // prefix converts the value on every use (`$usehtml`, `fname`).
+    if (writtenPrefix !== undefined && !sym.isLocal) {
+      // A number reads as `name` or `#name`, text as `$name`; 5.9.5
+      // ignores a value written with another prefix (`$usehtml`, `fname`).
       const valueType = lookupBuiltin(baseName)?.valueType;
-      if (valueType && (valueType === '$' ? prefix !== '$' : prefix !== '' && prefix !== '#')) {
-        this.systemVariablePrefixWarnings.push({ loc, varName: name, prefix, valueType });
+      if (valueType && (valueType === '$' ? writtenPrefix !== '$' : writtenPrefix !== '' && writtenPrefix !== '#')) {
+        this.systemVariablePrefixWarnings.push({ loc, varName: name, prefix: writtenPrefix, valueType });
       }
     }
   }
@@ -764,6 +768,7 @@ export class LocationSymbols {
       for (const pw of source.prefixWarnings) copy.prefixWarnings.push(pw);
       for (const sw of source.systemVariablePrefixWarnings) copy.systemVariablePrefixWarnings.push(sw);
       for (const aw of source.argCountWarnings) copy.argCountWarnings.push(aw);
+      for (const fu of source.syntaxFeatureUses) copy.syntaxFeatureUses.push(fu);
       for (const dw of source.deprecationWarnings) copy.deprecationWarnings.push(dw);
       for (const e of source.embeddedExecErrors) copy.embeddedExecErrors.push(e);
       for (const d of source.dynamicVarCalls) copy.dynamicVarCalls.push(d);
@@ -842,6 +847,9 @@ export class LocationSymbols {
     }
     for (const aw of source.argCountWarnings) {
       copy.argCountWarnings.push({ ...aw, loc: shift(aw.loc) });
+    }
+    for (const fu of source.syntaxFeatureUses) {
+      copy.syntaxFeatureUses.push({ ...fu, loc: shift(fu.loc) });
     }
     for (const dw of source.deprecationWarnings) {
       copy.deprecationWarnings.push({ ...dw, loc: shift(dw.loc) });

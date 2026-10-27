@@ -204,6 +204,11 @@
         "category": "QSP"
       },
       {
+        "command": "qsp.selectSyntaxVersion",
+        "title": "Select Syntax Version",
+        "category": "QSP"
+      },
+      {
         "command": "qsp.clearAnalysisCache",
         "title": "Clear Analysis Cache",
         "category": "QSP"
@@ -681,6 +686,24 @@
           "default": true,
           "description": "Enable project mode: treat all .qsps/.qsrc files in the workspace as parts of one combined game file. Cross-file diagnostics, completions, and navigation will span all project files."
         },
+        "qsp.syntaxVersion": {
+          "type": "string",
+          "enum": [
+            "5.9.5",
+            "5.9.6"
+          ],
+          "enumItemLabels": [
+            "5.9.5",
+            "5.9.6 (dev)"
+          ],
+          "enumDescriptions": [
+            "The last released QSP library (November 2025).",
+            "The QSP library's development version: the undefined value ?, INSVAR, ARRKEY, unary plus, COUNTOBJ with a name, variables without a prefix that hold any type, and \\ ; ^ @ ? ending a name."
+          ],
+          "default": "5.9.5",
+          "scope": "window",
+          "markdownDescription": "The QSP library the game is written for. Constructs of a newer version are errors, and values are typed by the chosen version's rules. Also set from the status bar item `QSP 5.9.5` at the bottom right."
+        },
         "qsp.embeddedExec.enabled": {
           "type": "boolean",
           "default": true,
@@ -774,7 +797,12 @@
         "qsp.diagnostics.systemVariablePrefix": {
           "type": "boolean",
           "default": true,
-          "description": "Warn when a system variable is written with a prefix of another type than it holds: a number (usehtml, nosave, bcolor…) as $usehtml or %usehtml, text (onnewloc, usercom, fname…) as onnewloc or #fname. QSP converts the value on every use."
+          "description": "Warn when a system variable is written with a prefix of another type than it holds: a number (usehtml, nosave, bcolor…) as $usehtml or %usehtml, text (onnewloc, usercom, fname…) as onnewloc or #fname. QSP 5.9.5 ignores a value of the other type; 5.9.6 converts it, so the check is off there."
+        },
+        "qsp.diagnostics.unsupportedSyntax": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Report constructs the chosen `#qsp.syntaxVersion#` doesn't have: in 5.9.5 the undefined value `?`, `INSVAR`, `ARRKEY`, unary plus, a space after `@`, a tab before the `_` that joins lines; in 5.9.6 a name with `\\ ; ^ @ ?` in it, which 5.9.6 splits."
         },
         "qsp.diagnostics.invalidBuiltinArgCount": {
           "type": "boolean",

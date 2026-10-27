@@ -31,10 +31,13 @@ import {
 } from 'vscode-languageserver';
 import type { DocumentSymbol } from 'vscode-languageserver';
 import type { TextDocument } from 'vscode-languageserver-textdocument';
+import type { SyntaxVersion } from '../common/syntaxVersion';
 import {
   ALL_BUILTINS,
+  existsIn,
   findBlockKeywordRanges,
   findLocationAtLine,
+  forVersion,
   lookupBuiltin,
   type DocumentSymbols,
   type QspSymbol,
@@ -269,22 +272,31 @@ export function registerLspFeatures(ctx: ServerContext): void {
 
   // ==================== COMPLETIONS ======================================
 
-  const BUILTIN_COMPLETIONS: CompletionItem[] = ALL_BUILTINS.map(builtin => ({
-    label: builtin.name,
-    kind: builtin.kind === 'variable'
-      ? CompletionItemKind.Variable
-      : CompletionItemKind.Function,
-    detail: builtin.signature ?? builtin.description,
-    documentation: {
-      kind: MarkupKind.Markdown,
-      value: `**${builtin.name}** — ${builtin.description}${builtin.signature ? `\n\n\`${builtin.signature}\`` : ''}`,
-    },
-  }));
+  // The builtins a syntax version has, as it describes them.
+  const builtinCompletions = new Map<SyntaxVersion, CompletionItem[]>();
+  const builtinCompletionsFor = (version: SyntaxVersion): CompletionItem[] => {
+    let list = builtinCompletions.get(version);
+    if (!list) {
+      list = ALL_BUILTINS.filter(b => existsIn(b, version)).map(b => forVersion(b, version)).map(builtin => ({
+        label: builtin.name,
+        kind: builtin.kind === 'variable'
+          ? CompletionItemKind.Variable
+          : CompletionItemKind.Function,
+        detail: builtin.signature ?? builtin.description,
+        documentation: {
+          kind: MarkupKind.Markdown,
+          value: `**${builtin.name}** — ${builtin.description}${builtin.signature ? `\n\n\`${builtin.signature}\`` : ''}`,
+        },
+      }));
+      builtinCompletions.set(version, list);
+    }
+    return list;
+  };
 
   connection.onCompletion((params: TextDocumentPositionParams): CompletionItem[] => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
-    const items: CompletionItem[] = [...BUILTIN_COMPLETIONS];
+    const items: CompletionItem[] = [...builtinCompletionsFor(ctx.settings.diagnostics.syntaxVersion)];
 
     const state = documentStates.get(params.textDocument.uri);
     if (!state) return items;
@@ -430,8 +442,10 @@ export function registerLspFeatures(ctx: ServerContext): void {
 
     const wi = getWordInfo(doc, params.position);
     if (!wi) return null;
-    const builtin = lookupBuiltin(wi.word, wi.hasTypePrefix);
-    if (builtin) {
+    const found = lookupBuiltin(wi.word, wi.hasTypePrefix);
+    if (found) {
+      const version = ctx.settings.diagnostics.syntaxVersion;
+      const builtin = forVersion(found, version);
       return {
         contents: {
           kind: MarkupKind.Markdown,
@@ -439,6 +453,7 @@ export function registerLspFeatures(ctx: ServerContext): void {
             `**${builtin.name}** *(${builtin.kind})*`,
             '', builtin.description, '',
             '```qsp', builtin.signature ?? builtin.name, '```',
+            ...(existsIn(found, version) ? [] : ['', `*New in QSP ${found.since}; the syntax version is ${version}.*`]),
           ].join('\n'),
         },
       };

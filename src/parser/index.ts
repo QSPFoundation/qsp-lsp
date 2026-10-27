@@ -1,6 +1,6 @@
 export { buildLocationIndex, findLocationAtLine, findLocationByName, getLocationText } from '../common/locations';
 export type { LocationEntry } from '../common/locations';
-export { ALL_BUILTINS, QSP_FUNCTIONS, QSP_KEYWORDS, QSP_STATEMENTS, QSP_VARIABLES, lookupBuiltin, lookupValidPrefixes, lookupArgConstraints, lookupDeprecated } from './builtins';
+export { ALL_BUILTINS, QSP_FUNCTIONS, QSP_KEYWORDS, QSP_STATEMENTS, QSP_VARIABLES, lookupBuiltin, lookupValidPrefixes, lookupArgConstraints, lookupDeprecated, forVersion, existsIn, argCountsFor } from './builtins';
 export type { BuiltinInfo } from './builtins';
 export { DocumentSymbols, LocationSymbols, QspSymbolKind, reviveDocumentSymbols } from './symbolTable';
 export type { PrefixWarning, ArgCountWarning, DeprecationWarning, QspSymbol, SymbolLocation } from './symbolTable';

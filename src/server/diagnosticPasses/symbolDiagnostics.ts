@@ -12,7 +12,10 @@ import { DiagnosticSeverity } from 'vscode-languageserver';
 import {
   type LocationSymbols,
   type QspSymbol,
+  argCountsFor,
 } from '../../parser';
+import type { SyntaxFeatureUse } from '../../parser/symbolTypes';
+import { SYNTAX_VERSION_LABELS } from '../../common/syntaxVersion';
 import { DiagnosticCtx, mapPush } from './diagnosticHelpers';
 
 // ── Labels ────────────────────────────────────────────────────────────
@@ -297,6 +300,9 @@ export function checkSystemVariablePrefix(
   ctx: DiagnosticCtx,
   locSyms: LocationSymbols,
 ): void {
+  // 5.9.6 reads a system variable as the type it needs, whatever was
+  // stored in it; 5.9.5 ignores a value of the other type.
+  if (ctx.settings.syntaxVersion !== '5.9.5') return;
   for (const w of locSyms.systemVariablePrefixWarnings) {
     const holds = w.valueType === '$'
       ? `holds text: write it '$${w.varName}'`
@@ -310,17 +316,53 @@ export function checkSystemVariablePrefix(
   }
 }
 
+const FEATURE_LABELS: Record<Exclude<SyntaxFeatureUse['feature'], 'builtin' | 'spaceAfterAt' | 'nameDelimiter'>, string> = {
+  undefinedValue: "The undefined value '?'",
+  unaryPlus: 'Unary plus',
+  tabContinuation: "A tab before the '_' that joins lines",
+};
+
+/** Constructs the chosen syntax version doesn't have. */
+export function checkUnsupportedSyntax(
+  ctx: DiagnosticCtx,
+  locSyms: LocationSymbols,
+): void {
+  const version = ctx.settings.syntaxVersion;
+  for (const fu of locSyms.syntaxFeatureUses) {
+    let message: string;
+    if (fu.feature === 'nameDelimiter') {
+      if (version === '5.9.5') continue;
+      const ch = /[\\;^@?]/.exec(fu.name!)![0];
+      message = `'${ch}' ends a name in QSP ${SYNTAX_VERSION_LABELS[version]}: '${fu.name}' is not one name`;
+    } else {
+      if (version !== '5.9.5') continue;
+      const what = fu.feature === 'builtin' ? fu.name!.toUpperCase()
+        : fu.feature === 'spaceAfterAt' ? `A space after '${fu.name}'`
+          : FEATURE_LABELS[fu.feature];
+      message = `${what} is new in QSP 5.9.6; the syntax version is 5.9.5`;
+    }
+    ctx.push(
+      DiagnosticSeverity.Error,
+      ctx.locRange(fu.loc),
+      message,
+      { code: 'unsupportedSyntax', name: fu.name },
+    );
+  }
+}
+
 /** Wrong number of positional arguments to a built-in statement/function. */
 export function checkInvalidArgCount(
   ctx: DiagnosticCtx,
   locSyms: LocationSymbols,
 ): void {
   for (const aw of locSyms.argCountWarnings) {
-    const expected = aw.max === undefined
-      ? `at least ${aw.min}`
-      : aw.min === aw.max
-        ? `${aw.min}`
-        : `${aw.min} to ${aw.max}`;
+    const { min, max } = argCountsFor(aw.name, ctx.settings.syntaxVersion) ?? aw;
+    if (aw.actual >= min && (max === undefined || aw.actual <= max)) continue;
+    const expected = max === undefined
+      ? `at least ${min}`
+      : min === max
+        ? `${min}`
+        : `${min} to ${max}`;
     const noun = aw.actual === 1 ? 'argument' : 'arguments';
     const kindLabel = aw.kind === 'statement' ? 'Statement' : 'Function';
     ctx.push(
@@ -374,6 +416,7 @@ export function checkLocationSymbols(
   if (ctx.settings.unusedObjects && !referencesIncomplete) checkUnusedObjects(ctx, locSyms, referencedObjects, namedInText);
   if (ctx.settings.invalidFunctionPrefix)      checkInvalidFunctionPrefix(ctx, locSyms);
   if (ctx.settings.systemVariablePrefix)       checkSystemVariablePrefix(ctx, locSyms);
+  if (ctx.settings.unsupportedSyntax)          checkUnsupportedSyntax(ctx, locSyms);
   if (ctx.settings.invalidBuiltinArgCount)     checkInvalidArgCount(ctx, locSyms);
   if (ctx.settings.mixedLocationCallTypes)     checkMixedCallTypes(ctx, locSyms, callTypesPerTarget);
 

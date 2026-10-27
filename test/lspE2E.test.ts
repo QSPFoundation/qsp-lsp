@@ -45,6 +45,7 @@ import {
   CodeActionRequest,
   ConfigurationRequest,
   DefinitionRequest,
+  DidChangeConfigurationNotification,
   DidChangeTextDocumentNotification,
   DidChangeWatchedFilesNotification,
   DidCloseTextDocumentNotification,
@@ -391,6 +392,43 @@ describe('LSP end-to-end: numeric diagnostic settings validation', () => {
     const msgs = await messages({ diagnostics: { maxErrorsPerLocation: 0 } }, `# bad\npl (1\n---\n`);
     expect(msgs.length).toBeGreaterThan(0);
     expect(msgs.some(m => /has \d+ syntax errors/.test(m))).toBe(false);
+  }, 30_000);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// `qsp.syntaxVersion` decides what is an error: switching it re-checks
+// the open files with the other version's rules, and hovers follow it.
+// ──────────────────────────────────────────────────────────────────────
+
+describe('LSP end-to-end: syntax version', () => {
+  it('re-checks open files and describes builtins by the chosen version', async () => {
+    const qspConfig: Record<string, unknown> = { syntaxVersion: '5.9.5' };
+    const h = await startServer(qspConfig);
+    try {
+      const uri = 'file:///syntax-version.qsps';
+      const code = "# a\nx = ?\nn = countobj('key')\n--- a ---\n";
+      await new Promise((r) => setTimeout(r, 200));
+      h.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: { uri, languageId: 'qsp', version: 1, text: code },
+      });
+      const before = (await h.diagnosticsFor(uri)).diagnostics.map(d => d.code);
+      expect(before).toContain('unsupportedSyntax');
+      expect(before).toContain('invalidBuiltinArgCount');
+      const hoverAt = async () => (await h.client.sendRequest(HoverRequest.type, {
+        textDocument: { uri }, position: { line: 2, character: 6 },
+      }) as Hover).contents as { value: string };
+      expect((await hoverAt()).value).toContain('COUNTOBJ\n');
+
+      qspConfig.syntaxVersion = '5.9.6';
+      const next = h.nextDiagnosticsFor(uri);
+      h.client.sendNotification(DidChangeConfigurationNotification.type, { settings: {} });
+      const after = (await next).diagnostics.map(d => d.code);
+      expect(after).not.toContain('unsupportedSyntax');
+      expect(after).not.toContain('invalidBuiltinArgCount');
+      expect((await hoverAt()).value).toContain('COUNTOBJ[([$object])]');
+    } finally {
+      h.shutdown();
+    }
   }, 30_000);
 });
 

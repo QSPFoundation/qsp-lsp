@@ -683,16 +683,10 @@ pl '<<x + >>'
     expect(errs.some(e => /no whitespace allowed.*type prefix.*variable/i.test(e.message))).toBe(true);
   });
 
-  it('whitespace between `@` and user function name is flagged', () => {
-    const tree = parser.parseOnce('# t\n@ foo\n---\n');
-    const errs = extractErrors(tree!);
-    expect(errs.some(e => /no whitespace allowed.*'@'.*user function/i.test(e.message))).toBe(true);
-  });
-
-  it('whitespace between `@@` and user function name is flagged', () => {
-    const tree = parser.parseOnce('# t\n@@ foo\n---\n');
-    const errs = extractErrors(tree!);
-    expect(errs.some(e => /no whitespace allowed.*'@@'.*user function/i.test(e.message))).toBe(true);
+  it('leaves whitespace after `@` and `@@` to the syntax version check', () => {
+    // QSP 5.9.6 allows it; `unsupportedSyntax` reports it in 5.9.5.
+    const tree = parser.parseOnce('# t\nx = @ foo(1)\n@@ bar 2\n---\n');
+    expect(extractErrors(tree!)).toEqual([]);
   });
 
   it('adjacent prefix and name produces no whitespace error', () => {

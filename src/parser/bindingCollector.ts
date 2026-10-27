@@ -73,6 +73,12 @@ function rhsSnippet(node: Parser.SyntaxNode): string {
 // What the jump graph may need of an assigned value (see BindingValue):
 // any string-variable write it can read something from, and single
 // literals, which also feed `'room_' + n`. Numeric arithmetic is left out.
+function isUntypedVarRef(node: Parser.SyntaxNode): boolean {
+  if (node.type !== 'variable_ref' && node.type !== 'ml_variable_ref') return false;
+  const ref = readVarRef(node);
+  return !!ref && !ref.prefix;
+}
+
 function valuePattern(rhs: Parser.SyntaxNode, writePrefix: TypePrefix): TargetPattern | undefined {
   const pattern = targetPatternOf(rhs);
   if (!pattern) return undefined;
@@ -236,8 +242,10 @@ export function collectVariableBindings(
       stmtText: stmtTextOverride ?? rhsSnippet(stmtNode),
       isLocal, scopeKey, isolationKey,
       writePrefix, isValueBearing: true,
+      ...(!lhsRef.prefix && { untypedWrite: true as const }),
       compoundOp,
       rhsTypePrefix: inferRhsTypePrefix(rhs),
+      ...(isUntypedVarRef(rhs) && { untypedRhs: true as const }),
       stmtNode, blockNode,
       initialScopeKey: scopeKey,
     };
@@ -305,6 +313,7 @@ export function collectVariableBindings(
       scopeKey: scopeAnc ? scopeKeyOf(scopeAnc, locBlock) : 0,
       isolationKey: isolAnc ? scopeKeyOf(isolAnc, locBlock) : 0,
       writePrefix, isValueBearing: true,
+      ...(!lhsRef.prefix && { untypedWrite: true as const }),
       compoundOp,
       rhsTypePrefix,
       stmtNode,
@@ -902,6 +911,8 @@ export function collectVariableBindings(
       writePrefix: b.writePrefix, isValueBearing: b.isValueBearing,
       compoundOp: b.compoundOp, scopeKey: b.scopeKey,
       isolationKey: b.isolationKey, rhsTypePrefix: b.rhsTypePrefix,
+      ...(b.untypedWrite && { untypedWrite: true as const }),
+      ...(b.untypedRhs && { untypedRhs: true as const }),
     }));
     locSymbols.variableBindings.set(key, published);
   }

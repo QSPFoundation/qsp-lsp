@@ -391,17 +391,6 @@ function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
                                                : 'type prefix and variable name';
         emitGap(prefix, name, what);
       }
-    } else if (t === 'user_func_call' || t === 'ml_user_func_call'
-               || t === 'user_call_statement') {
-      const name = n.childForFieldName('name');
-      if (name) {
-        let opener: Parser.SyntaxNode | null = null;
-        for (let i = 0; i < n.childCount; i++) {
-          const c = n.child(i)!;
-          if (!c.isNamed && (c.type === '@' || c.type === '@@')) { opener = c; break; }
-        }
-        if (opener) emitGap(opener, name, `'${opener.type}' and user function name`);
-      }
     }
 
     // ── Pass 3: function-name-as-lvalue ────────────────────────────

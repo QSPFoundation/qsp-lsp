@@ -30,6 +30,7 @@ import {
   extractObjOperator,
   checkArgCount,
   checkDeprecated,
+  noteSyntaxFeature,
   checkFuncCallPrefix,
 } from './symbolExtractors';
 import { collectVariableBindings } from './bindingCollector';
@@ -196,6 +197,8 @@ export function walkLocationBody(
       labelNamespace = prevLabelNs;
       return;
     }
+
+    noteSyntaxFeature(node, locSymbols, docUri);
 
     switch (node.type) {
       case 'variable_ref':

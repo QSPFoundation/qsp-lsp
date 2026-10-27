@@ -23,6 +23,7 @@ export const CHECK_CODES = [
   'unusedObjects',
   'invalidFunctionPrefix',
   'systemVariablePrefix',
+  'unsupportedSyntax',
   'invalidBuiltinArgCount',
   'deprecatedBuiltins',
   'mixedVariablePrefixes',

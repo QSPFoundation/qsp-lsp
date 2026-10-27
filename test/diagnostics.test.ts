@@ -49,6 +49,7 @@ const ALL_OFF: DiagnosticSettings = {
   extraArgsToTargetWithoutArgs: false,
   shadowsCallFrameBuiltin: false,
   shadowsPropagatedLocal: false,
+  syntaxVersion: '5.9.5',
   maxErrorsPerLocation: 1000,
   maxLocationLines: 0,
 };
@@ -3136,6 +3137,52 @@ dynamic $never
       const code = "# a\nusehtml = 1 & #nosave = 1 & $fname = 'Arial' & $onnewloc = 'a'\nkillvar '$bcolor'\nlocal $fsize = 'x'\npl $fsize\nargs[0] = 1 & $result = 'x' & %args = (1, 2)\n--- a ---\n";
       expect(prefixDiags(code)).toEqual([]);
     });
+
+    it('is off in 5.9.6, which reads a system variable as the type it needs', () => {
+      const code = "# a\n$usehtml = '1'\nfname = 'Arial'\nonobjsel = 'sel'\n--- a ---\n";
+      expect(run(code, { systemVariablePrefix: true, syntaxVersion: '5.9.6' })).toEqual([]);
+    });
+  });
+
+  // ── Syntax versions ────────────────────────────────────────────────
+  // 5.9.6 (the library's master) adds constructs 5.9.5 doesn't have, and
+  // ends a name at `\ ; ^ @ ?`; the parser reads both, the diagnostic
+  // reports what the chosen version lacks.
+  describe('unsupportedSyntax', () => {
+    const versionDiags = (code: string, syntaxVersion: '5.9.5' | '5.9.6') =>
+      run(code, { unsupportedSyntax: true, syntaxVersion })
+        .map(d => `${d.range.start.line}:${d.range.start.character} ${d.message}`);
+
+    it('reports the constructs new in 5.9.6 as errors in 5.9.5', () => {
+      const code = "# a\nx = ?\ninsvar 'arr', 1\n$k = arrkey('arr')\ny = +1\npl 1 +\t_\n 2\nz = @ f(1)\n@@ g 2\n--- a ---\n";
+      expect(versionDiags(code, '5.9.5')).toEqual([
+        "1:4 The undefined value '?' is new in QSP 5.9.6; the syntax version is 5.9.5",
+        '2:0 INSVAR is new in QSP 5.9.6; the syntax version is 5.9.5',
+        '3:5 ARRKEY is new in QSP 5.9.6; the syntax version is 5.9.5',
+        '4:4 Unary plus is new in QSP 5.9.6; the syntax version is 5.9.5',
+        "5:7 A tab before the '_' that joins lines is new in QSP 5.9.6; the syntax version is 5.9.5",
+        "7:5 A space after '@' is new in QSP 5.9.6; the syntax version is 5.9.5",
+        "8:2 A space after '@@' is new in QSP 5.9.6; the syntax version is 5.9.5",
+      ]);
+      expect(run(code, { unsupportedSyntax: true, syntaxVersion: '5.9.5' }).every(d => d.severity === 1)).toBe(true);
+      expect(versionDiags(code, '5.9.6')).toEqual([]);
+    });
+
+    it('accepts a space before the _ that joins lines in both versions', () => {
+      expect(versionDiags('# a\npl 1 + _\n 2\n--- a ---\n', '5.9.5')).toEqual([]);
+    });
+
+    it('reports a name 5.9.6 splits only in 5.9.6', () => {
+      const code = '# a\na\\b = 1\nc;d = 2\npl e^f + g@h + i?j\n--- a ---\n';
+      expect(versionDiags(code, '5.9.5')).toEqual([]);
+      expect(versionDiags(code, '5.9.6')).toEqual([
+        "1:0 '\\' ends a name in QSP 5.9.6 (dev): 'a\\b' is not one name",
+        "2:0 ';' ends a name in QSP 5.9.6 (dev): 'c;d' is not one name",
+        "3:3 '^' ends a name in QSP 5.9.6 (dev): 'e^f' is not one name",
+        "3:9 '@' ends a name in QSP 5.9.6 (dev): 'g@h' is not one name",
+        "3:15 '?' ends a name in QSP 5.9.6 (dev): 'i?j' is not one name",
+      ]);
+    });
   });
 
   // ── #obj, #loc ─────────────────────────────────────────────────────
@@ -3325,9 +3372,20 @@ dynamic $never
       expect(argDiags(`# a\nx = rgb(1, 2, 3, 128)\n---\n`)).toHaveLength(0);
     });
 
-    it('does NOT flag a 1-arg arritem / arrtype (return first element / its type)', () => {
-      expect(argDiags(`# a\nx = arritem('foo')\n---\n`)).toHaveLength(0);
+    it('does NOT flag a 1-arg arrtype (the first element\'s type)', () => {
       expect(argDiags(`# a\n$x = arrtype('foo')\n---\n`)).toHaveLength(0);
+    });
+
+    it('flags a 1-arg arritem in 5.9.5, which reads a second argument all the same, not in 5.9.6', () => {
+      expect(argDiags(`# a\nx = arritem('foo')\n---\n`).map(d => d.message))
+        .toEqual(["Function 'arritem' expects 2 arguments, got 1 argument"]);
+      expect(run(`# a\nx = arritem('foo')\n---\n`, { invalidBuiltinArgCount: true, syntaxVersion: '5.9.6' })).toHaveLength(0);
+    });
+
+    it('takes the name of an object in countobj from 5.9.6 on', () => {
+      const code = `# a\nx = countobj('key') + countobj\n---\n`;
+      expect(argDiags(code).map(d => d.message)).toEqual(["Function 'countobj' expects 0 arguments, got 1 argument"]);
+      expect(run(code, { invalidBuiltinArgCount: true, syntaxVersion: '5.9.6' })).toHaveLength(0);
     });
 
     it('does NOT flag a 2-arg modobj (third arg is optional)', () => {
@@ -3416,6 +3474,14 @@ dynamic $never
     // ── numeric variable ← string ────────────────────────────────
     it('flags string literal assigned to numeric variable', () => {
       expect(mismatch(`# a\nx = 'hello'\n---\n`)).toHaveLength(1);
+    });
+
+    it('lets a variable without a prefix hold any type in 5.9.6', () => {
+      // 5.9.6 keeps the value as it is; `#` and `$` still convert.
+      const code = "# a\nx = 'hello'\n$y = x\nz = (1, 2)\nw += 'a'\n#n = 'abc'\n$s = #n\n---\n";
+      const in596 = run(code, { typeMismatch: true, syntaxVersion: '5.9.6' }).map(d => d.range.start.line);
+      expect(in596).toEqual([5, 6]);
+      expect(mismatch(code)).toHaveLength(6);
     });
 
     it('flags string literal assigned to #-prefixed numeric variable', () => {

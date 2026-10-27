@@ -337,6 +337,7 @@ export function mergeIntoHost(
   mergeWithLoc(sub.prefixWarnings,      host.prefixWarnings);
   mergeWithLoc(sub.systemVariablePrefixWarnings, host.systemVariablePrefixWarnings);
   mergeWithLoc(sub.argCountWarnings,    host.argCountWarnings);
+  mergeWithLoc(sub.syntaxFeatureUses,   host.syntaxFeatureUses);
   mergeWithLoc(sub.deprecationWarnings, host.deprecationWarnings);
   for (const loc of sub.unreachableLabels) {
     host.unreachableLabels.push(translate(loc));

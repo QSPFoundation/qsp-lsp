@@ -38,6 +38,7 @@ import {
   importGameCommand,
 } from './exportCommands';
 import { registerSkeletonExport } from './skeletonExport';
+import { registerSyntaxVersion } from './syntaxVersion';
 
 let statusBarItem: vscode.StatusBarItem;
 let locBoundaryDecoration: vscode.TextEditorDecorationType;
@@ -58,6 +59,7 @@ export function registerExtensionFeatures(
   registerDiagnosticCommands(context);
   registerJumpGraph(context, client);
   registerSkeletonExport(context, client);
+  registerSyntaxVersion(context);
 
   // ── Status bar: current location ────────────────────────────────────
   statusBarItem = vscode.window.createStatusBarItem(

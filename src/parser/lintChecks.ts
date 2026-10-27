@@ -204,14 +204,14 @@ export function checkReservedWordMisuse(tree: Parser.Tree): SyntaxError[] {
 
 /**
  * Detect whitespace (or a line continuation) between a type prefix and
- * the variable/function name it qualifies, and between `@` / `@@` and
- * the user-call name.
+ * the variable/function name it qualifies.
  *
  * Per the PEG spec these are concatenations with no `ws` between:
  *   varNameWithPrefix          = typePrefix? varName
  *   funcNameWithPrefix         = typePrefix? functionName
- *   userCallStatementNoArgs    = "@@" userStatementName
- *   userFunctionCallEmptyArgs  = "@"  userFunctionName ws "(" mws ")"
+ *
+ * A blank after `@` / `@@` is QSP 5.9.6 syntax (`"@" ws userFunctionName`),
+ * reported by the `unsupportedSyntax` diagnostic in 5.9.5 instead.
  *
  * Tree-sitter's `extras` (matching `[ \t]+` and `line_continuation_ext`)
  * silently swallows whitespace between any sequence elements at the rule
@@ -222,7 +222,6 @@ export function checkReservedWordMisuse(tree: Parser.Tree): SyntaxError[] {
  *   `# foo = 1` — '#' parses as type_prefix, 'foo' becomes a variable
  *     reference (silent: looks like an identifier, not a new location)
  *   `$ name = 1`, `% t = 1`
- *   `@ foo`, `@@ foo`
  *   `# _\nfoo` (line-continuation between prefix and name)
  *
  * Inside an ERROR region the prefix/name grouping is a recovery artifact
@@ -259,25 +258,6 @@ export function checkPrefixWhitespace(tree: Parser.Tree): SyntaxError[] {
         const what = (t.endsWith('func_call')) ? 'type prefix and function name'
                                                : 'type prefix and variable name';
         emitGap(prefix, name, what);
-      }
-    }
-
-    // User calls (@ / @@). The marker is an anonymous token; the name
-    // is exposed via the `name` field.
-    else if (t === 'user_func_call' || t === 'ml_user_func_call'
-             || t === 'user_call_statement') {
-      const name = n.childForFieldName('name');
-      if (name) {
-        // Find the '@' or '@@' opener among unnamed children.
-        let opener: Parser.SyntaxNode | null = null;
-        for (let i = 0; i < n.childCount; i++) {
-          const c = n.child(i)!;
-          if (!c.isNamed && (c.type === '@' || c.type === '@@')) { opener = c; break; }
-        }
-        if (opener) {
-          const what = `'${opener.type}' and user function name`;
-          emitGap(opener, name, what);
-        }
       }
     }
   }, (n) => {

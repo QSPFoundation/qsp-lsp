@@ -42,6 +42,7 @@ import { AnalysisStatusReporter } from './analysisStatus';
 import { ANALYSIS_STATUS_MIN_BYTES, SETTLED_REQUEST } from '../common/analysisStatus';
 import { libraryFolderPrefixes } from '../common/libraryConfig';
 import { parseSuppressions } from '../common/suppressions';
+import { DEFAULT_SYNTAX_VERSION, isSyntaxVersion } from '../common/syntaxVersion';
 import { PerfLog, formatChars, type ServerHost } from './perfLog';
 import { buildPerformanceReport } from './performanceReport';
 import { Pseudonyms } from './pseudonyms';
@@ -313,6 +314,7 @@ export function createQspServer(
       unusedObjects: true,
       invalidFunctionPrefix: true,
       systemVariablePrefix: true,
+      unsupportedSyntax: true,
       invalidBuiltinArgCount: true,
       deprecatedBuiltins: true,
       mixedVariablePrefixes: true,
@@ -324,6 +326,7 @@ export function createQspServer(
       extraArgsToTargetWithoutArgs: true,
       shadowsCallFrameBuiltin: true,
       shadowsPropagatedLocal: true,
+      syntaxVersion: DEFAULT_SYNTAX_VERSION,
       maxErrorsPerLocation: 20,
       maxLocationLines: 500,
       maxPerFile: 5000,
@@ -361,6 +364,7 @@ export function createQspServer(
     diagnostics.maxErrorsPerLocation = pickInt(d?.maxErrorsPerLocation, dd.maxErrorsPerLocation, 1);
     diagnostics.maxLocationLines = pickInt(d?.maxLocationLines, dd.maxLocationLines, 0);
     diagnostics.maxPerFile = pickInt(d?.maxPerFile, dd.maxPerFile, 0);
+    diagnostics.syntaxVersion = isSyntaxVersion(qspConfig?.syntaxVersion) ? qspConfig.syntaxVersion : DEFAULT_SYNTAX_VERSION;
     diagnostics.libraryFolders = libraryFolderPrefixes(workspaceFolderUris);
     return {
       project: { enabled: pick(proj?.enabled, defaultSettings.project.enabled) },

@@ -10,6 +10,7 @@ import type {
 import type Parser from 'web-tree-sitter';
 import type { TextDocument } from 'vscode-languageserver-textdocument';
 import type { Suppressions } from '../common/suppressions';
+import type { SyntaxVersion } from '../common/syntaxVersion';
 import type {
   DocumentSymbols,
   LocationSymbols,
@@ -119,6 +120,7 @@ export interface FeatureSettings {
   embeddedExec: { enabled: boolean };
   semanticHighlighting: { enabled: boolean };
   hover: { possibleValues: boolean; maxItemsPerCategory: number };
+  diagnostics: { syntaxVersion: SyntaxVersion };
 }
 
 /**

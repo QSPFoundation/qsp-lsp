@@ -1,6 +1,10 @@
 /**
  * QSP built-in keyword data for completions, hover, and diagnostics.
+ *
+ * An entry describes the newest syntax version; `since` and `in595` say
+ * how 5.9.5 differs. Read an entry for a version with `forVersion`.
  */
+import { SYNTAX_VERSIONS, type SyntaxVersion } from '../common/syntaxVersion';
 
 export interface BuiltinInfo {
   name: string;
@@ -35,6 +39,10 @@ export interface BuiltinInfo {
   /** Marks an outdated/legacy builtin. The string names the modern
    *  replacement (used in diagnostics and hovers).  Omitted = current. */
   deprecated?: string;
+  /** The first syntax version that has it. Omitted = every version. */
+  since?: SyntaxVersion;
+  /** What differs in 5.9.5. Arg counts go in `ARG_CONSTRAINTS_595`. */
+  in595?: Pick<BuiltinInfo, 'description' | 'signature'>;
 }
 
 export const QSP_STATEMENTS: BuiltinInfo[] = [
@@ -92,8 +100,8 @@ export const QSP_STATEMENTS: BuiltinInfo[] = [
   { name: 'menu', kind: 'statement', description: 'Show a menu from the array with the given name', signature: 'MENU [$array name]' },
   // Variables & arrays
   { name: 'setvar', kind: 'statement', description: 'Assign a value to the specified array element at the given index', signature: 'SETVAR [$variable name],[value],[index]' },
-  { name: 'insvar', kind: 'statement', description: 'Insert a value into an array: at its end, at the given position (moving the elements after it), or under the given key. With a fourth argument, move the element at the position (or key) given third to the position given fourth', signature: 'INSVAR [$variable name],[value],[index],[#new position]' },
-  { name: 'killvar', kind: 'statement', description: 'Delete all variables / the specified variable / the value at the specified index', signature: 'KILLVAR [$variable name],[index]' },
+  { name: 'insvar', kind: 'statement', description: 'Insert a value into an array: at its end, at the given position (moving the elements after it), or under the given key. With a fourth argument, move the element at the position (or key) given third to the position given fourth', signature: 'INSVAR [$variable name],[value],[index],[#new position]', since: '5.9.6' },
+  { name: 'killvar', kind: 'statement', description: 'Delete all global variables (local ones stay) / the specified variable / the value at the specified index', signature: 'KILLVAR [$variable name],[index]', in595: { description: 'Delete all variables / the specified variable / the value at the specified index' } },
   { name: 'copyarr', kind: 'statement', description: 'Copy the contents of one array into another array', signature: 'COPYARR [$destination array],[$source array],[#start index],[#count]' },
   { name: 'sortarr', kind: 'statement', description: 'Sort an array', signature: 'SORTARR [$array name],[#reverse order]' },
   { name: 'scanstr', kind: 'statement', description: 'Find all substrings matching the regular expression', signature: 'SCANSTR [$array name],[$string],[$pattern],[#group number]' },
@@ -132,7 +140,7 @@ export const QSP_FUNCTIONS: BuiltinInfo[] = [
   { name: 'maintxt', kind: 'function', description: 'Returns the text in the main description window', signature: 'MAINTXT', validPrefixes: '$', returnType: '$' },
   { name: 'stattxt', kind: 'function', description: 'Returns the text in the secondary description window', signature: 'STATTXT', validPrefixes: '$', returnType: '$' },
   { name: 'getobj', kind: 'function', description: 'Returns the name of the inventory object located at the specified position', signature: 'GETOBJ([#position])', validPrefixes: '$', returnType: '$' },
-  { name: 'countobj', kind: 'function', description: 'Returns the number of objects in the inventory', signature: 'COUNTOBJ', validPrefixes: '#', returnType: '#' },
+  { name: 'countobj', kind: 'function', description: 'Returns the number of objects in the inventory, or of the objects with the specified name', signature: 'COUNTOBJ[([$object])]', validPrefixes: '#', returnType: '#', in595: { description: 'Returns the number of objects in the inventory', signature: 'COUNTOBJ' } },
   { name: 'selobj', kind: 'function', description: 'Returns the name of the selected inventory object', signature: 'SELOBJ', validPrefixes: '$', returnType: '$' },
   { name: 'curloc', kind: 'function', description: 'Returns the name of the current location', signature: 'CURLOC', validPrefixes: '$', returnType: '$' },
   { name: 'curobjs', kind: 'function', description: 'Returns all current inventory objects as code', signature: 'CUROBJS', validPrefixes: '$', returnType: '$' },
@@ -140,7 +148,7 @@ export const QSP_FUNCTIONS: BuiltinInfo[] = [
   { name: 'curacts', kind: 'function', description: 'Returns all current actions as code', signature: 'CURACTS', validPrefixes: '$', returnType: '$' },
   { name: 'arrsize', kind: 'function', description: 'Returns the number of elements in the specified array', signature: 'ARRSIZE([$array name])', validPrefixes: '#', returnType: '#' },
   { name: 'arrtype', kind: 'function', description: "Returns the type prefix (''/'#'/'$'/'%') of the value of the element in the specified array", signature: 'ARRTYPE([$array name],[index])', validPrefixes: '$', returnType: '$' },
-  { name: 'arrkey', kind: 'function', description: 'Returns the key of the element at the given position in the specified array (0 by default); no value (?) if the element has no key', signature: 'ARRKEY([$array name],[#position])', validPrefixes: '$#%' },
+  { name: 'arrkey', kind: 'function', description: 'Returns the key of the element at the given position in the specified array (0 by default); no value (?) if the element has no key', signature: 'ARRKEY([$array name],[#position])', validPrefixes: '$#%', since: '5.9.6' },
   { name: 'arritem', kind: 'function', description: 'Returns the value of the element in the specified array', signature: 'ARRITEM([$array name],[index])', validPrefixes: '$#%' },
   { name: 'arrpack', kind: 'function', description: 'Returns a tuple obtained from the specified part of the array', signature: 'ARRPACK([$array name],[#start],[#length])', validPrefixes: '%', returnType: '%' },
   { name: 'arrpos', kind: 'function', description: 'Search the array for an element with the specified value', signature: 'ARRPOS([$array name],[value],[#start index])', validPrefixes: '#', returnType: '#' },
@@ -204,7 +212,7 @@ export const QSP_KEYWORDS: BuiltinInfo[] = [
   { name: 'or', kind: 'function', description: 'Logical "OR". The resulting expression is true if at least one condition is true', signature: '[#condition 1] OR [#condition 2]' },
   { name: 'no', kind: 'function', description: 'Logical negation. The resulting expression is true if the specified condition is not true', signature: 'NO [#condition]' },
   { name: 'mod', kind: 'function', description: 'Calculate the remainder of division', signature: '[#expression 1] MOD [#expression 2]' },
-  { name: 'obj', kind: 'function', description: 'Returns the number of objects with the specified name in the inventory', signature: 'OBJ [$object]' },
+  { name: 'obj', kind: 'function', description: 'Whether the inventory has an object with the specified name: 1 (true) or 0', signature: 'OBJ [$object]', in595: { description: 'Returns the number of objects with the specified name in the inventory' } },
   { name: 'loc', kind: 'function', description: 'Check if the location exists', signature: 'LOC [$location]' },
 ];
 
@@ -325,7 +333,7 @@ const ARG_CONSTRAINTS: Record<string, ArgRange> = {
   maintxt: { min: 0, max: 0 },
   stattxt: { min: 0, max: 0 },
   getobj: { min: 1, max: 1 },
-  countobj: { min: 0, max: 0 },
+  countobj: { min: 0, max: 1 },
   selobj: { min: 0, max: 0 },
   curloc: { min: 0, max: 0 },
   curobjs: { min: 0, max: 0 },
@@ -354,6 +362,13 @@ const ARG_CONSTRAINTS: Record<string, ArgRange> = {
   rgb: { min: 3, max: 4 },
   msecscount: { min: 0, max: 0 },
   qspver: { min: 0, max: 1 },
+};
+
+// Where 5.9.5 takes another number of arguments. Its ARRITEM accepted one
+// but read the second all the same.
+const ARG_CONSTRAINTS_595: Record<string, { min: number; max?: number }> = {
+  countobj: { min: 0, max: 0 },
+  arritem: { min: 2, max: 2 },
 };
 
 // Merge the constraint table into BuiltinInfo entries so consumers can
@@ -439,6 +454,46 @@ export function lookupArgConstraints(
 
 function hasArgConstraints(b: BuiltinInfo | undefined): b is BuiltinInfo & { minArgs: number } {
   return b?.minArgs !== undefined;
+}
+
+const entries595 = new Map<BuiltinInfo, BuiltinInfo>();
+
+/** The entry as `version` has it: 5.9.5's description, signature and arg counts. */
+export function forVersion(b: BuiltinInfo, version: SyntaxVersion): BuiltinInfo {
+  if (version !== '5.9.5') return b;
+  let e = entries595.get(b);
+  if (!e) {
+    const args = b.kind === 'variable' ? undefined : ARG_CONSTRAINTS_595[b.name.toLowerCase()];
+    e = { ...b, ...b.in595, ...(args && { minArgs: args.min, maxArgs: args.max }) };
+    entries595.set(b, e);
+  }
+  return e;
+}
+
+/** Whether `version` has the builtin: INSVAR and ARRKEY are new in 5.9.6. */
+export function existsIn(b: BuiltinInfo, version: SyntaxVersion): boolean {
+  return b.since === undefined || SYNTAX_VERSIONS.indexOf(b.since) <= SYNTAX_VERSIONS.indexOf(version);
+}
+
+/**
+ * The argument counts a builtin takes in `version`, whether or not they
+ * differ between versions: the parser records a call whose count is wrong
+ * in either, and the diagnostic decides with the version chosen.
+ */
+export function argCountsFor(nameLower: string, version: SyntaxVersion): { min: number; max?: number } | undefined {
+  const b = lookupArgConstraints(nameLower);
+  if (!b) return undefined;
+  const e = forVersion(b, version);
+  return { min: e.minArgs!, max: e.maxArgs };
+}
+
+/** Whether `actual` arguments are right for the builtin in every version. */
+export function argCountValidEverywhere(nameLower: string, actual: number): boolean {
+  for (const version of SYNTAX_VERSIONS) {
+    const c = argCountsFor(nameLower, version);
+    if (c && (actual < c.min || (c.max !== undefined && actual > c.max))) return false;
+  }
+  return true;
 }
 
 /**

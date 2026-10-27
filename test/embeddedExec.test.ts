@@ -1234,6 +1234,7 @@ pl '<a href="exec:y = dyneval($b)">B</a>'
       extraArgsToTargetWithoutArgs: false,
       shadowsCallFrameBuiltin: false,
       shadowsPropagatedLocal: false,
+      syntaxVersion: '5.9.5',
       maxErrorsPerLocation: 1000,
       maxLocationLines: 0,
     };
@@ -1253,6 +1254,15 @@ pl '<a href="exec:y = dyneval($b)">B</a>'
     /** Source span (substring on `loc.range.start.line`) covered by a diagnostic. */
     const sliceDiag = (code: string, d: { range: { start: { line: number; character: number }; end: { character: number } } }) =>
       code.split('\n')[d.range.start.line]!.substring(d.range.start.character, d.range.end.character);
+
+    it('reports a construct of a newer syntax version inside an exec body where it is', () => {
+      const code = `# home\npl '<a href="exec:x = ?">click</a>'\n---\n`;
+      const diags = diagnose(code, { unsupportedSyntax: true });
+      expect(diags.map(d => [d.message, sliceDiag(code, d)])).toEqual([
+        ["The undefined value '?' is new in QSP 5.9.6; the syntax version is 5.9.5", '?'],
+      ]);
+      expect(diagnose(code, { unsupportedSyntax: true, syntaxVersion: '5.9.6' })).toEqual([]);
+    });
 
     it('reports a syntax error inside an exec body as a diagnostic', () => {
       const code = `# home

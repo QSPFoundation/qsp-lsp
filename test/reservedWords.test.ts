@@ -32,6 +32,7 @@ const ALL_OFF: DiagnosticSettings = {
   extraArgsToTargetWithoutArgs: false,
   shadowsCallFrameBuiltin: false,
   shadowsPropagatedLocal: false,
+  syntaxVersion: '5.9.5',
   maxErrorsPerLocation: 1000,
   maxLocationLines: 0,
 };

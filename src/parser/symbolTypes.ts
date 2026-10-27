@@ -243,10 +243,15 @@ export interface VariableBinding {
   isLocal: boolean;
   /**
    * Type prefix used on the LHS at the write site (`$x = …` → `'$'`).
-   * Empty string for un-prefixed writes.  Carried for diagnostic
+   * `'#'` for un-prefixed writes.  Carried for diagnostic
    * surfaces; the binding's storage identity is the base name.
    */
   writePrefix?: TypePrefix;
+  /**
+   * True when the LHS has no prefix. In 5.9.5 that is a number; in 5.9.6
+   * the variable keeps whatever type it is given.
+   */
+  untypedWrite?: true;
   /**
    * True iff this binding actually stores a value into the variable.
    *
@@ -298,6 +303,12 @@ export interface VariableBinding {
    */
   rhsTypePrefix?: TypePrefix;
   /**
+   * True when the RHS is a variable without a prefix (`$y = x`): in 5.9.6
+   * its value has whatever type it was given, so `rhsTypePrefix` says
+   * only what 5.9.5 reads.
+   */
+  untypedRhs?: true;
+  /**
    * Compound assignment operator used at this write site (`+=`, `-=`,
    * `*=`, `/=`).  Absent for plain `=` assignments, `local` writes,
    * and side-effect writes (`setvar`, `scanstr`, …).  Consumed by the
@@ -321,6 +332,7 @@ export interface SystemVariablePrefixWarning {
   loc: SymbolLocation;
   /** As written, without the prefix. */
   varName: string;
+  /** As written: '' for none. */
   prefix: string;
   /** What the variable holds: '#' a number, '$' text. */
   valueType: '#' | '$';
@@ -343,6 +355,19 @@ export interface ArgCountWarning {
   min: number;
   /** Maximum expected; undefined for variadic builtins. */
   max?: number;
+}
+
+/**
+ * A construct that only some syntax versions have: new in 5.9.6
+ * (`?`, INSVAR, ARRKEY, unary plus, a tab before ` _`, `@ name`), or a name that
+ * 5.9.6 splits (`a\b`: `\ ; ^ @ ?` end a name there). Recorded whatever
+ * the version; the `unsupportedSyntax` diagnostic picks those to report.
+ */
+export interface SyntaxFeatureUse {
+  loc: SymbolLocation;
+  feature: 'undefinedValue' | 'builtin' | 'unaryPlus' | 'tabContinuation' | 'spaceAfterAt' | 'nameDelimiter';
+  /** The builtin's lower-case name, `@` or `@@`, or the name with a delimiter in it. */
+  name?: string;
 }
 
 /**

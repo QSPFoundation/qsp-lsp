@@ -38,6 +38,7 @@ import { checkLocationSymbols } from './diagnosticPasses/symbolDiagnostics';
 import { checkVariables } from './diagnosticPasses/variableDiagnostics';
 import { checkDynamicCalls } from './diagnosticPasses/dynamicDiagnostics';
 import { checkPropagation } from './diagnosticPasses/propagationDiagnostics';
+import type { SyntaxVersion } from '../common/syntaxVersion';
 
 // ── Types (kept here — the public API entry point) ────────────────────
 
@@ -59,6 +60,7 @@ export interface DiagnosticSettings {
   unusedObjects: boolean;
   invalidFunctionPrefix: boolean;
   systemVariablePrefix: boolean;
+  unsupportedSyntax: boolean;
   invalidBuiltinArgCount: boolean;
   deprecatedBuiltins: boolean;
   mixedVariablePrefixes: boolean;
@@ -70,6 +72,8 @@ export interface DiagnosticSettings {
   extraArgsToTargetWithoutArgs: boolean;
   shadowsCallFrameBuiltin: boolean;
   shadowsPropagatedLocal: boolean;
+  /** Not under `qsp.diagnostics`: `qsp.syntaxVersion`, kept here so every check and cache key sees it. */
+  syntaxVersion: SyntaxVersion;
   maxErrorsPerLocation: number;
   maxLocationLines: number;
   /** At most this many diagnostics per file, the most severe first; 0 = all. */
