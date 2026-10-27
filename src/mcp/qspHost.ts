@@ -277,6 +277,8 @@ export class QspHost {
     const result = this.diagnostics.get(uri) ?? [];
     this.client.sendNotification(DidCloseTextDocumentNotification.type, { textDocument: { uri } });
     this.diagnostics.delete(uri);
+    // Closing it re-diagnoses the project; the next call shouldn't meet that half done.
+    await this.settled();
     return result;
   }
 
