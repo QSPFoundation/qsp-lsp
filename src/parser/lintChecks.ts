@@ -268,3 +268,47 @@ export function checkPrefixWhitespace(tree: Parser.Tree): SyntaxError[] {
   });
   return errors;
 }
+
+// ── Line continuation inside brackets ────────────────────────────────
+
+/**
+ * Whether a line continuation (` _` and a line break) is inside `(…)` or
+ * `[…]`. QSP joins lines only where no bracket is open: inside brackets the
+ * line break is a blank, and `_` a variable named `_` (checked on the 5.9.5
+ * and 5.9.6 libraries: `max(1, _⏎ 2)` is "Unknown action"). A block's code
+ * is joined again when it runs, so the climb stops at the block.
+ */
+export function isContinuationInBrackets(node: Parser.SyntaxNode): boolean {
+  for (let p = node.parent; p; p = p.parent) {
+    let depth = 0;
+    for (let i = 0; i < p.childCount; i++) {
+      const c = p.child(i)!;
+      if (c.startIndex >= node.startIndex) break;
+      if (c.type === '(' || c.type === '[') depth++;
+      else if (c.type === ')' || c.type === ']') depth--;
+    }
+    if (depth > 0) return true;
+  }
+  return false;
+}
+
+/** The error for a line continuation inside brackets, on its `_`. */
+export function continuationInBracketsError(node: Parser.SyntaxNode): SyntaxError {
+  const { row, column } = node.startPosition;
+  return {
+    startRow: row,
+    startCol: column,
+    endRow: row,
+    endCol: column + 1,
+    message: "Inside brackets '_' doesn't join lines: QSP reads it as a variable named '_'. Break the line without it",
+  };
+}
+
+/** Line continuations inside `(…)` or `[…]` (see `isContinuationInBrackets`). */
+export function checkContinuationInBrackets(tree: Parser.Tree): SyntaxError[] {
+  const errors: SyntaxError[] = [];
+  forEachDescendant(tree.rootNode, (n) => {
+    if (n.type === 'line_continuation_ext' && isContinuationInBrackets(n)) errors.push(continuationInBracketsError(n));
+  });
+  return errors;
+}

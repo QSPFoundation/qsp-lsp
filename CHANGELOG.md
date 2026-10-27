@@ -32,6 +32,7 @@
 - Files in `libs/` show errors only (no warnings about a library's unused locations or variables), and a duplicate location names the library it clashes with.
 
 ### Fixes
+- A ` _` line continuation inside `(…)` or `[…]` is a syntax error: QSP 5.9.5 and 5.9.6 join lines only where no bracket is open, and inside brackets read `_` as a variable named `_`, failing with "Unknown action" (checked on both libraries); a line inside brackets breaks without it. QSP 5.7 needed the `_` there, so code written for it reports the error now.
 - Blanks at the end of a line inside brackets no longer make the operator that starts the next line a syntax error (`(a = 1 ⏎ and b)`).
 - The hover and completion of `DESC` showed its argument as optional (`DESC([$location])`); QSP requires it, as the argument count check already said: `DESC($location)`.
 - `ARRITEM` with one argument is a warning in 5.9.5, whose `ARRITEM` reads a second argument all the same; 5.9.6 gives the first element.

@@ -12,11 +12,14 @@ import {
   checkFunctionNameAsLvalue,
   checkReservedWordMisuse,
   checkPrefixWhitespace,
+  checkContinuationInBrackets,
+  continuationInBracketsError,
+  isContinuationInBrackets,
 } from './lintChecks';
 import { isDynamicArgCodeBlock } from './scopeUtils';
 import { blockLocation, blockStatements, descendantsOfType, isNeverRunBlock, parentOf } from './blockTrees';
 
-export { checkFunctionNameAsLvalue, checkReservedWordMisuse, checkPrefixWhitespace };
+export { checkFunctionNameAsLvalue, checkReservedWordMisuse, checkPrefixWhitespace, checkContinuationInBrackets };
 
 /** A syntax error extracted from the parse tree. */
 export interface SyntaxError {
@@ -282,8 +285,8 @@ export function extractErrors(tree: Parser.Tree): SyntaxError[] {
     visitBlock(block);
   }
 
-  // Run the three additional lint passes (reserved-word misuse,
-  // prefix-whitespace, function-name-as-lvalue) in a SINGLE shared tree
+  // Run the additional lint passes (reserved-word misuse, prefix-whitespace,
+  // function-name-as-lvalue, line continuation in brackets) in a SINGLE shared tree
   // walk for performance. Public per-pass exports below remain so tests
   // (and external callers) can invoke each in isolation.
   errors.push(...runMergedLintPasses(tree));
@@ -293,11 +296,12 @@ export function extractErrors(tree: Parser.Tree): SyntaxError[] {
 
 /**
  * Single-pass version of `checkReservedWordMisuse` +
- * `checkPrefixWhitespace` + `checkFunctionNameAsLvalue`. Walks the tree
+ * `checkPrefixWhitespace` + `checkFunctionNameAsLvalue` +
+ * `checkContinuationInBrackets`. Walks the tree
  * once with shared depth counters for `code_block` / `string_interpolation`
  * context, instead of three separate full-tree walks.
  *
- * Behaviour MUST match the union of the three public functions exactly;
+ * Behaviour MUST match the union of the four public functions exactly;
  * the test suite still calls those public functions individually.
  */
 function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
@@ -417,6 +421,16 @@ function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
           inInterpolation: interpolationDepth > 0 || undefined,
         });
       }
+    }
+
+    // ── Pass 4: line continuation inside brackets ─────────────────
+    if (t === 'line_continuation_ext' && isContinuationInBrackets(n)) {
+      errors.push({
+        ...continuationInBracketsError(n),
+        inCodeBlock: codeBlockDepth > 0 || undefined,
+        ...storedContext(),
+        inInterpolation: interpolationDepth > 0 || undefined,
+      });
     }
 
     if (t === 'code_block') {

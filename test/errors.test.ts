@@ -5,6 +5,7 @@ import * as path from 'path';
 import { QspTreeSitterParser, extractErrors } from '../src/parser/treeSitter';
 import { WASM_PATH, loadWasm, runDiagnostics, diagnosticsMatching } from './testHelpers';
 import { QspHost } from '../src/mcp/qspHost';
+import { checkContinuationInBrackets } from '../src/parser/extractErrors';
 
 describe('extractErrors — error classification', () => {
   const parser = new QspTreeSitterParser();
@@ -683,6 +684,18 @@ pl '<<x + >>'
     expect(errs.some(e => /no whitespace allowed.*type prefix.*variable/i.test(e.message))).toBe(true);
   });
 
+  it('flags a line continuation inside brackets, where QSP reads `_` as a variable', () => {
+    // Run on the 5.9.5 and 5.9.6 libraries: inside ( ) or [ ] a line break
+    // is a blank, so `max(1, 2, _⏎ 3)` is "Unknown action"; outside, and in a
+    // block's code (joined again when it runs), ` _` joins the lines.
+    const code = "# t\nset $s = $func('a', 'b', _\n\t'c')\ny = a[1 + _\n 2]\nz = (1 + _\n 2)\nw = 1 + _\n 2\ndynamic({x = 1 + _\n 2})\n---\n";
+    const errs = extractErrors(parser.parseOnce(code)!)
+      .filter(e => e.message.startsWith("Inside brackets '_'"))
+      .map(e => `${e.startRow}:${e.startCol}`);
+    expect(errs).toEqual(['1:25', '3:10', '5:9']);
+    expect(checkContinuationInBrackets(parser.parseOnce(code)!).map(e => `${e.startRow}:${e.startCol}`)).toEqual(errs);
+  });
+
   it('leaves whitespace after `@` and `@@` to the syntax version check', () => {
     // QSP 5.9.6 allows it; `unsupportedSyntax` reports it in 5.9.5.
     const tree = parser.parseOnce('# t\nx = @ foo(1)\n@@ bar 2\n---\n');
@@ -1062,11 +1075,15 @@ describe('extractErrors — multi-line `or` before a closer on the next line', (
 	end`)).toEqual([]);
   });
 
-  it('accepts line continuations before operators inside parentheses', () => {
-    expect(errorsIn(`set args[{ORM}] = ( $people['<<$tempArg>>_<<$num[3]>>'] = 'Д'  _
+  it('flags line continuations inside parentheses, which 5.9 reads as a variable _', () => {
+    // QSP 5.7 needed ` _` here; 5.9.5 and 5.9.6 break a line inside brackets
+    // without it and fail on this code with "Unknown action".
+    const withUnderscores = `set args[{ORM}] = ( $people['<<$tempArg>>_<<$num[3]>>'] = 'Д'  _
 		and $people['<<$tempArg>>_<<$num[4]>>'] ! 'С' _
 	) or ( $people['<<$rab>>_<<$num[3]>>'] ! 'Д'  _
-		and $people['<<$tempArg>>_<<$num[4]>>'] ! 'А' )`)).toEqual([]);
+		and $people['<<$tempArg>>_<<$num[4]>>'] ! 'А' )`;
+    expect(errorsIn(withUnderscores).map(e => e.slice(0, e.indexOf(' ')))).toEqual(['1:63', '2:48', '3:47']);
+    expect(errorsIn(withUnderscores.replace(/ _\n/g, '\n'))).toEqual([]);
   });
 
   it.each([
