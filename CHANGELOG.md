@@ -32,6 +32,7 @@
 - Files in `libs/` show errors only (no warnings about a library's unused locations or variables), and a duplicate location names the library it clashes with.
 
 ### Fixes
+- Blanks at the end of a line inside brackets no longer make the operator that starts the next line a syntax error (`(a = 1 ⏎ and b)`).
 - The hover and completion of `DESC` showed its argument as optional (`DESC([$location])`); QSP requires it, as the argument count check already said: `DESC($location)`.
 - `ARRITEM` with one argument is a warning in 5.9.5, whose `ARRITEM` reads a second argument all the same; 5.9.6 gives the first element.
 - A `loop`, `if`, `elseif` or `act` header that doesn't parse names what is missing instead of always a colon: `loop while i<9 step:` reports `Expected a statement after 'step'`, `loop :` `Expected 'while' and a condition after 'loop'`, `loop while :` `Expected a condition after 'while'`, `if : pl 1` `Expected a condition after 'if'`, `act :` `Expected an action name after 'act'`. `Missing ':'` is left for a header that has everything but the colon. Reported by Aleks Versus.

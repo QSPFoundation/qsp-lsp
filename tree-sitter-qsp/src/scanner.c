@@ -455,15 +455,14 @@ bool tree_sitter_qsp_external_scanner_scan(void *payload, TSLexer *lexer, const 
 
   // Only states right after a multiline operand accept these tokens, and
   // any of them being valid means the lookahead is examined here first.
-  if (!in_recovery &&
+  bool ml_valid = !in_recovery &&
       (valid_symbols[ML_NL_OR] || valid_symbols[ML_NL_AND] || valid_symbols[ML_NL_CMP] ||
        valid_symbols[ML_NL_AMP] || valid_symbols[ML_NL_ADD] || valid_symbols[ML_NL_MOD] ||
-       valid_symbols[ML_NL_MUL]) &&
-      (lexer->lookahead == '\r' || lexer->lookahead == '\n')) {
-    // Only on the newline itself: blanks before it arrive earlier as their
-    // own extra token, and a ` _` line continuation starts with a blank, so
-    // it must reach the LINE_CONTINUATION scan below instead. On false the
-    // lexer rewinds and lexes a plain `_newline`.
+       valid_symbols[ML_NL_MUL]);
+  if (ml_valid && (lexer->lookahead == '\r' || lexer->lookahead == '\n')) {
+    // A ` _` line continuation starts with a blank, so it must reach the
+    // LINE_CONTINUATION scan below. On false the lexer rewinds and lexes a
+    // plain `_newline`.
     return scan_ml_newline(lexer, valid_symbols);
   }
 
@@ -471,11 +470,18 @@ bool tree_sitter_qsp_external_scanner_scan(void *payload, TSLexer *lexer, const 
   // looked for after them, where a line continuation would start.
   bool word_valid = !in_recovery
     && (valid_symbols[ALIAS_KEYWORD] || valid_symbols[INSVAR_NAME] || valid_symbols[ARRKEY_NAME]);
-  if (!valid_symbols[LINE_CONTINUATION] && !word_valid) return false;
+  if (!valid_symbols[LINE_CONTINUATION] && !word_valid && !ml_valid) return false;
   bool blank = false;
   while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
     lexer->advance(lexer, true);
     blank = true;
+  }
+
+  // Blanks at the end of a line: the internal lexer would skip them and
+  // read the newline as a plain `_newline`, hiding the operator after it
+  // (`(a ⏎ and b)`).
+  if (blank && ml_valid && (lexer->lookahead == '\r' || lexer->lookahead == '\n')) {
+    return scan_ml_newline(lexer, valid_symbols);
   }
 
   int32_t first = lower_ascii(lexer->lookahead);

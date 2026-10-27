@@ -1077,6 +1077,8 @@ describe('extractErrors — multi-line `or` before a closer on the next line', (
     ['tuple', `x = [1, a or b\n]`],
     ['interpolation', `pl '<<a or b\n>>'`],
     ['or chain with newlines before each or', `x = (a\n or b\n or c\n)`],
+    // The blanks used to hide the newline from the scanner, and the operator with it.
+    ['blanks before the newline and an operator', `x = (a = 1 \t\n\tand $p[1] ! 2\n)`],
   ])('accepts %s', (_name, body) => {
     expect(errorsIn(body)).toEqual([]);
   });
