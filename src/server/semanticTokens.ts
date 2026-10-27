@@ -190,6 +190,7 @@ function emitSemanticTokens(
       case 'step_keyword':
       case 'set_keyword':
       case 'local_keyword':
+      case 'alias_keyword':
         push(node, tokenType(SemanticTokenTypes.keyword));
         return;
 

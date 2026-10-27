@@ -275,7 +275,7 @@ All diagnostic checks are enabled by default. Set to `false` to disable a specif
 | `qsp.diagnostics.unusedVariables` | `true` | Hint about variables assigned but never read |
 | `qsp.diagnostics.unusedObjects` | `true` | Hint about objects added but never referenced |
 | `qsp.diagnostics.invalidFunctionPrefix` | `true` | Warn when function called with wrong type prefix |
-| `qsp.diagnostics.unsupportedSyntax` | `true` | Error on constructs the chosen `qsp.syntaxVersion` doesn't have: in 5.9.5 `?`, `INSVAR`, `ARRKEY`, unary plus, a space after `@`, a tab before the `_` that joins lines; in 5.9.6 a name with `\ ; ^ @ ?` in it |
+| `qsp.diagnostics.unsupportedSyntax` | `true` | Error on constructs the chosen `qsp.syntaxVersion` doesn't have: in 5.9.5 `?`, `INSVAR`, `ARRKEY`, `ALIAS`, unary plus, a space after `@`, a tab before the `_` that joins lines; in 5.9.6 a name with `\ ; ^ @ ?` in it, or a variable named `alias` |
 | `qsp.diagnostics.systemVariablePrefix` | `true` | Warn when a system variable is written with a prefix of another type than it holds (`$usehtml`, `fname`): QSP 5.9.5 ignores such a value. Off for `qsp.syntaxVersion` 5.9.6, which converts it |
 | `qsp.diagnostics.invalidBuiltinArgCount` | `true` | Warn when built-in called with wrong arg count |
 | `qsp.diagnostics.deprecatedBuiltins` | `true` | Warn about outdated built-ins (e.g. `ADDQST` instead of `INCLIB`) and strike them through |

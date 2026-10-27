@@ -698,7 +698,7 @@
           ],
           "enumDescriptions": [
             "The last released QSP library (November 2025).",
-            "The QSP library's development version: the undefined value ?, INSVAR, ARRKEY, unary plus, COUNTOBJ with a name, variables without a prefix that hold any type, and \\ ; ^ @ ? ending a name."
+            "The QSP library's development version: the undefined value ?, INSVAR, ARRKEY, ALIAS, unary plus, COUNTOBJ with a name, variables without a prefix that hold any type, and \\ ; ^ @ ? ending a name."
           ],
           "default": "5.9.5",
           "scope": "window",
@@ -802,7 +802,7 @@
         "qsp.diagnostics.unsupportedSyntax": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Report constructs the chosen `#qsp.syntaxVersion#` doesn't have: in 5.9.5 the undefined value `?`, `INSVAR`, `ARRKEY`, unary plus, a space after `@`, a tab before the `_` that joins lines; in 5.9.6 a name with `\\ ; ^ @ ?` in it, which 5.9.6 splits."
+          "markdownDescription": "Report constructs the chosen `#qsp.syntaxVersion#` doesn't have: in 5.9.5 the undefined value `?`, `INSVAR`, `ARRKEY`, `ALIAS`, unary plus, a space after `@`, a tab before the `_` that joins lines; in 5.9.6 a name with `\\ ; ^ @ ?` in it, which 5.9.6 splits, and a variable named `alias`."
         },
         "qsp.diagnostics.invalidBuiltinArgCount": {
           "type": "boolean",

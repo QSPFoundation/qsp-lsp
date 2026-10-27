@@ -316,7 +316,7 @@ export function checkSystemVariablePrefix(
   }
 }
 
-const FEATURE_LABELS: Record<Exclude<SyntaxFeatureUse['feature'], 'builtin' | 'spaceAfterAt' | 'nameDelimiter'>, string> = {
+const FEATURE_LABELS: Record<Exclude<SyntaxFeatureUse['feature'], 'builtin' | 'spaceAfterAt' | 'nameDelimiter' | 'reservedName'>, string> = {
   undefinedValue: "The undefined value '?'",
   unaryPlus: 'Unary plus',
   tabContinuation: "A tab before the '_' that joins lines",
@@ -334,6 +334,9 @@ export function checkUnsupportedSyntax(
       if (version === '5.9.5') continue;
       const ch = /[\\;^@?]/.exec(fu.name!)![0];
       message = `'${ch}' ends a name in QSP ${SYNTAX_VERSION_LABELS[version]}: '${fu.name}' is not one name`;
+    } else if (fu.feature === 'reservedName') {
+      if (version === '5.9.5') continue;
+      message = `'${fu.name}' starts a statement in QSP ${SYNTAX_VERSION_LABELS[version]} and can't name a variable`;
     } else {
       if (version !== '5.9.5') continue;
       const what = fu.feature === 'builtin' ? fu.name!.toUpperCase()

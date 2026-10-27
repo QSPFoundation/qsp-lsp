@@ -36,7 +36,7 @@ export interface AnonymizedCode {
 /** Grammar keywords, operators and names of builtins: none of it comes from the game. */
 export const KEEP_TYPES: ReadonlySet<string> = new Set([
   'statement_name', 'function_name', 'type_prefix', 'assignment_operator',
-  'act_keyword', 'if_keyword', 'elseif_keyword', 'else_keyword', 'end_keyword', 'local_keyword',
+  'act_keyword', 'if_keyword', 'elseif_keyword', 'else_keyword', 'end_keyword', 'local_keyword', 'alias_keyword',
   'loop_keyword', 'while_keyword', 'step_keyword', 'set_keyword',
   'op_amp', 'op_and', 'op_arith', 'op_cmp', 'op_loc', 'op_mod', 'op_neg', 'op_no', 'op_obj', 'op_or', 'op_pos',
 ]);

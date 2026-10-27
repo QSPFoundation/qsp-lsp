@@ -208,6 +208,7 @@ export const QSP_KEYWORDS: BuiltinInfo[] = [
   { name: 'set', kind: 'statement', description: 'Set variable values', signature: 'SET [variable names] = [variable values]' },
   { name: 'let', kind: 'statement', description: 'Set variable values', signature: 'LET [variable names] = [variable values]' },
   { name: 'local', kind: 'statement', description: 'Declare local variables and set their values', signature: 'LOCAL [variable names] = [variable values]' },
+  { name: 'alias', kind: 'statement', description: 'Declare local variables that share the arrays with the given names: a change through one is a change of the array', signature: 'ALIAS [variable names] = [$array names]', since: '5.9.6' },
   { name: 'and', kind: 'function', description: 'Logical "AND". The resulting expression is true if both conditions are true', signature: '[#condition 1] AND [#condition 2]' },
   { name: 'or', kind: 'function', description: 'Logical "OR". The resulting expression is true if at least one condition is true', signature: '[#condition 1] OR [#condition 2]' },
   { name: 'no', kind: 'function', description: 'Logical negation. The resulting expression is true if the specified condition is not true', signature: 'NO [#condition]' },

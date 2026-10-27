@@ -3168,6 +3168,15 @@ dynamic $never
       expect(versionDiags(code, '5.9.6')).toEqual([]);
     });
 
+    it('reads ALIAS as 5.9.6 syntax, and alias as a name 5.9.6 reserves', () => {
+      const code = "# a\nalias a, $b = 'arr1', 'arr2'\npl a[0] + $b\nalias = 1\n--- a ---\n";
+      expect(versionDiags(code, '5.9.5')).toEqual(['1:0 ALIAS is new in QSP 5.9.6; the syntax version is 5.9.5']);
+      expect(versionDiags(code, '5.9.6')).toEqual(["3:0 'alias' starts a statement in QSP 5.9.6 (dev) and can't name a variable"]);
+      // The names are locals with a value; the arrays' values are no copies to type.
+      const all = run(code, { unsupportedSyntax: false, uninitializedVariables: true, unusedVariables: true, typeMismatch: true, syntaxVersion: '5.9.6' });
+      expect(all.map(d => d.message)).toEqual(["Variable 'alias' is assigned but never read"]);
+    });
+
     it('accepts a space before the _ that joins lines in both versions', () => {
       expect(versionDiags('# a\npl 1 + _\n 2\n--- a ---\n', '5.9.5')).toEqual([]);
     });

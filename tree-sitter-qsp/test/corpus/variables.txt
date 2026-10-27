@@ -1002,3 +1002,53 @@ Gosub call to location with @ in name
       (user_call_statement
         name: (user_name)))
     (location_end)))
+
+================
+ALIAS, and alias as a name when no name follows it
+================
+# test
+alias a, $b = 'arr1', 'arr2'
+  ALIAS c = 'x'
+alias = 1
+pl alias
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (alias_statement
+        keyword: (alias_keyword)
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text))
+          (variable_ref
+            prefix: (type_prefix)
+            name: (identifier_text)))
+        value: (string
+          (single_quoted_string))
+        value: (string
+          (single_quoted_string))))
+    (single_line_block
+      (alias_statement
+        keyword: (alias_keyword)
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        value: (string
+          (single_quoted_string))))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (single_line_block
+      (statement
+        name: (statement_name)
+        (variable_ref
+          name: (identifier_text))))
+    (location_end)))

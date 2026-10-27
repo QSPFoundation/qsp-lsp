@@ -442,9 +442,17 @@ export function noteSyntaxFeature(
     case 'variable_ref':
     case 'ml_variable_ref': {
       const nameNode = node.childForFieldName('name');
-      if (nameNode && !nameNode.isMissing && NAME_DELIMITERS_596.test(nameNode.text)) {
+      if (!nameNode || nameNode.isMissing) return;
+      if (NAME_DELIMITERS_596.test(nameNode.text)) {
         uses.push({ loc: nodeLoc(nameNode, docUri), feature: 'nameDelimiter', name: nameNode.text });
+      } else if (nameNode.text.toLowerCase() === 'alias') {
+        uses.push({ loc: nodeLoc(nameNode, docUri), feature: 'reservedName', name: nameNode.text });
       }
+      return;
+    }
+    case 'alias_statement': {
+      const keyword = node.childForFieldName('keyword');
+      if (keyword) uses.push({ loc: nodeLoc(keyword, docUri), feature: 'builtin', name: 'alias' });
       return;
     }
     case 'user_func_call':

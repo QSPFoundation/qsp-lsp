@@ -406,7 +406,15 @@ export function collectVariableBindings(
   // `act_inline`.
   const visit = (inDeferred: boolean) => {
     const n = cursor.currentNode;
-    if (n.type === 'assignment_statement' || n.type === 'local_statement') {
+    if (n.type === 'alias_statement') {
+      // Each name is a local sharing the array the value names, not a
+      // copy of the value: opaque, whatever the value's type.
+      const varList = n.childForFieldName('variables');
+      const stmtText = rhsSnippet(n);
+      for (const v of varList?.namedChildren ?? []) {
+        if (v.type === 'variable_ref' || v.type === 'ml_variable_ref') recordUnpacked(n, v, stmtText, true);
+      }
+    } else if (n.type === 'assignment_statement' || n.type === 'local_statement') {
       const isLocalStmt = n.type === 'local_statement';
       const total = n.namedChildCount;
       // Single pass: locate variable_list, collect post-list RHS nodes,

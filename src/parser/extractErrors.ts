@@ -91,6 +91,7 @@ const FRIENDLY_NODE_NAMES: Record<string, string> = {
   step_keyword: "'step'",
   act_keyword: "'act'",
   local_keyword: "'local'",
+  alias_keyword: "'alias'",
   set_keyword: "'set' or 'let'",
 
   // Punctuation

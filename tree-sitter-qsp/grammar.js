@@ -152,6 +152,9 @@ module.exports = grammar({
     // finds a block's end by its braces and quotes, whatever is inside.
     // The LSP parses the inside as code on its own (src/parser/blockTrees.ts).
     $.block_body,
+    // `alias` when a name follows it: then it starts ALIAS (QSP 5.9.6);
+    // otherwise it is a name, as in 5.9.5 (`alias = 1`).
+    $._alias_keyword_ext,
   ],
 
   word: $ => $.identifier_text,
@@ -280,6 +283,7 @@ module.exports = grammar({
       $.act_inline,
       $.loop_inline,
       $.local_statement,
+      $.alias_statement,
       $.assignment_statement,
       $.user_call_statement,
       $.statement,
@@ -332,6 +336,16 @@ module.exports = grammar({
       field('keyword', alias(ci('local'), $.local_keyword)),
       field('variables', $.variable_list),
       optional(seq('=', field('value', $._na_arg_list))),
+    )),
+
+    // PEG: aliasStatement = aliasMarker &delimiterChar ws variableList ws "=" ws nonAmpersandArgument1plusList
+    // Each name becomes a local variable sharing the array that the value
+    // in the same place names (QSP 5.9.6).
+    alias_statement: $ => prec.right(seq(
+      field('keyword', alias($._alias_keyword_ext, $.alias_keyword)),
+      field('variables', $.variable_list),
+      '=',
+      field('value', $._na_arg_list),
     )),
 
     variable_list: $ => prec.right(seq(

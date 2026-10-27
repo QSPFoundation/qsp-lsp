@@ -41,7 +41,10 @@ const RESERVED_BINARY_OPS = ['and', 'or', 'mod'];
 // Single-word statementName entries (multi-word ones like `add obj`
 // can't be identifiers anyway, asterisk-prefixed ones like `*clr` also
 // can't). Kept lowercase; the lint does case-insensitive comparison.
+// ALIAS is a name in 5.9.5 (`alias = 1`); 5.9.6 reserves it, which
+// the `unsupportedSyntax` diagnostic reports.
 const RESERVED_STATEMENT_NAMES = (QSP_STATEMENTS as ReadonlyArray<{ name: string }>)
+  .filter(s => s.name.toLowerCase() !== 'alias')
   .map(s => s.name.toLowerCase())
   .filter(n => /^[a-z_][a-z_]*$/.test(n));
 

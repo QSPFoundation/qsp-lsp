@@ -11,6 +11,7 @@
  * 6. ML_NL_OR … ML_NL_MUL (newlines before a binary operator in a
  *    multiline expression, one token per precedence level)
  * 7. BLOCK_BODY (the inside of a `{…}`, up to its closing brace)
+ * 8. ALIAS_KEYWORD (`alias` when a name follows it)
  */
 
 #include "tree_sitter/parser.h"
@@ -29,6 +30,7 @@ enum {
   ML_NL_MOD,
   ML_NL_MUL,
   BLOCK_BODY,
+  ALIAS_KEYWORD,
 };
 
 static bool is_hspace(int32_t c) { return c == ' ' || c == '\t'; }
@@ -56,6 +58,20 @@ static bool match_keyword(TSLexer *lexer, const char *word) {
     lexer->advance(lexer, false);
   }
   return ends_word(lexer->lookahead);
+}
+
+// ALIAS (QSP 5.9.6) starts a statement only when a name follows it, as in
+// `aliasMarker &delimiterChar ws variableList`: in 5.9.5 `alias = 1` assigns
+// to a variable named alias, and a keyword token would always beat the name
+// at the start of a statement. The token is the word; the name is peeked.
+static bool scan_alias(TSLexer *lexer) {
+  if (!match_keyword(lexer, "alias")) return false;
+  lexer->mark_end(lexer);
+  if (!is_hspace(lexer->lookahead)) return false;
+  while (is_hspace(lexer->lookahead)) lexer->advance(lexer, false);
+  int32_t c = lexer->lookahead;
+  if (c == '$' || c == '#' || c == '%') return true;
+  return !ends_word(c) && c != '@' && !(c >= '0' && c <= '9');
 }
 
 /**
@@ -380,13 +396,23 @@ bool tree_sitter_qsp_external_scanner_scan(void *payload, TSLexer *lexer, const 
     return scan_ml_newline(lexer, valid_symbols);
   }
 
-  if (!valid_symbols[LINE_CONTINUATION]) return false;
-  if (lexer->lookahead != ' ' && lexer->lookahead != '\t') return false;
-
+  // The blanks before a statement reach the scanner too, so ALIAS is
+  // looked for after them, where a line continuation would start.
+  bool alias_valid = !in_recovery && valid_symbols[ALIAS_KEYWORD];
+  if (!valid_symbols[LINE_CONTINUATION] && !alias_valid) return false;
+  bool blank = false;
   while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
     lexer->advance(lexer, true);
+    blank = true;
   }
 
+  if (alias_valid && lower_ascii(lexer->lookahead) == 'a') {
+    if (!scan_alias(lexer)) return false;
+    lexer->result_symbol = ALIAS_KEYWORD;
+    return true;
+  }
+
+  if (!valid_symbols[LINE_CONTINUATION] || !blank) return false;
   if (lexer->lookahead != '_') return false;
   lexer->advance(lexer, false);
   // QSP trims every line before joining those that end in ` _`.

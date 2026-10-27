@@ -181,6 +181,12 @@ describe('qsp.tmLanguage.json on syntax_test_qsp.qsps', () => {
     expect([scopeOf('obj'), scopeOf('loc'), scopeOf('objx')]).toEqual(['keyword.operator.word.qsp', 'keyword.operator.word.qsp', 'variable.other.readwrite.qsp']);
   });
 
+  it('colours alias as a keyword only when a name follows it', () => {
+    const [, first, second] = tokenize("# a\nalias a, $b = 'x', 'y'\nalias = 1\n--- a ---");
+    expect(first.find(t => t.text === 'alias')!.scopes.at(-1)).toBe('keyword.other.statement.qsp');
+    expect(second.find(t => t.text.trim() === 'alias')!.scopes.at(-1)).toBe('variable.other.readwrite.qsp');
+  });
+
   it('colours the whole file as it did when checked', async () => {
     const compact = tokens.map((ts, i) => `${i + 1}: ` + ts
       .filter(t => t.text.length > 0)

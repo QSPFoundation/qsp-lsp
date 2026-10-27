@@ -2,6 +2,16 @@
 
 Work that is planned but not started: why it is wanted and what is known.
 
+## ALIAS in the symbol analysis
+
+`ALIAS a, $b = 'arr1', 'arr2'` (QSP 5.9.6) makes `a` and `$b` locals that share
+the arrays named by the values: a write through `a` is a write to `arr1`. The
+analysis reads the names as locals with an unknown value (`alias_statement` in
+`bindingCollector.ts`), so `arr1` written only through `a` is "assigned but never
+read" or "used but never assigned", and references, rename and hover don't link
+`a` to `arr1`. Follow a literal name (`'arr1'`, `'$arr1'`) as a reference to that
+array, and make reads and writes through the alias count as its.
+
 ## Dynamic jumps through several hops
 
 `gt $to` resolves from the nearest write before it or before the jumps into its

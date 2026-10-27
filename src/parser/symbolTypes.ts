@@ -360,13 +360,13 @@ export interface ArgCountWarning {
 /**
  * A construct that only some syntax versions have: new in 5.9.6
  * (`?`, INSVAR, ARRKEY, unary plus, a tab before ` _`, `@ name`), or a name that
- * 5.9.6 splits (`a\b`: `\ ; ^ @ ?` end a name there). Recorded whatever
+ * 5.9.6 splits (`a\b`: `\ ; ^ @ ?` end a name there) or reserves (`alias`). Recorded whatever
  * the version; the `unsupportedSyntax` diagnostic picks those to report.
  */
 export interface SyntaxFeatureUse {
   loc: SymbolLocation;
-  feature: 'undefinedValue' | 'builtin' | 'unaryPlus' | 'tabContinuation' | 'spaceAfterAt' | 'nameDelimiter';
-  /** The builtin's lower-case name, `@` or `@@`, or the name with a delimiter in it. */
+  feature: 'undefinedValue' | 'builtin' | 'unaryPlus' | 'tabContinuation' | 'spaceAfterAt' | 'nameDelimiter' | 'reservedName';
+  /** The builtin's lower-case name, `@` or `@@`, or the name 5.9.6 splits or reserves. */
   name?: string;
 }
 

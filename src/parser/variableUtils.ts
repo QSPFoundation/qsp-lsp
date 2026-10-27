@@ -145,7 +145,7 @@ export function classifyAssignmentLhs(
   if (!parent || parent.type !== 'variable_list') return null;
   const grandparent = parent.parent;
   if (!grandparent) return null;
-  if (grandparent.type === 'local_statement') return 'definition';
+  if (grandparent.type === 'local_statement' || grandparent.type === 'alias_statement') return 'definition';
   if (grandparent.type !== 'assignment_statement') return null;
   const opNode = findNamedChildOfType(grandparent, 'assignment_operator');
   if (!opNode) return null;
@@ -250,6 +250,8 @@ export function variableDefinitionHasValue(varNode: Parser.SyntaxNode): boolean 
   if (parent.type !== 'variable_list') return false;
   const grandparent = parent.parent;
   if (!grandparent) return false;
+  // ALIAS shares an array that may already hold values.
+  if (grandparent.type === 'alias_statement') return true;
   if (grandparent.type !== 'assignment_statement' && grandparent.type !== 'local_statement') {
     return false;
   }
@@ -302,5 +304,5 @@ export function isLocalVariable(varNode: Parser.SyntaxNode): boolean {
   const parent = varNode.parent;
   if (!parent) return false;
   if (parent.type !== 'variable_list') return false;
-  return parent.parent?.type === 'local_statement';
+  return parent.parent?.type === 'local_statement' || parent.parent?.type === 'alias_statement';
 }
