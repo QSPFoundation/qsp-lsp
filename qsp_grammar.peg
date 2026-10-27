@@ -456,6 +456,8 @@ QSP {
     */
 
     /* END, ELSEIF, ELSE are pseudo-statements, but we don't include them here to help with identifying suspicious code */
+    /* Here: "insvar" and "arrkey" (5.9.6) stay names where 5.9.5 reads them so: "insvar" when assigned
+       to (`insvar = 1`) or alone, "arrkey" when no argument follows it (`arrkey + 1`). */
     statementName           = "play"
                             | "close"
                             | "view"

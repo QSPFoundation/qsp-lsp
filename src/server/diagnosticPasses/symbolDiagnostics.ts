@@ -13,6 +13,7 @@ import {
   type LocationSymbols,
   type QspSymbol,
   argCountsFor,
+  lookupBuiltin,
 } from '../../parser';
 import type { SyntaxFeatureUse } from '../../parser/symbolTypes';
 import { SYNTAX_VERSION_LABELS } from '../../common/syntaxVersion';
@@ -336,7 +337,8 @@ export function checkUnsupportedSyntax(
       message = `'${ch}' ends a name in QSP ${SYNTAX_VERSION_LABELS[version]}: '${fu.name}' is not one name`;
     } else if (fu.feature === 'reservedName') {
       if (version === '5.9.5') continue;
-      message = `'${fu.name}' starts a statement in QSP ${SYNTAX_VERSION_LABELS[version]} and can't name a variable`;
+      const isFunction = lookupBuiltin(fu.name!)?.kind === 'function';
+      message = `'${fu.name}' ${isFunction ? 'is a function' : 'starts a statement'} in QSP ${SYNTAX_VERSION_LABELS[version]} and can't name a variable`;
     } else {
       if (version !== '5.9.5') continue;
       const what = fu.feature === 'builtin' ? fu.name!.toUpperCase()

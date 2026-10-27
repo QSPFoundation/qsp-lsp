@@ -65,13 +65,16 @@ const STATEMENTS = [
   'view',
   'wait',
   'xgoto', 'xgt',
-  'setvar', 'insvar',
+  'setvar',
 ];
+// INSVAR and ARRKEY (QSP 5.9.6) are names in 5.9.5 (`insvar = 1`, `x = arrkey + 1`),
+// so the scanner reads them as the builtin only where 5.9.6 would: see
+// `_insvar_name_ext` and `_arrkey_name_ext`.
 
 // Functions that need an argument: written without parentheses, they take
 // the operand after them (`len $s`).
 const FUNCTIONS = [
-  'arrcomp', 'arritem', 'arrkey', 'arrpack', 'arrpos', 'arrsize', 'arrtype',
+  'arrcomp', 'arritem', 'arrpack', 'arrpos', 'arrsize', 'arrtype',
   'desc', 'dyneval',
   'func',
   'getobj',
@@ -155,6 +158,10 @@ module.exports = grammar({
     // `alias` when a name follows it: then it starts ALIAS (QSP 5.9.6);
     // otherwise it is a name, as in 5.9.5 (`alias = 1`).
     $._alias_keyword_ext,
+    // `insvar` unless it is assigned to (`insvar = 1`), `arrkey` when an
+    // argument follows it: otherwise they are names, as in 5.9.5.
+    $._insvar_name_ext,
+    $._arrkey_name_ext,
   ],
 
   word: $ => $.identifier_text,
@@ -522,7 +529,7 @@ module.exports = grammar({
       )),
     )),
 
-    statement_name: $ => kw(STATEMENTS),
+    statement_name: $ => choice(kw(STATEMENTS), $._insvar_name_ext),
 
     // ══════════════════════════════════════════════════════════════════════════
     // USER CALLS  (@@name / @name)
@@ -628,7 +635,7 @@ module.exports = grammar({
       ),
     ),
 
-    function_name: $ => kw(FUNCTIONS),
+    function_name: $ => choice(kw(FUNCTIONS), $._arrkey_name_ext),
     _no_arg_function_name: $ => kw(NO_ARG_FUNCTIONS),
 
     // ══════════════════════════════════════════════════════════════════════════

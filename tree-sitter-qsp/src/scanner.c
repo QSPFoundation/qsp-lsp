@@ -12,9 +12,12 @@
  *    multiline expression, one token per precedence level)
  * 7. BLOCK_BODY (the inside of a `{…}`, up to its closing brace)
  * 8. ALIAS_KEYWORD (`alias` when a name follows it)
+ * 9. INSVAR_NAME (`insvar` unless it is assigned to)
+ * 10. ARRKEY_NAME (`arrkey` when an argument follows it)
  */
 
 #include "tree_sitter/parser.h"
+#include <string.h>
 
 enum {
   LINE_CONTINUATION,
@@ -31,6 +34,8 @@ enum {
   ML_NL_MUL,
   BLOCK_BODY,
   ALIAS_KEYWORD,
+  INSVAR_NAME,
+  ARRKEY_NAME,
 };
 
 static bool is_hspace(int32_t c) { return c == ' ' || c == '\t'; }
@@ -60,18 +65,84 @@ static bool match_keyword(TSLexer *lexer, const char *word) {
   return ends_word(lexer->lookahead);
 }
 
-// ALIAS (QSP 5.9.6) starts a statement only when a name follows it, as in
-// `aliasMarker &delimiterChar ws variableList`: in 5.9.5 `alias = 1` assigns
-// to a variable named alias, and a keyword token would always beat the name
-// at the start of a statement. The token is the word; the name is peeked.
-static bool scan_alias(TSLexer *lexer) {
-  if (!match_keyword(lexer, "alias")) return false;
-  lexer->mark_end(lexer);
-  if (!is_hspace(lexer->lookahead)) return false;
-  while (is_hspace(lexer->lookahead)) lexer->advance(lexer, false);
-  int32_t c = lexer->lookahead;
+// ── Words of QSP 5.9.6 ────────────────────────────────────────────────
+//
+// ALIAS, INSVAR and ARRKEY are names in 5.9.5 (`alias = 1`, `insvar += 1`,
+// `x = arrkey + 1`), and a keyword token would always beat the name where
+// both are valid. So the scanner reads the word and peeks what follows,
+// reading it as 5.9.6's builtin only where 5.9.5's name couldn't be. The
+// token is the word.
+
+static bool starts_name(int32_t c) {
   if (c == '$' || c == '#' || c == '%') return true;
   return !ends_word(c) && c != '@' && !(c >= '0' && c <= '9');
+}
+
+// Read a word of at most `max` ASCII letters, lower-cased, into `buf`.
+// Returns false for a longer word, or one with other characters.
+static bool read_word(TSLexer *lexer, char *buf, int max) {
+  int n = 0;
+  while (!ends_word(lexer->lookahead)) {
+    int32_t c = lower_ascii(lexer->lookahead);
+    if (n == max || c < 'a' || c > 'z') return false;
+    buf[n++] = (char)c;
+    lexer->advance(lexer, false);
+  }
+  buf[n] = 0;
+  return n > 0;
+}
+
+// `aliasMarker &delimiterChar ws variableList`: a name after blanks.
+static bool alias_follows(TSLexer *lexer) {
+  if (!is_hspace(lexer->lookahead)) return false;
+  while (is_hspace(lexer->lookahead)) lexer->advance(lexer, false);
+  return starts_name(lexer->lookahead);
+}
+
+// A statement unless assigned to: `insvar = 1`, `insvar[0] = 1`,
+// `insvar += 1`, `insvar, b = 1, 2`, or alone on its line (5.9.5 prints it).
+static bool insvar_follows(TSLexer *lexer) {
+  while (is_hspace(lexer->lookahead)) lexer->advance(lexer, false);
+  int32_t c = lexer->lookahead;
+  if (c == 0 || c == '\r' || c == '\n' || c == '&' || c == '=' || c == '[' || c == ',') return false;
+  if (c == '+' || c == '-' || c == '*' || c == '/') {
+    lexer->advance(lexer, false);
+    return lexer->lookahead != '=';
+  }
+  return true;
+}
+
+// A function when an argument follows: `arrkey('a')`, `arrkey 'a'`,
+// `arrkey $a`; not before an operator (`arrkey + 1`, `arrkey and b`).
+static bool arrkey_follows(TSLexer *lexer) {
+  while (is_hspace(lexer->lookahead)) lexer->advance(lexer, false);
+  int32_t c = lexer->lookahead;
+  if (c == '(' || c == '\'' || c == '"' || c == '{') return true;
+  if (!starts_name(c)) return false;
+  char word[4];
+  if (c != '$' && c != '#' && c != '%' && read_word(lexer, word, 3)) {
+    return strcmp(word, "and") != 0 && strcmp(word, "or") != 0 && strcmp(word, "mod") != 0;
+  }
+  return true;
+}
+
+static bool scan_word_596(TSLexer *lexer, const bool *valid_symbols) {
+  char word[7];
+  if (!read_word(lexer, word, 6)) return false;
+  lexer->mark_end(lexer);
+  if (valid_symbols[ALIAS_KEYWORD] && strcmp(word, "alias") == 0 && alias_follows(lexer)) {
+    lexer->result_symbol = ALIAS_KEYWORD;
+    return true;
+  }
+  if (valid_symbols[INSVAR_NAME] && strcmp(word, "insvar") == 0 && insvar_follows(lexer)) {
+    lexer->result_symbol = INSVAR_NAME;
+    return true;
+  }
+  if (valid_symbols[ARRKEY_NAME] && strcmp(word, "arrkey") == 0 && arrkey_follows(lexer)) {
+    lexer->result_symbol = ARRKEY_NAME;
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -396,21 +467,19 @@ bool tree_sitter_qsp_external_scanner_scan(void *payload, TSLexer *lexer, const 
     return scan_ml_newline(lexer, valid_symbols);
   }
 
-  // The blanks before a statement reach the scanner too, so ALIAS is
+  // The blanks before a word reach the scanner too, so 5.9.6's words are
   // looked for after them, where a line continuation would start.
-  bool alias_valid = !in_recovery && valid_symbols[ALIAS_KEYWORD];
-  if (!valid_symbols[LINE_CONTINUATION] && !alias_valid) return false;
+  bool word_valid = !in_recovery
+    && (valid_symbols[ALIAS_KEYWORD] || valid_symbols[INSVAR_NAME] || valid_symbols[ARRKEY_NAME]);
+  if (!valid_symbols[LINE_CONTINUATION] && !word_valid) return false;
   bool blank = false;
   while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
     lexer->advance(lexer, true);
     blank = true;
   }
 
-  if (alias_valid && lower_ascii(lexer->lookahead) == 'a') {
-    if (!scan_alias(lexer)) return false;
-    lexer->result_symbol = ALIAS_KEYWORD;
-    return true;
-  }
+  int32_t first = lower_ascii(lexer->lookahead);
+  if (word_valid && (first == 'a' || first == 'i')) return scan_word_596(lexer, valid_symbols);
 
   if (!valid_symbols[LINE_CONTINUATION] || !blank) return false;
   if (lexer->lookahead != '_') return false;

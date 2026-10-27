@@ -443,9 +443,11 @@ export function noteSyntaxFeature(
     case 'ml_variable_ref': {
       const nameNode = node.childForFieldName('name');
       if (!nameNode || nameNode.isMissing) return;
+      const builtin = lookupBuiltin(nameNode.text);
       if (NAME_DELIMITERS_596.test(nameNode.text)) {
         uses.push({ loc: nodeLoc(nameNode, docUri), feature: 'nameDelimiter', name: nameNode.text });
-      } else if (nameNode.text.toLowerCase() === 'alias') {
+      } else if (builtin?.since && builtin.kind !== 'variable') {
+        // ALIAS, INSVAR, ARRKEY: names in 5.9.5, builtins in 5.9.6.
         uses.push({ loc: nodeLoc(nameNode, docUri), feature: 'reservedName', name: nameNode.text });
       }
       return;

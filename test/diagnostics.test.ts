@@ -3177,6 +3177,19 @@ dynamic $never
       expect(all.map(d => d.message)).toEqual(["Variable 'alias' is assigned but never read"]);
     });
 
+    it('reads insvar and arrkey as names where 5.9.5 does, which 5.9.6 reserves', () => {
+      const code = "# a\ninsvar = 1\nx = arrkey + insvar\npl x\n--- a ---\n";
+      expect(versionDiags(code, '5.9.5')).toEqual([]);
+      expect(run(code, { uninitializedVariables: true, unusedVariables: true, syntaxVersion: '5.9.5' })).toEqual([
+        expect.objectContaining({ message: "Variable 'arrkey' is used but never assigned" }),
+      ]);
+      expect(versionDiags(code, '5.9.6')).toEqual([
+        "1:0 'insvar' starts a statement in QSP 5.9.6 (dev) and can't name a variable",
+        "2:4 'arrkey' is a function in QSP 5.9.6 (dev) and can't name a variable",
+        "2:13 'insvar' starts a statement in QSP 5.9.6 (dev) and can't name a variable",
+      ]);
+    });
+
     it('accepts a space before the _ that joins lines in both versions', () => {
       expect(versionDiags('# a\npl 1 + _\n 2\n--- a ---\n', '5.9.5')).toEqual([]);
     });

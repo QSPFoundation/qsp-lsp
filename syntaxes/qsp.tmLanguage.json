@@ -222,13 +222,13 @@
       }
     },
     "keyword-statement": {
-      "match": "(?i)(\\*(?:clear|clr|nl|pl|p)\\b|\\b(?:close all|add obj|del obj|del act|mod obj|set|let|local|alias(?=[ \\t]+[$#%]?[^\\s&'\"()\\[\\]=!<>+\\-/*:,{}@0-9])|goto|gt|xgoto|xgt|gosub|gs|jump|exit|pl|p|nl|clear|clr|cls|msg|wait|play|close|view|addobj|delobj|modobj|resetobj|killobj|unselect|unsel|killall|cla|delact|cmdclear|cmdclr|menu|settimer|dynamic|setvar|insvar|killvar|copyarr|sortarr|scanstr|unpackarr|opengame|savegame|openqst|inclib|addqst|addlib|freelib|killqst|dellib|refint|showacts|showinput|showobjs|showstat)\\b)",
+      "match": "(?i)(\\*(?:clear|clr|nl|pl|p)\\b|\\b(?:close all|add obj|del obj|del act|mod obj|set|let|local|alias(?=[ \\t]+[$#%]?[^\\s&'\"()\\[\\]=!<>+\\-/*:,{}@0-9])|goto|gt|xgoto|xgt|gosub|gs|jump|exit|pl|p|nl|clear|clr|cls|msg|wait|play|close|view|addobj|delobj|modobj|resetobj|killobj|unselect|unsel|killall|cla|delact|cmdclear|cmdclr|menu|settimer|dynamic|setvar|insvar(?![ \\t]*(?:[-+*/]?=|\\[|,|&|$))|killvar|copyarr|sortarr|scanstr|unpackarr|opengame|savegame|openqst|inclib|addqst|addlib|freelib|killqst|dellib|refint|showacts|showinput|showobjs|showstat)\\b)",
       "captures": {
         "1": { "name": "keyword.other.statement.qsp" }
       }
     },
     "keyword-function": {
-      "match": "(?i)(\\$|#|%)?(\\b(?:desc|max|min|rand|rnd|val|iif|dyneval|func|input|usrtxt|user_text|maintxt|stattxt|getobj|countobj|selobj|curloc|curobjs|selact|curacts|arrsize|arrtype|arrkey|arritem|arrpack|arrpos|arrcomp|strcomp|strfind|strpos|instr|isnum|trim|ucase|lcase|len|mid|replace|str|isplay|rgb|msecscount|qspver)\\b)",
+      "match": "(?i)(\\$|#|%)?(\\b(?:desc|max|min|rand|rnd|val|iif|dyneval|func|input|usrtxt|user_text|maintxt|stattxt|getobj|countobj|selobj|curloc|curobjs|selact|curacts|arrsize|arrtype|arrkey(?=[ \\t]*[('\"{$#%])|arritem|arrpack|arrpos|arrcomp|strcomp|strfind|strpos|instr|isnum|trim|ucase|lcase|len|mid|replace|str|isplay|rgb|msecscount|qspver)\\b)",
       "captures": {
         "1": { "name": "storage.type.function.qsp" },
         "2": { "name": "support.function.builtin.qsp" }

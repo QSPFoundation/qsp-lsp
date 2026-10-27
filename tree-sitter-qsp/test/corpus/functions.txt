@@ -541,3 +541,36 @@ k = arrkey('$a', 1)
               (single_quoted_string))
             (number_literal)))))
     (location_end)))
+
+================
+insvar and arrkey as names, as in 5.9.5
+================
+# test
+insvar += 1
+x = arrkey + 1
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (number_literal)))
+    (single_line_block
+      (assignment_statement
+        variables: (variable_list
+          (variable_ref
+            name: (identifier_text)))
+        operator: (assignment_operator)
+        value: (na_binary
+          (variable_ref
+            name: (identifier_text))
+          (op_arith)
+          (number_literal))))
+    (location_end)))
