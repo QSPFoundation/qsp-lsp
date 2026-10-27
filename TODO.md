@@ -65,6 +65,6 @@ a file's own analysis (reading a 12.8 M-character file back: 3 s). Next:
 - **A cache format of our own** (long term) instead of `v8.serialize`: a string
   table, the URI once, positions and names in flat arrays. Could remove the 1.2 s
   of `compactDeserialized` on read, but is bound to the symbol types.
-- **A cache for the MCP server and VS Code for the Web:** `QspHost` takes a
-  `cacheDir` already, the MCP server needs a folder (e.g. the user's cache
-  directory), the browser IndexedDB.
+- **A cache for VS Code for the Web,** once it runs tree-sitter: today it analyses
+  with regular expressions, whose results are never stored. IndexedDB is
+  asynchronous, while `AnalysisCache.get` is not.

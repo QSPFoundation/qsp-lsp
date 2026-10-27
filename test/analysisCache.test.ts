@@ -65,9 +65,9 @@ const FILES: Record<string, string> = {
   'broken.qsps': '# Сломано\nif x = 1\n  *pl 1\n--- Сломано ---\n',
 };
 
-async function analyse(dir: string, cacheDir?: string) {
+async function analyse(dir: string, cacheDir?: string, analyserFiles: readonly string[] = []) {
   const log: string[] = [];
-  const host = new QspHost(dir, { wasmLoader: loadWasm }, m => log.push(m), cacheDir);
+  const host = new QspHost(dir, { wasmLoader: loadWasm }, m => log.push(m), cacheDir, analyserFiles);
   await host.start();
   const diagnostics = [...host.allDiagnostics()]
     .map(([uri, list]) => [path.relative(dir, new URL(uri).pathname), list] as const)
@@ -116,6 +116,31 @@ describe('analysis cache', () => {
 // The propagation of locals across the project is stored too (a large game
 // spends seconds on it); read back, it must give the aggregates a fresh one
 // gives, and a change to what it reads must miss it.
+describe('analysis cache of the MCP server', () => {
+  it('is salted by the analyser, and off when the workspace turns qsp.cache.enabled off', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qsp-cache-mcp-'));
+    const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qsp-cache-dir-'));
+    const analyser = path.join(cacheDir, '..', `${path.basename(cacheDir)}-bundle.js`);
+    try {
+      fs.writeFileSync(path.join(dir, 'game.qsps'), FILES['broken.qsps']);
+      fs.writeFileSync(analyser, 'v1');
+      expect((await analyse(dir, cacheDir, [analyser])).cacheLine).toMatch(/0 of 1 project files read from it/);
+      expect((await analyse(dir, cacheDir, [analyser])).cacheLine).toMatch(/1 of 1 project files read from it/);
+      // A rebuilt analyser reads none of the old one's results.
+      fs.writeFileSync(analyser, 'v2');
+      expect((await analyse(dir, cacheDir, [analyser])).cacheLine).toMatch(/0 of 1 project files read from it/);
+
+      fs.mkdirSync(path.join(dir, '.vscode'));
+      fs.writeFileSync(path.join(dir, '.vscode', 'settings.json'), '{ "qsp.cache.enabled": false }');
+      expect((await analyse(dir, cacheDir, [analyser])).cacheLine).toBeUndefined();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+      fs.rmSync(analyser, { force: true });
+    }
+  });
+});
+
 describe('analysis cache: the propagation of locals', () => {
   const PROJECT: Record<string, string> = {
     'file:///game/main.qsps': "# старт\nlocal шаг = 1\nlocal $путь = 'лес'\ngs 'помощь', шаг\nx = @считать(шаг)\n---\n# второй\nlocal шаг = 2\ngs 'помощь'\n---\n",

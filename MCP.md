@@ -71,5 +71,6 @@ If the agent reports `MCP error -32000: Connection closed`, the server stopped b
 
 ## Notes
 
+- **The server keeps an analysis cache,** as the editor does: an unchanged project file is read back instead of analysed again, so the next start of the server is faster (a 7 MB game: ready after 1.6 s instead of 9.7 s). It lives in the user's cache directory (`~/.cache/qsp-lsp/mcp/` on Linux, `~/Library/Caches/qsp-lsp/mcp/` on macOS, `%LOCALAPPDATA%\qsp-lsp\mcp\` on Windows, or under `$XDG_CACHE_HOME`), a folder per project, never in the project. `--cache-dir <folder>` puts it elsewhere, `--no-cache` or `"qsp.cache.enabled": false` in the project's `.vscode/settings.json` turns it off. Entries unused for a month, or beyond 500 MB, are deleted.
 - **The server only sees files on disk.** Save files that are open in the editor before asking an agent to rename or format them.
 - **Diagnostics cover every project file.** This includes files that are not open in the editor.

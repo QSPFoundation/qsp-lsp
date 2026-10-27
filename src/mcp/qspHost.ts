@@ -75,16 +75,22 @@ export class QspHost {
   private stop: (() => void) | undefined;
   /** The workspace's `.vscode/settings.json`, flattened keys as VS Code stores them. */
   readonly settings: Record<string, unknown>;
+  private readonly cacheDir: string | undefined;
 
   constructor(
     readonly workspaceDir: string,
     private readonly wasm: { wasmLoader: WasmLoader; wasmDir?: WasmDirProvider },
     private readonly log: (message: string) => void = () => {},
     /** Directory of an analysis cache (src/server/nodeCache.ts); none when absent. */
-    private readonly cacheDir?: string,
+    cacheDir?: string,
+    /** The analyser's files (bundle, grammar), which salt every cache key. */
+    private readonly analyserFiles: readonly string[] = [],
   ) {
     this.rootUri = URI.file(workspaceDir).toString();
     this.settings = readWorkspaceSettings(workspaceDir);
+    // The editor's `qsp.cache.enabled` turns this server's cache off too.
+    const cache = nestUnder(this.settings, 'qsp').cache as { enabled?: unknown } | undefined;
+    this.cacheDir = cache?.enabled === false ? undefined : cacheDir;
   }
 
   /** Start the embedded server and wait until the project is analyzed. */
@@ -94,7 +100,7 @@ export class QspHost {
     const serverConn = createConnection(new StreamMessageReader(c2s), new StreamMessageWriter(s2c));
     createQspServer(serverConn, new TextDocuments(TextDocument), this.wasm.wasmLoader, this.wasm.wasmDir, fsProvider, {
       memory: nodeMemory,
-      ...(this.cacheDir ? { analysisCache: nodeAnalysisCacheStore() } : {}),
+      ...(this.cacheDir ? { analysisCache: nodeAnalysisCacheStore(this.analyserFiles) } : {}),
     });
 
     const client = createMessageConnection(new StreamMessageReader(s2c), new StreamMessageWriter(c2s));

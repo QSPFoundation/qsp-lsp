@@ -2,13 +2,15 @@
  * QSP MCP server (out/mcp/main.js), loaded by the Node version check in
  * out/mcp/server.js — the path MCP configs point at.
  *
- * The workspace defaults to the current directory. stdout carries the MCP
- * protocol, so everything else goes to stderr.
+ * The workspace defaults to the current directory. The analysis cache lives
+ * in the user's cache directory (src/mcp/cacheDir.ts; `--cache-dir <dir>`,
+ * `--no-cache`). stdout carries the MCP protocol, so everything else goes to stderr.
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { QspHost } from './qspHost';
+import { mcpCacheDir } from './cacheDir';
 import { wasmFromOutDir } from '../server/nodeHost';
 import type { CreateT2gModule } from '../common/txt2gamCore';
 import { createQspMcpServer } from './mcpServer';
@@ -31,8 +33,11 @@ async function main(): Promise<void> {
   const verbose = process.argv.includes('--verbose');
   const log = (message: string) => { if (verbose) process.stderr.write(message + '\n'); };
   const workspace = workspaceArg(process.argv);
-  // The WASM files live in out/, one level up from this bundle.
-  const host = new QspHost(workspace, wasmFromOutDir(path.join(__dirname, '..')), log);
+  // The WASM files live in out/, one level up from this bundle; it and the
+  // grammar salt the cache keys, so an updated extension analyses afresh.
+  const outDir = path.join(__dirname, '..');
+  const host = new QspHost(workspace, wasmFromOutDir(outDir), log, mcpCacheDir(process.argv, workspace),
+    [__filename, path.join(outDir, 'tree-sitter-qsp.wasm')]);
   await host.start();
   process.stderr.write(`[qsp-mcp] Ready: ${workspace}\n`);
 
