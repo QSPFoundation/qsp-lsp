@@ -31,10 +31,7 @@ import {
   type QspTreeSitterParser,
   type SyntaxError,
 } from '../parser';
-import {
-  buildRegexSymbols,
-  extractLocationSymbolsFromText,
-} from './regexFallback';
+import { buildRegexSymbols } from './regexFallback';
 import {
   type ProjectAggregates,
   collectAggregates,
@@ -52,10 +49,10 @@ import type { DiagnosticSettings } from './diagnostics';
 import type { DocumentState } from './lspFeatures';
 import { diagnosticsSteps } from './diagnostics';
 import { runInSlices, runNow, timed, type Steps } from './slices';
-import { analyzeParsedLocation } from './locationAnalysis';
+import { analyzeFileText, type CachedFileAnalysis } from './fileAnalysis';
 import { parseSuppressions } from '../common/suppressions';
 import { PerfLog, formatChars } from './perfLog';
-import { stripBom, makeLocSymLoc, shiftErrors, QSP_FILE_EXTENSIONS, safeSendDiagnostics, safeConnectionCall, safeConsole, type AnalysisCache, type FsProvider } from './serverUtils';
+import { stripBom, QSP_FILE_EXTENSIONS, safeSendDiagnostics, safeConnectionCall, safeConsole, type AnalysisCache, type AnalysisWorkers, type FsProvider } from './serverUtils';
 
 /** Yield to the event loop between files during a bulk scan, so pending
  *  LSP requests (hover, completion, …) get a turn instead of queuing
@@ -78,10 +75,13 @@ export interface RebuildOptions {
   pause?: () => Promise<void>;
 }
 
-/** What the analysis cache keeps for one project file. */
-export interface CachedFileAnalysis {
-  symbols: DocumentSymbols;
-  syntaxErrors: SyntaxError[];
+export type { CachedFileAnalysis } from './fileAnalysis';
+
+// A file's analysis as the cache or a worker hands it over, made a working one again.
+function reviveAnalysis(value: unknown): CachedFileAnalysis | undefined {
+  const hit = value as CachedFileAnalysis | undefined;
+  const symbols = reviveDocumentSymbols(hit?.symbols);
+  return symbols && Array.isArray(hit?.syntaxErrors) ? { symbols, syntaxErrors: hit.syntaxErrors } : undefined;
 }
 
 export class ProjectModeService {
@@ -96,6 +96,11 @@ export class ProjectModeService {
   cacheStats = { hits: 0, misses: 0, diagnostics: false };
   /** Cache key of each project file's analysis input, as last read from disk. */
   private readonly fileKeys = new Map<string, string>();
+  /** Threads the project load analyses files in, where the host has them. */
+  workers: AnalysisWorkers | undefined;
+  // Counts the project loads and teardowns: a file a worker analysed for an
+  // earlier one is dropped.
+  private loads = 0;
 
   /** Cached project aggregates (null when project mode is off). */
   projectAggregates: ProjectAggregates | null = null;
@@ -182,6 +187,10 @@ export class ProjectModeService {
     this.log.log('[QSP] Initializing project mode...');
     this.projectFileUris.clear();
     this.cacheStats = { hits: 0, misses: 0, diagnostics: false };
+    const load = ++this.loads;
+    // Files the workers analyse, while this loop reads the next ones.
+    const inWorkers: Promise<void>[] = [];
+    const workers = this.tsParser.isReady ? this.workers : undefined;
 
     // Discover all QSP files in workspace folders. `findFiles` already
     // yields between directories; this counter adds an extra yield every
@@ -199,7 +208,8 @@ export class ProjectModeService {
           if (!this.documents.get(uri)) {
             try {
               const text = await fsProvider.readFile(filePath, fileEncoding);
-              this.analyzeFile(uri, text, true);
+              if (workers) inWorkers.push(this.analyzeFileInWorker(workers, uri, text, load));
+              else this.analyzeFile(uri, text, true);
             } catch (e) {
               this.log.error(`[QSP] Failed to read project file ${filePath}: ${e}`);
             }
@@ -212,6 +222,11 @@ export class ProjectModeService {
         }
       }
     }
+
+    await Promise.all(inWorkers);
+    // Their memory is the analysis's no longer.
+    workers?.dispose();
+    if (load !== this.loads) return;
 
     // Also add all currently open documents
     for (const doc of this.documents.all()) {
@@ -246,6 +261,7 @@ export class ProjectModeService {
   /** Tear down project mode: clear non-open file states, clear aggregates. */
   teardown(): void {
     this.log.log('[QSP] Tearing down project mode');
+    this.loads++;
 
     // Clear diagnostics for non-open files
     for (const uri of this.projectFileUris) {
@@ -339,9 +355,7 @@ export class ProjectModeService {
 
   /** The analysis stored on disk under `key`. */
   readAnalysis(key: string): CachedFileAnalysis | undefined {
-    const hit = this.perf.step('cache read', () => this.analysisCache?.get(key)) as CachedFileAnalysis | undefined;
-    const symbols = reviveDocumentSymbols(hit?.symbols);
-    return symbols && Array.isArray(hit?.syntaxErrors) ? { symbols, syntaxErrors: hit.syntaxErrors } : undefined;
+    return reviveAnalysis(this.perf.step('cache read', () => this.analysisCache?.get(key)));
   }
 
   /** Store a complete analysis of the text `key` was made from (see analysisKey). */
@@ -385,11 +399,16 @@ export class ProjectModeService {
     } else if (!this.tsParser.isReady) {
       symbols = buildRegexSymbols(uri, locationIndex, text);
     } else {
-      syntaxErrors = [];
-      symbols = this.analyzePerLocation(uri, text, locationIndex, syntaxErrors);
+      ({ symbols, syntaxErrors } = this.analyzePerLocation(uri, text, locationIndex));
     }
     if (cacheable && key) this.storeAnalysis(key, symbols, syntaxErrors ?? []);
+    this.setFileState(uri, text, locationIndex, key, symbols, syntaxErrors);
+  }
 
+  private setFileState(
+    uri: string, text: string, locationIndex: LocationEntry[], key: string | undefined,
+    symbols: DocumentSymbols, syntaxErrors: SyntaxError[] | undefined,
+  ): void {
     this.documentStates.set(uri, {
       locationIndex,
       symbols,
@@ -400,46 +419,65 @@ export class ProjectModeService {
     });
   }
 
-  // One location at a time, like the editor (locationAnalysis.ts): a
-  // closed file gets the symbols an open one does.
-  private analyzePerLocation(
-    uri: string,
-    text: string,
-    locationIndex: LocationEntry[],
-    syntaxErrors: SyntaxError[],
-  ): DocumentSymbols {
-    const symbols = new DocumentSymbols(uri);
+  /**
+   * Analyse a project file in a worker thread, or read it from the cache;
+   * the main thread only revives the result. A file the editor opened
+   * meanwhile keeps the editor's analysis.
+   */
+  private async analyzeFileInWorker(workers: AnalysisWorkers, uri: string, text: string, load: number): Promise<void> {
+    const key = this.analysisKey(uri, text);
+    if (key) {
+      this.fileKeys.set(uri, key);
+      const hit = this.readAnalysis(key);
+      if (hit) {
+        this.cacheStats.hits++;
+        this.setFileState(uri, text, buildLocationIndex(text), key, hit.symbols, hit.syntaxErrors);
+        return;
+      }
+      this.cacheStats.misses++;
+    }
+    let result: { bytes: Uint8Array; read: () => unknown } | undefined;
+    try {
+      result = await workers.analyze(uri, text, this.embeddedExecEnabled);
+    } catch (err) {
+      this.log.warn(`[QSP] A worker thread could not analyse a project file, analysing it here: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (load !== this.loads || this.documents.get(uri)) return;
+    this.perf.phase('project file from worker', () => {
+      let analysis: CachedFileAnalysis | undefined;
+      try {
+        analysis = result && reviveAnalysis(this.perf.step('read', result.read));
+      } catch {
+        // Unreadable: analysed here below.
+      }
+      if (!analysis) {
+        this.analyzeFileNow(uri, text, false);
+        return;
+      }
+      if (key) {
+        const cache = this.analysisCache;
+        if (cache?.putSerialized) this.perf.step('cache write', () => cache.putSerialized!(key, result!.bytes));
+        else this.storeAnalysis(key, analysis.symbols, analysis.syntaxErrors);
+      }
+      this.setFileState(uri, text, buildLocationIndex(text), key, analysis.symbols, analysis.syntaxErrors);
+    }, () => formatChars(text.length));
+  }
+
+  // One location at a time, like the editor (fileAnalysis.ts).
+  private analyzePerLocation(uri: string, text: string, locationIndex: LocationEntry[]): CachedFileAnalysis {
     const progress = { uri, locationIndex, parsedLocations: 0 };
     this.tracking?.progress(progress);
-    for (const [i, loc] of locationIndex.entries()) {
-      progress.parsedLocations++;
-      this.perf.atLocation(i);
-      const locText = text.slice(loc.startOffset, loc.endOffset);
-      const locLoc = makeLocSymLoc(uri, text, loc);
-      const tree = this.perf.step('parse', () => this.tsParser.parseOnce(locText));
-      if (tree) {
-        let parsed: ReturnType<typeof analyzeParsedLocation>;
-        try {
-          parsed = analyzeParsedLocation(
-            tree, uri, loc.name, locText,
-            this.embeddedExecEnabled ? (t) => this.tsParser.parseOnce(t) : undefined,
-            (name, fn) => this.perf.step(name, fn),
-          );
-        } finally {
-          tree.delete();
-        }
-        shiftErrors(parsed.errors, loc.startLine, syntaxErrors);
-        this.perf.step('copy into file', () => symbols.addLocationFrom(loc.name, locLoc, parsed.symbols, loc.startLine));
-      } else {
-        // Tree-sitter failed (timeout) for this one location — fall
-        // back to regex extraction for just that location.
-        const locSymbols = symbols.addLocation(loc.name, locLoc);
-        extractLocationSymbolsFromText(text, loc, locSymbols, uri);
-      }
+    try {
+      return analyzeFileText(this.tsParser, uri, text, locationIndex, this.embeddedExecEnabled, {
+        step: (name, fn) => this.perf.step(name, fn),
+        atLocation: (i) => {
+          progress.parsedLocations++;
+          this.perf.atLocation(i);
+        },
+      });
+    } finally {
+      this.tracking?.progress(undefined);
     }
-    this.tracking?.progress(undefined);
-    symbols.rebuildGlobalBindings();
-    return symbols;
   }
 
   // ── Aggregate management ────────────────────────────────────────────

@@ -6,7 +6,8 @@
 src/client/   VS Code extension (the only layer allowed to import `vscode`)
               nodeMain.ts (desktop), browserMain.ts (vscode.dev), commands, txt2gam, debug adapter
 src/server/   LSP server (vscode-languageserver). Transport-agnostic core in common.ts;
-              nodeMain.ts = stdio + fs, browserMain.ts = Web Worker, regex "lite" mode (no tree-sitter)
+              nodeMain.ts = stdio + fs, browserMain.ts = Web Worker, regex "lite" mode (no tree-sitter);
+              analysisWorker.ts = worker thread (own bundle) the project load analyses files in (nodeWorkers.ts)
 src/parser/   Tree-sitter wrapper + symbol/scope/binding analysis. Pure: no server/client imports
 src/common/   Shared pure helpers (location splitting, QSP string scanner, build plan, txt2gam calls)
 src/mcp/      MCP server (stdio). out/mcp/server.js = ES5 Node-version check (src/mcp/server.js, keep it ES5),

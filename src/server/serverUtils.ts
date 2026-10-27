@@ -49,6 +49,22 @@ export interface AnalysisCache {
   get(key: string): unknown;
   /** Store `value` (plain data: objects, arrays, Maps, Sets) in the background. */
   put(key: string, value: unknown): void;
+  /** Store a value already serialized by `AnalysisWorkers`, without serializing it again. */
+  putSerialized?(key: string, bytes: Uint8Array): void;
+}
+
+/**
+ * Threads that analyse project files while the main thread answers requests
+ * (Node only: nodeWorkers.ts). A file's analysis comes back serialized, as
+ * `bytes` for `AnalysisCache.putSerialized`; `read` makes it the value the
+ * cache keeps (`CachedFileAnalysis`, before `reviveDocumentSymbols`) on the
+ * main thread, which costs about a tenth of the analysis.
+ */
+export interface AnalysisWorkers {
+  /** Rejects when no thread could analyse the file; the caller does it then. */
+  analyze(uri: string, text: string, embeddedExec: boolean): Promise<{ bytes: Uint8Array; read: () => unknown }>;
+  /** Stop the threads; `analyze` starts them again. */
+  dispose(): void;
 }
 
 /** Opens the analysis cache in a directory the client chose. */

@@ -44,6 +44,7 @@ import { ANALYSIS_STATUS_NOTIFICATION, SETTLED_REQUEST, type AnalysisStatus } fr
 import { createQspServer } from '../server/common';
 import { decodeBuffer, fsProvider } from '../server/nodeHost';
 import { nodeAnalysisCacheStore } from '../server/nodeCache';
+import type { AnalysisWorkers } from '../server/serverUtils';
 import { nodeMemory } from '../server/nodeRecorder';
 import type { WasmDirProvider, WasmLoader } from '../parser';
 import { QSP_FILE_EXTENSIONS } from '../server/serverUtils';
@@ -85,6 +86,8 @@ export class QspHost {
     cacheDir?: string,
     /** The analyser's files (bundle, grammar), which salt every cache key. */
     private readonly analyserFiles: readonly string[] = [],
+    /** Threads that analyse the project's files on start (src/server/nodeWorkers.ts). */
+    private readonly workers?: AnalysisWorkers,
   ) {
     this.rootUri = URI.file(workspaceDir).toString();
     this.settings = readWorkspaceSettings(workspaceDir);
@@ -101,6 +104,7 @@ export class QspHost {
     createQspServer(serverConn, new TextDocuments(TextDocument), this.wasm.wasmLoader, this.wasm.wasmDir, fsProvider, {
       memory: nodeMemory,
       ...(this.cacheDir ? { analysisCache: nodeAnalysisCacheStore(this.analyserFiles) } : {}),
+      ...(this.workers ? { analysisWorkers: this.workers } : {}),
     });
 
     const client = createMessageConnection(new StreamMessageReader(s2c), new StreamMessageWriter(c2s));

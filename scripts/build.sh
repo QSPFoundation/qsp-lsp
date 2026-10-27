@@ -102,6 +102,7 @@ ok "Tree-sitter parser, WASM and tests OK"
 step "Building bundles"
 mkdir -p out
 npm run build:server:node
+npm run build:server:worker
 npm run build:server:browser
 npm run build:client:node
 npm run build:client:browser

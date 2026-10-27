@@ -605,6 +605,7 @@ export function createQspServer(
   const project = new ProjectModeService(connection, documents, documentStates, tsParser);
   project.perf = perf;
   project.shouldStop = tightOnMemory;
+  project.workers = host.analysisWorkers;
   project.tracking = {
     progress: (state) => {
       analysisInProgress = state;

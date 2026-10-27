@@ -11,6 +11,7 @@ import * as path from 'path';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { QspHost } from './qspHost';
 import { mcpCacheDir } from './cacheDir';
+import { AnalysisWorkerPool } from '../server/nodeWorkers';
 import { wasmFromOutDir } from '../server/nodeHost';
 import type { CreateT2gModule } from '../common/txt2gamCore';
 import { createQspMcpServer } from './mcpServer';
@@ -36,8 +37,9 @@ async function main(): Promise<void> {
   // The WASM files live in out/, one level up from this bundle; it and the
   // grammar salt the cache keys, so an updated extension analyses afresh.
   const outDir = path.join(__dirname, '..');
+  const workerScript = path.join(outDir, 'server', 'analysisWorker.js');
   const host = new QspHost(workspace, wasmFromOutDir(outDir), log, mcpCacheDir(process.argv, workspace),
-    [__filename, path.join(outDir, 'tree-sitter-qsp.wasm')]);
+    [__filename, workerScript, path.join(outDir, 'tree-sitter-qsp.wasm')], new AnalysisWorkerPool(workerScript, outDir));
   await host.start();
   process.stderr.write(`[qsp-mcp] Ready: ${workspace}\n`);
 

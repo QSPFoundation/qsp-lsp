@@ -58,6 +58,8 @@ export interface ServerHost {
   recorder?: Recorder;
   /** Disk cache of analysis results; absent where there is no file system. */
   analysisCache?: import('./serverUtils').AnalysisCacheStore;
+  /** Threads for the project load's file analysis; absent where there are none. */
+  analysisWorkers?: import('./serverUtils').AnalysisWorkers;
 }
 
 /** A phase at least this long is logged even without `qsp.debug.performanceLog`. */

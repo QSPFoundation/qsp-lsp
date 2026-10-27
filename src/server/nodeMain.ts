@@ -14,13 +14,19 @@ import { createQspServer } from './common';
 import { nodeAnalysisCacheStore } from './nodeCache';
 import { fsProvider, wasmFromOutDir } from './nodeHost';
 import { NodeRecorder, nodeMemory } from './nodeRecorder';
+import { AnalysisWorkerPool } from './nodeWorkers';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
 
-// This bundle is out/server/nodeMain.js.
-const { wasmLoader, wasmDir } = wasmFromOutDir(path.join(__dirname, '..'));
+// This bundle is out/server/nodeMain.js, the worker's out/server/analysisWorker.js.
+const outDir = path.join(__dirname, '..');
+const { wasmLoader, wasmDir } = wasmFromOutDir(outDir);
+const workerScript = path.join(__dirname, 'analysisWorker.js');
 
 createQspServer(connection, documents, wasmLoader, wasmDir, fsProvider, {
-  memory: nodeMemory, recorder: new NodeRecorder(), analysisCache: nodeAnalysisCacheStore([__filename, path.join(__dirname, '..', 'tree-sitter-qsp.wasm')]),
+  memory: nodeMemory,
+  recorder: new NodeRecorder(),
+  analysisCache: nodeAnalysisCacheStore([__filename, workerScript, path.join(outDir, 'tree-sitter-qsp.wasm')]),
+  analysisWorkers: new AnalysisWorkerPool(workerScript, outDir),
 });

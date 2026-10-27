@@ -58,10 +58,12 @@ first. Once the maintainer's library repository exists (not yet):
 
 Every file is analysed one way, location by location, open or closed; unchanged
 files are read back from the cache (`src/server/nodeCache.ts`), and the
-aggregates and diagnostics run in slices between requests. What still blocks is
-a file's own analysis (reading a 12.8 M-character file back: 3 s). Next:
-- **First analysis in worker threads,** like clangd's background index: files in
-  parallel, results handed over in the cache format.
+aggregates and diagnostics run in slices between requests; the project load
+analyses files in up to four worker threads (`src/server/nodeWorkers.ts`). What
+still blocks is reading a result back on the main thread (a 12.8 M-character
+file from the cache: 3 s), and a single large file, analysed by one thread. Next:
+- **One large file in several threads:** its locations split between workers and
+  joined with `addLocationFrom`, as `analyzeFileText` joins them now.
 - **A cache format of our own** (long term) instead of `v8.serialize`: a string
   table, the URI once, positions and names in flat arrays. Could remove the 1.2 s
   of `compactDeserialized` on read, but is bound to the symbol types.

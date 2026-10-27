@@ -90,12 +90,16 @@ export class NodeAnalysisCache implements AnalysisCache {
   }
 
   put(key: string, value: unknown): void {
+    this.putSerialized(key, v8.serialize(value));
+  }
+
+  putSerialized(key: string, bytes: Uint8Array): void {
     // All synchronous: the project load keeps the main thread busy, so
     // background writes would wait for its end and be lost if the editor
     // closed then; ~50 ms per entry at gzip level 1 is the price.
     const tmp = path.join(this.dir, `${key}.${process.pid}.${Math.random().toString(36).slice(2)}${TMP_EXT}`);
     try {
-      fs.writeFileSync(tmp, zlib.gzipSync(v8.serialize(value), { level: 1 }));
+      fs.writeFileSync(tmp, zlib.gzipSync(bytes, { level: 1 }));
       fs.renameSync(tmp, this.file(key));
     } catch (err) {
       // A full disk or a read-only folder costs only the speed-up.
