@@ -30,3 +30,63 @@ export function classifyPlayerPath(path: string): 'absolute' | 'command' | 'rela
   if (!/[\\/]/.test(path)) return 'command';
   return 'relative';
 }
+
+// ── Players ──────────────────────────────────────────────────────────
+
+/** A player txt2gam.json names, for this OS. */
+export interface PlayerChoice {
+  name: string;
+  /** As written: runGame.ts resolves it like `playerExecutable` (classifyPlayerPath). */
+  executable: string;
+  /** The player's arguments, `${game}` standing for the built .qsp. */
+  args: string[];
+}
+
+/** What a player gets when txt2gam.json gives no arguments: the game alone. */
+export const DEFAULT_PLAYER_ARGS = ['${game}'];
+
+/**
+ * The players txt2gam.json names for `platform`, the default one first:
+ * its `players` list when there is one, otherwise `playerExecutable` alone.
+ * An entry without a path for this OS, or with `args` that aren't a list
+ * of strings, is left out. A player without a `name` is called by its
+ * file's name.
+ */
+export function listPlayers(
+  cfg: { players?: unknown; playerExecutable?: unknown } | undefined,
+  platform: string,
+): PlayerChoice[] {
+  if (Array.isArray(cfg?.players)) {
+    const players: PlayerChoice[] = [];
+    for (const entry of cfg.players) {
+      if (typeof entry !== 'object' || entry === null) continue;
+      const { name, executable, args } = entry as Record<string, unknown>;
+      const path = pickPlayerExecutable(executable, platform);
+      if (!path) continue;
+      if (args !== undefined && !(Array.isArray(args) && args.every(a => typeof a === 'string'))) continue;
+      players.push({
+        name: typeof name === 'string' && name.trim() !== '' ? name.trim() : fileName(path),
+        executable: path,
+        args: (args as string[] | undefined) ?? DEFAULT_PLAYER_ARGS,
+      });
+    }
+    return players;
+  }
+  const path = pickPlayerExecutable(cfg?.playerExecutable, platform);
+  return path ? [{ name: fileName(path), executable: path, args: DEFAULT_PLAYER_ARGS }] : [];
+}
+
+/** The player called `name` (whatever its case), if there is one. */
+export function findPlayer(players: readonly PlayerChoice[], name: string): PlayerChoice | undefined {
+  const wanted = name.trim().toLowerCase();
+  return players.find(p => p.name.toLowerCase() === wanted);
+}
+
+/** `args` with the built game's path for each `${game}`. */
+export function playerArguments(args: readonly string[], gamePath: string): string[] {
+  return args.map(a => a.split('${game}').join(gamePath));
+}
+
+function fileName(path: string): string {
+  return path.split(/[\\/]/).pop()!.replace(/\.(exe|cmd|bat|sh)$/i, '');
+}

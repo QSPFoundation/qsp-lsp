@@ -51,6 +51,7 @@ export function registerExtensionFeatures(
   context: vscode.ExtensionContext,
   client: BaseLanguageClient,
   runGame?: (context: vscode.ExtensionContext) => Promise<void>,
+  runGameInPlayer?: (context: vscode.ExtensionContext) => Promise<void>,
 ): void {
   lspClient = client;
   registerAnalysisStatus(context, client);
@@ -106,6 +107,11 @@ export function registerExtensionFeatures(
     vscode.commands.registerCommand('qsp.runGame', () =>
       runGame
         ? runGame(context)
+        : vscode.window.showErrorMessage('Run QSP Game is not supported in VS Code for Web.'),
+    ),
+    vscode.commands.registerCommand('qsp.runGameInPlayer', () =>
+      runGameInPlayer
+        ? runGameInPlayer(context)
         : vscode.window.showErrorMessage('Run QSP Game is not supported in VS Code for Web.'),
     ),
     vscode.commands.registerCommand('qsp.importGame', (uri?: vscode.Uri) => importGameCommand(context, uri)),

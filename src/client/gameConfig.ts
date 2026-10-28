@@ -16,7 +16,11 @@
  *   ],
  *   "buildMode": "perFile",               // optional: "single" | "perFile"
  *   "mainFile": "^main\\.qsps$",           // optional regexp for the main file
- *   "playerExecutable": "tools/qspgui"    // optional; or { "win32": …, "linux": …, "darwin": … }
+ *   "playerExecutable": "tools/qspgui",   // optional; or { "win32": …, "linux": …, "darwin": … }
+ *   "players": [                          // optional, in place of playerExecutable
+ *     { "name": "qspgui", "executable": "tools/qspgui" },
+ *     { "name": "qSpider", "executable": { … }, "args": ["--file", "${game}"] }
+ *   ]
  * }
  *
  * If "files" is absent, Run and Export write the discovered sources into
@@ -39,6 +43,12 @@
  * `qsp.game.playerExecutable` setting. A path with a separator is relative
  * to the workspace root, a bare name is looked up on PATH. The object form
  * holds one path per OS, since the file is shared between machines.
+ *
+ * "players" lists several players instead, the default one first: each
+ * with a name, an executable as "playerExecutable" has it, and arguments
+ * (`${game}` is the built .qsp; the game alone when there are none). Run
+ * QSP Game opens the first; Run QSP Game in… and a launch configuration's
+ * "player" pick another by name.
  */
 
 import * as vscode from 'vscode';
@@ -77,6 +87,13 @@ export interface GameConfig {
    * Overrides the `qsp.game.playerExecutable` setting.
    */
   playerExecutable?: string | Partial<Record<'win32' | 'darwin' | 'linux', string>>;
+  /** Players for Run QSP Game, the default first; when present, `playerExecutable` isn't read. */
+  players?: Array<{
+    name?: string;
+    executable: string | Partial<Record<'win32' | 'darwin' | 'linux', string>>;
+    /** `${game}` stands for the built .qsp; `["${game}"]` when absent. */
+    args?: string[];
+  }>;
   /** Installed libraries, each built into a .qsp of its own (see libraryConfig.ts). */
   libraries?: LibrariesConfig;
 }

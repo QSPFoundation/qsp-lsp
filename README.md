@@ -72,6 +72,17 @@ Requires VS Code 1.85 or later. On [vscode.dev](https://vscode.dev) the extensio
     "darwin": "/Applications/QSP.app/Contents/MacOS/qspgui"
   }
   ```
+- **Several players** — `"players"` in `txt2gam.json` lists players in place of `"playerExecutable"`, the default one first. Each has a `name`, an `executable` written as `playerExecutable` is (one path, or one per OS), and `args`, where `${game}` stands for the built `.qsp` (the game alone when `args` is missing). **Run QSP Game** and **F5** open the first player; **QSP: Run QSP Game in…** (also in the editor's Run menu when there are two or more) asks which. A launch configuration opens the one it names with `"player"`, so each player can have its own entry in the **F5** list (**Add Configuration…** writes one per player):
+  ```json
+  "players": [
+    { "name": "qspgui", "executable": { "win32": "tools/qspgui/bin/qspgui.exe", "linux": "tools/qspgui/AppRun" } },
+    { "name": "qSpider", "executable": { "win32": "tools/qspider/qSpider.exe", "linux": "tools/qspider/AppRun" }, "args": ["--file", "${game}"] }
+  ]
+  ```
+  ```json
+  { "type": "qsp", "request": "launch", "name": "Run QSP Game in qSpider", "player": "qSpider" }
+  ```
+  A player with no path for the current OS is left out of the list.
 - **Separate module builds** — set `"buildMode": "perFile"` in `txt2gam.json` (or the `qsp.game.buildMode` setting) to build each source file into its own `.qsp` next to it instead of one combined game: `main.qsps` → `main.qsp`, `data.qsps` → `data.qsp`. `outputFile` is not used in this mode. **Run QSP Game** starts the main file's `.qsp` (see above), and the game loads the other modules itself with `INCLIB 'data.qsp'`. When it creates `txt2gam.json` in this mode, the setup wizard writes `buildMode` instead of `outputFile`. A `.qsp` whose content hasn't changed is not rewritten. The `txt2gam.json` value overrides the setting. Two sources that would produce the same `.qsp` (e.g. `a.qsps` and `a.qsrc` in one folder) are reported as an error, and nothing is written if any file fails to build.
 - **Libraries** — a library is one `.qsps` file that the game loads with `INCLIB` and drops with `FREELIB`. The ones listed under `"libraries"` in `txt2gam.json` live in `libs/` and are always built into a `.qsp` of their own in `libs/` beside the game's `.qsp`, in either build mode, and never into the game's: with `"outputFile": "build/game.qsp"`, `libs/dialogs.qsps` → `build/libs/dialogs.qsp`, loaded with `INCLIB 'libs/dialogs.qsp'`.
   ```json
@@ -245,7 +256,7 @@ The quick fix menu (**Ctrl+.** or the light bulb) on a diagnostic writes these c
 | `qsp.semanticHighlighting.enabled` | `true` | Enable semantic token highlighting (requires tree-sitter) |
 | `qsp.locations.followCursor` | `true` | Select the location under the cursor in the QSP Locations view. |
 | `qsp.mcp.enabled` | `true` | Offer the QSP MCP server to AI agents in VS Code (1.101+). |
-| `qsp.game.playerExecutable` | — | Path to the QSP player executable used by Run Game. Set once and persisted globally. `playerExecutable` in `txt2gam.json` overrides it. |
+| `qsp.game.playerExecutable` | — | Path to the QSP player executable used by Run Game. Set once and persisted globally. `playerExecutable` or `players` in `txt2gam.json` override it. |
 | `qsp.game.mainFile` | — | Regular expression for the main file, searched in workspace-relative paths (e.g. `^main\.qsps$`). Overridden by `mainFile` in `txt2gam.json` |
 | `qsp.game.mainFileStrategy` | `ask` | How the setup wizard picks the main file when none is configured: `ask` shows a list (dismiss → root files first), `root` puts root files first without asking |
 | `qsp.game.buildMode` | `single` | `single` builds one combined `.qsp`; `perFile` builds each source into its own `.qsp` next to it. Overridden by `buildMode` in `txt2gam.json` |

@@ -188,6 +188,12 @@
         "icon": "$(run)"
       },
       {
+        "command": "qsp.runGameInPlayer",
+        "title": "Run QSP Game in…",
+        "category": "QSP",
+        "icon": "$(run-all)"
+      },
+      {
         "command": "qsp.importGame",
         "title": "Import QSP Game…",
         "category": "QSP",
@@ -312,7 +318,12 @@
         ],
         "configurationAttributes": {
           "launch": {
-            "properties": {}
+            "properties": {
+              "player": {
+                "type": "string",
+                "markdownDescription": "Name of one of the `players` in `txt2gam.json` to open the game in. Without it, the first one (or `playerExecutable`, or the `qsp.game.playerExecutable` setting)."
+              }
+            }
           }
         },
         "initialConfigurations": [
@@ -331,6 +342,16 @@
               "request": "launch",
               "name": "Run QSP Game"
             }
+          },
+          {
+            "label": "QSP: Run Game in Another Player",
+            "description": "Build the QSP game and open it in one of the players listed in txt2gam.json.",
+            "body": {
+              "type": "qsp",
+              "request": "launch",
+              "name": "Run QSP Game in ${1:qSpider}",
+              "player": "${1:qSpider}"
+            }
           }
         ]
       }
@@ -340,6 +361,11 @@
         {
           "command": "qsp.runGame",
           "when": "editorLangId == qsp",
+          "group": "navigation"
+        },
+        {
+          "command": "qsp.runGameInPlayer",
+          "when": "editorLangId == qsp && qsp.severalPlayers",
           "group": "navigation"
         }
       ],
@@ -489,6 +515,10 @@
         {
           "command": "qsp.runGame",
           "when": "editorLangId == qsp"
+        },
+        {
+          "command": "qsp.runGameInPlayer",
+          "when": "editorLangId == qsp && qsp.severalPlayers"
         },
         {
           "command": "qsp.importGame"
@@ -967,7 +997,7 @@
         "qsp.game.playerExecutable": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Path to the QSP player executable or script used by the **Run QSP Game** command. The .qsp file path is passed as its argument. Example: `/usr/local/bin/qsp-player` or `C:\\QSP\\player.exe`. `playerExecutable` in `txt2gam.json` overrides this setting for the project."
+          "markdownDescription": "Path to the QSP player executable or script used by the **Run QSP Game** command. The .qsp file path is passed as its argument. Example: `/usr/local/bin/qsp-player` or `C:\\QSP\\player.exe`. `playerExecutable` or `players` in `txt2gam.json` override this setting for the project."
         },
         "qsp.locations.followCursor": {
           "type": "boolean",

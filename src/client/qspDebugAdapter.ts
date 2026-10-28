@@ -13,7 +13,9 @@
  */
 
 import * as vscode from 'vscode';
+import { readGameConfig } from './gameConfig';
 import { runGameCommand } from './runGame';
+import { listPlayers } from '../common/playerExecutable';
 
 // ── Minimal inline DebugAdapter ───────────────────────────────────────
 
@@ -28,7 +30,7 @@ class QspDebugAdapter implements vscode.DebugAdapter {
   ) {}
 
   handleMessage(message: vscode.DebugProtocolMessage): void {
-    const msg = message as { type: string; command: string; seq: number };
+    const msg = message as { type: string; command: string; seq: number; arguments?: { player?: unknown } };
     if (msg.type !== 'request') return;
 
     if (msg.command === 'initialize') {
@@ -39,7 +41,9 @@ class QspDebugAdapter implements vscode.DebugAdapter {
       this._respond(msg.seq, 'launch', {});
       // runGameCommand resolves once the player process is spawned (non-blocking).
       // Terminate the session immediately after so there is no dangling debug UI.
-      runGameCommand(this.context).finally(() => {
+      // `player` names one of txt2gam.json's players; the default one without it.
+      const player = typeof msg.arguments?.player === 'string' ? msg.arguments.player : undefined;
+      runGameCommand(this.context, player).finally(() => {
         this._send({ type: 'event', event: 'terminated' });
       });
 
@@ -69,8 +73,18 @@ export function registerQspDebugAdapter(
 ): void {
   // Supply a launch config when there is no launch.json, so F5 just works.
   const provider: vscode.DebugConfigurationProvider = {
-    provideDebugConfigurations(): vscode.DebugConfiguration[] {
-      return [{ type: 'qsp', request: 'launch', name: 'Run QSP Game' }];
+    // One more for each player of txt2gam.json past the default one.
+    async provideDebugConfigurations(): Promise<vscode.DebugConfiguration[]> {
+      let players: ReturnType<typeof listPlayers> = [];
+      try {
+        players = listPlayers(await readGameConfig(), process.platform);
+      } catch {
+        // A broken txt2gam.json: Run reports it.
+      }
+      return [
+        { type: 'qsp', request: 'launch', name: 'Run QSP Game' },
+        ...players.slice(1).map(p => ({ type: 'qsp', request: 'launch', name: `Run QSP Game in ${p.name}`, player: p.name })),
+      ];
     },
     resolveDebugConfiguration(
       _folder: vscode.WorkspaceFolder | undefined,

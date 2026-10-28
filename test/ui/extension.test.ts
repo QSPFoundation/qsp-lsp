@@ -307,3 +307,35 @@ suite('QSP syntax version', () => {
     }
   });
 });
+
+suite('QSP players', () => {
+  test('a launch configuration opens the game in the player of txt2gam.json it names, with its arguments', async function () {
+    // The stand-in player is a shell script.
+    if (process.platform === 'win32') this.skip();
+    const fs = await import('node:fs');
+    const configUri = fixtureUri('txt2gam.json');
+    const original = await vscode.workspace.fs.readFile(configUri);
+    const script = fixtureUri('tools/record.sh');
+    const recorded = fixtureUri('tools/args.txt');
+    await vscode.workspace.fs.writeFile(script, Buffer.from('#!/bin/sh\nprintf \'%s\\n\' "$@" > "$(dirname "$0")/args.txt"\n'));
+    fs.chmodSync(script.fsPath, 0o755);
+    const config = JSON.parse(Buffer.from(original).toString('utf8'));
+    config.players = [
+      { name: 'Default', executable: 'tools/missing-player' },
+      { name: 'Recorder', executable: { [process.platform]: 'tools/record.sh' }, args: ['--file', '${game}'] },
+    ];
+    await vscode.workspace.fs.writeFile(configUri, Buffer.from(JSON.stringify(config, null, 2)));
+    try {
+      const folder = vscode.workspace.workspaceFolders![0];
+      await vscode.debug.startDebugging(folder, { type: 'qsp', request: 'launch', name: 'Run in the recorder', player: 'recorder' });
+      const args = await waitFor('the player to be started', async () =>
+        (await exists(recorded)) ? Buffer.from(await vscode.workspace.fs.readFile(recorded)).toString('utf8') : undefined);
+      assert.deepStrictEqual(args.trimEnd().split('\n'), ['--file', fixtureUri('fixture.qsp').fsPath]);
+      assert.ok(await exists(fixtureUri('fixture.qsp')));
+      assert.ok((await vscode.commands.getCommands(true)).includes('qsp.runGameInPlayer'));
+    } finally {
+      await vscode.workspace.fs.writeFile(configUri, original);
+      await vscode.workspace.fs.delete(fixtureUri('tools'), { recursive: true });
+    }
+  });
+});

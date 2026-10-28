@@ -14,11 +14,18 @@ import { encodeTextToGame } from './txt2gam';
 import { getActiveQspEditor, qspGlob } from './shared';
 import { buildProjectGame, normalizeText } from './exportCommands';
 import { ensureGameConfig, readGameConfig, workspaceRoot, type GameConfig } from './gameConfig';
-import { classifyPlayerPath, pickPlayerExecutable } from '../common/playerExecutable';
+import {
+  DEFAULT_PLAYER_ARGS, classifyPlayerPath, findPlayer, listPlayers, playerArguments, type PlayerChoice,
+} from '../common/playerExecutable';
 import * as logger from './logger';
 
+/**
+ * Build the game and open it in a player: the one txt2gam.json's `players`
+ * calls `playerName`, or the default one.
+ */
 export async function runGameCommand(
   context: vscode.ExtensionContext,
+  playerName?: string,
 ): Promise<void> {
   logger.show();
   logger.log('[Run] Starting...');
@@ -45,8 +52,8 @@ export async function runGameCommand(
     outputUri = vscode.Uri.joinPath(dirUri, baseName);
   }
 
-  const playerExe = await resolvePlayer(gameCfg);
-  if (!playerExe) return; // cancelled
+  const player = await resolvePlayer(gameCfg, playerName);
+  if (!player) return; // cancelled, or no such player
 
   // Use configured password silently — no prompt for a run-and-test workflow.
   const password = vscode.workspace.getConfiguration('qsp.game').get<string>('password') || undefined;
@@ -80,10 +87,11 @@ export async function runGameCommand(
         return;
       }
 
-      // execFile passes playerExe and qspPath as distinct argv entries —
-      // spaces in both paths are handled correctly, no shell quoting needed.
-      logger.log(`[Run] Launching: ${playerExe} ${gameUri.fsPath}`);
-      cp.execFile(playerExe, [gameUri.fsPath], (err) => {
+      // execFile passes the player and each argument as distinct argv
+      // entries: spaces in paths are handled, no shell quoting needed.
+      const args = playerArguments(player.args, gameUri.fsPath);
+      logger.log(`[Run] Launching: ${player.executable} ${args.join(' ')}`);
+      cp.execFile(player.executable, args, (err) => {
         if (err) {
           logger.log(`[Run] Launch failed: ${err.message}`);
           vscode.window.showErrorMessage(`Failed to launch player: ${err.message}`);
@@ -94,33 +102,80 @@ export async function runGameCommand(
 }
 
 /**
- * The player to launch: txt2gam.json's `playerExecutable`, then the
- * `qsp.game.playerExecutable` setting, then a file picker whose choice is
- * saved to the setting. Undefined when the picker is cancelled.
+ * Pick a player from txt2gam.json's `players` and run the game in it; with
+ * one player or none, run the game as Run QSP Game does.
  */
-async function resolvePlayer(projectCfg: GameConfig | undefined): Promise<string | undefined> {
+export async function runGameInPlayerCommand(context: vscode.ExtensionContext): Promise<void> {
+  const players = listPlayers(await readConfigForPlayers(), process.platform);
+  let name: string | undefined;
+  if (players.length > 1) {
+    const picked = await vscode.window.showQuickPick(
+      players.map((p, i) => ({ label: p.name, description: i === 0 ? 'default' : undefined, detail: p.executable })),
+      { title: 'Run QSP Game in…', placeHolder: 'The players of txt2gam.json' },
+    );
+    if (!picked) return;
+    name = picked.label;
+  }
+  await runGameCommand(context, name);
+}
+
+/**
+ * Keep the `qsp.severalPlayers` context key (the editor's Run menu offers
+ * Run QSP Game in… by it) in step with txt2gam.json.
+ */
+export function registerPlayersContext(context: vscode.ExtensionContext): void {
+  const update = async () => {
+    const several = listPlayers(await readConfigForPlayers(), process.platform).length > 1;
+    await vscode.commands.executeCommand('setContext', 'qsp.severalPlayers', several);
+  };
+  const watcher = vscode.workspace.createFileSystemWatcher('**/txt2gam.json');
+  watcher.onDidCreate(update);
+  watcher.onDidChange(update);
+  watcher.onDidDelete(update);
+  context.subscriptions.push(watcher, vscode.workspace.onDidChangeWorkspaceFolders(update));
+  void update();
+}
+
+async function readConfigForPlayers(): Promise<GameConfig | undefined> {
+  try {
+    return await readGameConfig();
+  } catch (err) {
+    logger.log(`[Run] Ignoring txt2gam.json for the players: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
+}
+
+/**
+ * The player to launch: the one of txt2gam.json's players called `name`,
+ * or its first (`players`, else `playerExecutable`), then the
+ * `qsp.game.playerExecutable` setting, then a file picker whose choice is
+ * saved to the setting. Undefined when the picker is cancelled or there is
+ * no player called `name`.
+ */
+async function resolvePlayer(projectCfg: GameConfig | undefined, name?: string): Promise<PlayerChoice | undefined> {
   // Single-file mode doesn't build from txt2gam.json, but a player named
   // there is still the project's player.
-  let cfg = projectCfg;
-  if (!cfg) {
-    try {
-      cfg = await readGameConfig();
-    } catch (err) {
-      logger.log(`[Run] Ignoring txt2gam.json for the player: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  const cfg = projectCfg ?? await readConfigForPlayers();
+  const players = listPlayers(cfg, process.platform);
+  const chosen = name === undefined ? players[0] : findPlayer(players, name);
+  if (name !== undefined && !chosen) {
+    const known = players.map(p => p.name).join(', ');
+    logger.log(`[Run] No player called ${name} for ${process.platform} in txt2gam.json`);
+    vscode.window.showErrorMessage(known
+      ? `txt2gam.json has no player called "${name}" for this system: ${known}.`
+      : `txt2gam.json has no player called "${name}" for this system.`);
+    return undefined;
   }
-
-  const fromFile = pickPlayerExecutable(cfg?.playerExecutable, process.platform);
-  if (fromFile) {
+  if (chosen) {
     const root = workspaceRoot();
-    const player = classifyPlayerPath(fromFile) === 'relative' && root
-      ? vscode.Uri.joinPath(root, fromFile).fsPath
-      : fromFile;
-    logger.log(`[Run] Player (txt2gam.json): ${player}`);
-    return player;
+    const executable = classifyPlayerPath(chosen.executable) === 'relative' && root
+      ? vscode.Uri.joinPath(root, chosen.executable).fsPath
+      : chosen.executable;
+    logger.log(`[Run] Player (txt2gam.json): ${chosen.name}, ${executable}`);
+    return { ...chosen, executable };
   }
-  if (cfg?.playerExecutable !== undefined) {
-    logger.log(`[Run] txt2gam.json playerExecutable has no usable path for ${process.platform}; using the setting`);
+  if (cfg?.players !== undefined || cfg?.playerExecutable !== undefined) {
+    logger.log(`[Run] txt2gam.json names no usable player for ${process.platform}; using the setting`);
   }
 
   const fromSetting = vscode.workspace
@@ -129,7 +184,7 @@ async function resolvePlayer(projectCfg: GameConfig | undefined): Promise<string
     ?.trim();
   if (fromSetting) {
     logger.log(`[Run] Player (setting): ${fromSetting}`);
-    return fromSetting;
+    return { name: 'player', executable: fromSetting, args: DEFAULT_PLAYER_ARGS };
   }
 
   const picked = await vscode.window.showOpenDialog({
@@ -148,5 +203,5 @@ async function resolvePlayer(projectCfg: GameConfig | undefined): Promise<string
     .getConfiguration('qsp.game')
     .update('playerExecutable', player, vscode.ConfigurationTarget.Global);
   logger.log(`[Run] Player executable saved: ${player}`);
-  return player;
+  return { name: 'player', executable: player, args: DEFAULT_PLAYER_ARGS };
 }

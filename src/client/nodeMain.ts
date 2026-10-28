@@ -11,7 +11,7 @@ import {
   TransportKind,
 } from 'vscode-languageclient/node';
 import { registerExtensionFeatures } from './features';
-import { runGameCommand } from './runGame';
+import { registerPlayersContext, runGameCommand, runGameInPlayerCommand } from './runGame';
 import { registerMcpServer } from './mcp';
 import { registerQspDebugAdapter } from './qspDebugAdapter';
 import * as logger from './logger';
@@ -58,7 +58,8 @@ export function activate(context: ExtensionContext): void {
   );
 
   // Register extension-side features (status bar, commands)
-  registerExtensionFeatures(context, client, runGameCommand);
+  registerExtensionFeatures(context, client, runGameCommand, runGameInPlayerCommand);
+  registerPlayersContext(context);
   registerQspDebugAdapter(context);
   registerMcpServer(context);
   registerCrashReports(context, client, launch);
