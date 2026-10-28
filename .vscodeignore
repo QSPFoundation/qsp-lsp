@@ -9,6 +9,7 @@ tree-sitter-qsp/**
 test/**
 examples/**
 CLAUDE.md
+CONTRIBUTING.md
 TODO.md
 # The grammar's reference spec; the build uses tree-sitter-qsp/grammar.js.
 qsp_grammar.peg
