@@ -63,10 +63,21 @@ between requests; the project load, and opening a large file nothing is stored
 for, analyse in up to four worker threads (`src/server/nodeWorkers.ts`), a large
 file in a part per thread. What still blocks is reading a result back on the
 main thread (a 12.8 M-character file: 0.5 s from the threads, 0.6 s from the
-cache, 0.2 s of which unpacking it). Next:
-- **Unpacking off the main thread:** `zlib.gunzip` can run in Node's thread
-  pool, but `AnalysisCache.get` is synchronous; an asynchronous one would also
-  suit the cache for the Web below.
+cache). Next:
+- **Decoding in slices** (only pays for files past ~10 M characters): opening a
+  12.8 M-character file from the cache holds the server for 1 s, half of it
+  decoding the analysis (`decodeValue`, 0.44 s); one location decodes in 5 ms at
+  most, so a decoder that stops between the top-level Map's entries and goes on
+  in the next slice would leave ~0.5 s, the rest being reading the 16 MB
+  `didOpen`, hashing the text for its key twice, the location index and
+  unpacking (0.12 s). Needs `storedLocations` and the project load's cache hits
+  to wait for it, as the worker path does. A 5 M-character file of a catalog
+  game decodes in 0.1 s whole. Cheaper and on its own: the worker parts of a
+  large file are decoded one after another (4 × 130 ms) and could be a slice
+  each. Unpacking in Node's thread pool instead (`zlib.gunzip`, an
+  asynchronous `AnalysisCache.get`) was measured and dropped: 0.1 s off the
+  main thread, but 0.25 s in all instead of 0.11 s, and 100–200 MB more at the
+  peak of a project load, with every file unpacked at once.
 - **A cache for VS Code for the Web,** once it runs tree-sitter: today it analyses
   with regular expressions, whose results are never stored. IndexedDB is
   asynchronous, while `AnalysisCache.get` is not.
