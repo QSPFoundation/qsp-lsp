@@ -1,4 +1,4 @@
-# Contributing to QSP Language Support
+# Contributing to QSPeak
 
 ## Building and testing
 

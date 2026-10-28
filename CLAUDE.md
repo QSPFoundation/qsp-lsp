@@ -1,4 +1,4 @@
-# CLAUDE.md — QSP Language Support (VS Code extension + LSP)
+# CLAUDE.md — QSPeak: QSP Language Support (VS Code extension + LSP)
 
 ## Architecture & Boundaries
 
