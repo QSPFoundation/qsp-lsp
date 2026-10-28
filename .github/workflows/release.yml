@@ -98,7 +98,10 @@ jobs:
           fi
 
       - name: Build, test & package
-        run: bash scripts/build.sh "${{ steps.version.outputs.version }}"
+        run: bash scripts/build.sh "$VERSION" $PRE_RELEASE_FLAG
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PRE_RELEASE_FLAG: ${{ steps.version.outputs.pre_release_flag }}
 
       - name: Publish to VS Code Marketplace
         run: npx vsce publish --oidc --packagePath "qsp-lsp-$VERSION.vsix" --skip-duplicate $PRE_RELEASE_FLAG

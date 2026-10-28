@@ -6,6 +6,7 @@
 #   ./scripts/build.sh                 # build at current package.json version
 #   ./scripts/build.sh 1.2.3           # set version to 1.2.3, then build
 #   ./scripts/build.sh --check         # lint + test only (no package)
+#   ./scripts/build.sh 1.3.0 --pre-release   # package as a pre-release
 #
 # The script will:
 #   1. Optionally bump the version in package.json
@@ -37,16 +38,20 @@ die()  { red "✗ $*" >&2; exit 1; }
 
 # ── Parse args ───────────────────────────────────────────────────────────────
 CHECK_ONLY=false
+PRE_RELEASE=()
 VERSION=""
 
 for arg in "$@"; do
   case "$arg" in
     --check) CHECK_ONLY=true ;;
+    # vsce publishes a pre-release only from a package made as one.
+    --pre-release) PRE_RELEASE=(--pre-release) ;;
     --help|-h)
-      echo "Usage: $0 [VERSION] [--check]"
+      echo "Usage: $0 [VERSION] [--check] [--pre-release]"
       echo ""
-      echo "  VERSION    Semver version to set (e.g. 1.2.3)"
-      echo "  --check    Run lint + tests only, skip build & package"
+      echo "  VERSION        Semver version to set (e.g. 1.2.3)"
+      echo "  --check        Run lint + tests only, skip build & package"
+      echo "  --pre-release  Package as a pre-release (for vsce/ovsx publish --pre-release)"
       exit 0
       ;;
     *)
@@ -147,7 +152,7 @@ fi
 # ── Package ──────────────────────────────────────────────────────────────────
 step "Packaging VSIX"
 VSIX_FILE="qsp-lsp-${VERSION}.vsix"
-npx @vscode/vsce package --no-dependencies -o "$VSIX_FILE"
+npx @vscode/vsce package --no-dependencies ${PRE_RELEASE[@]+"${PRE_RELEASE[@]}"} -o "$VSIX_FILE"
 ok "Packaged: $VSIX_FILE ($(du -h "$VSIX_FILE" | cut -f1))"
 
 green ""
