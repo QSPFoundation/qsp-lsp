@@ -80,8 +80,14 @@ export type { CachedFileAnalysis } from './fileAnalysis';
 /** A file's analysis, or a part of it, as a worker thread hands it over. */
 type WorkerResult = Awaited<ReturnType<AnalysisWorkers['analyze']>>;
 
-// A file's analysis as the cache or a worker hands it over, made a working one again.
+// A file's analysis as the cache or a worker hands it over, made a working
+// one again. The cache keeps a large file in the parts the threads gave.
 function reviveAnalysis(value: unknown): CachedFileAnalysis | undefined {
+  if (Array.isArray(value)) {
+    const parts = value.map(reviveAnalysis);
+    return parts.length > 0 && parts.every(p => p !== undefined)
+      ? joinFileAnalyses(parts[0]!.symbols.uri, parts as CachedFileAnalysis[]) : undefined;
+  }
   const hit = value as CachedFileAnalysis | undefined;
   const symbols = reviveDocumentSymbols(hit?.symbols);
   return symbols && Array.isArray(hit?.syntaxErrors) ? { symbols, syntaxErrors: hit.syntaxErrors } : undefined;
@@ -371,6 +377,16 @@ export class ProjectModeService {
   }
 
   /**
+   * Store an analysis the worker threads made (`readWorkerAnalysis` of
+   * `result`): as they serialized it, in parts for a large file.
+   */
+  storeWorkerAnalysis(key: string, result: readonly WorkerResult[], analysis: CachedFileAnalysis): void {
+    const cache = this.analysisCache;
+    if (cache?.putSerialized) this.perf.step('cache write', () => cache.putSerialized!(key, result.map(r => r.bytes)));
+    else this.storeAnalysis(key, analysis.symbols, analysis.syntaxErrors);
+  }
+
+  /**
    * Analyze a project file that isn't open in the editor.
    * Creates a DocumentState from the raw text.
    */
@@ -456,12 +472,7 @@ export class ProjectModeService {
         this.analyzeFileNow(uri, text, false);
         return;
       }
-      if (key) {
-        const cache = this.analysisCache;
-        const bytes = result!.length === 1 ? result![0].bytes : undefined;
-        if (bytes && cache?.putSerialized) this.perf.step('cache write', () => cache.putSerialized!(key, bytes));
-        else this.storeAnalysis(key, analysis.symbols, analysis.syntaxErrors);
-      }
+      if (key) this.storeWorkerAnalysis(key, result!, analysis);
       this.setFileState(uri, text, locationIndex, key, analysis.symbols, analysis.syntaxErrors);
     }, () => formatChars(text.length));
   }

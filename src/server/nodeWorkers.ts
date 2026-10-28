@@ -7,9 +7,8 @@
 // seconds: each holds its own copy of the grammar and its analysis heap.
 
 import * as os from 'os';
-import * as v8 from 'v8';
 import { Worker } from 'worker_threads';
-import { compactDeserialized } from './nodeCache';
+import { decodeValue } from './cacheFormat';
 import type { AnalysisWorkers } from './serverUtils';
 import type { AnalysisReply, AnalysisRequest } from './analysisWorker';
 
@@ -91,7 +90,7 @@ export class AnalysisWorkerPool implements AnalysisWorkers {
       if (!job || job.request.id !== reply.id) return;
       thread.job = undefined;
       if ('error' in reply) job.reject(new Error(reply.error));
-      else job.resolve({ bytes: reply.bytes, read: () => compactDeserialized(v8.deserialize(reply.bytes)) });
+      else job.resolve({ bytes: reply.bytes, read: () => decodeValue(reply.bytes) });
       this.dispatch();
     });
     // A thread that dies (out of memory, a crash in the grammar) takes only

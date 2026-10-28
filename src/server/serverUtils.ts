@@ -47,10 +47,13 @@ export interface AnalysisCache {
   key(...parts: string[]): string;
   /** The value stored under `key`, or undefined when there is none or it can't be read. */
   get(key: string): unknown;
-  /** Store `value` (plain data: objects, arrays, Maps, Sets) in the background. */
+  /** Store `value` (plain data: objects, arrays, Maps, Sets, typed arrays; no cycles) in the background. */
   put(key: string, value: unknown): void;
-  /** Store a value already serialized by `AnalysisWorkers`, without serializing it again. */
-  putSerialized?(key: string, bytes: Uint8Array): void;
+  /**
+   * Store what `AnalysisWorkers` serialized, without serializing it again:
+   * one part is read back as its value, several as the array of their values.
+   */
+  putSerialized?(key: string, parts: readonly Uint8Array[]): void;
   /** Whether there is a value under `key`, without reading it. */
   has?(key: string): boolean;
 }
@@ -60,7 +63,8 @@ export interface AnalysisCache {
  * (Node only: nodeWorkers.ts). A file's analysis comes back serialized, as
  * `bytes` for `AnalysisCache.putSerialized`; `read` makes it the value the
  * cache keeps (`CachedFileAnalysis`, before `reviveDocumentSymbols`) on the
- * main thread, which costs about a tenth of the analysis.
+ * main thread, which costs a small part of the analysis (0.4 s of 26 s for
+ * a 12.8 M-character file).
  */
 export interface AnalysisWorkers {
   /** How many files, or parts of one, are analysed at once. */

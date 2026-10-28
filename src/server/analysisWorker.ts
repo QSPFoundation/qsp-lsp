@@ -2,12 +2,12 @@
  * QSP analysis worker thread (out/server/analysisWorker.js), started by
  * nodeWorkers.ts: analyses whole project files with its own tree-sitter
  * while the server's main thread answers requests. A file's analysis goes
- * back serialized as the analysis cache stores it (`v8.serialize` of
- * `CachedFileAnalysis`); the main thread revives it.
+ * back in the analysis cache's format (`encodeValue` of `CachedFileAnalysis`);
+ * the main thread revives it.
  */
 import { parentPort, workerData } from 'worker_threads';
-import * as v8 from 'v8';
 import { QspTreeSitterParser, buildLocationIndex } from '../parser';
+import { encodeValue } from './cacheFormat';
 import { analyzeFileText } from './fileAnalysis';
 import { wasmFromOutDir } from './nodeHost';
 
@@ -35,10 +35,8 @@ port.on('message', (request: AnalysisRequest) => {
     let locationIndex = buildLocationIndex(request.text);
     if (request.locations) locationIndex = locationIndex.slice(request.locations.from, request.locations.to);
     const analysis = analyzeFileText(parser, request.uri, request.text, locationIndex, request.embeddedExec);
-    const serialized = v8.serialize(analysis);
-    // Its own buffer, so it moves to the main thread instead of being copied.
-    const bytes = serialized.byteOffset === 0 && serialized.byteLength === serialized.buffer.byteLength
-      ? serialized : new Uint8Array(serialized);
+    // In a buffer of its own, which moves to the main thread instead of being copied.
+    const bytes = encodeValue(analysis);
     const reply: AnalysisReply = { id: request.id, bytes };
     port.postMessage(reply, [bytes.buffer as ArrayBuffer]);
   }).catch((err: unknown) => {

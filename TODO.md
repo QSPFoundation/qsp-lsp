@@ -57,15 +57,16 @@ first. Once the maintainer's library repository exists (not yet):
 ## Analysis: background and cache format
 
 Every file is analysed one way, location by location, open or closed; unchanged
-files are read back from the cache (`src/server/nodeCache.ts`), and the
-aggregates and diagnostics run in slices between requests; the project load,
-and opening a large file nothing is stored for, analyse in up to four worker
-threads (`src/server/nodeWorkers.ts`), a large file in a part per thread. What
-still blocks is reading a result back on the main thread (a 12.8 M-character
-file: 2.6 s from the threads, 3 s from the cache). Next:
-- **A cache format of our own** (long term) instead of `v8.serialize`: a string
-  table, the URI once, positions and names in flat arrays. Could remove the 1.2 s
-  of `compactDeserialized` on read, but is bound to the symbol types.
+files are read back from the cache (`src/server/nodeCache.ts`, in a format of
+its own: `cacheFormat.ts`), and the aggregates and diagnostics run in slices
+between requests; the project load, and opening a large file nothing is stored
+for, analyse in up to four worker threads (`src/server/nodeWorkers.ts`), a large
+file in a part per thread. What still blocks is reading a result back on the
+main thread (a 12.8 M-character file: 0.5 s from the threads, 0.6 s from the
+cache, 0.2 s of which unpacking it). Next:
+- **Unpacking off the main thread:** `zlib.gunzip` can run in Node's thread
+  pool, but `AnalysisCache.get` is synchronous; an asynchronous one would also
+  suit the cache for the Web below.
 - **A cache for VS Code for the Web,** once it runs tree-sitter: today it analyses
   with regular expressions, whose results are never stored. IndexedDB is
   asynchronous, while `AnalysisCache.get` is not.

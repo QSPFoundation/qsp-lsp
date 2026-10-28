@@ -8,16 +8,13 @@
  * - A cache must never make the analysis wrong or fail: a broken or
  *   half-written entry is a miss, and keys differ whenever any input does.
  * - It must not grow without bound: old and least recently used entries go.
- * - A read-back value is compacted (compactDeserialized): its arrays and
- *   plain objects are copied and its Maps and Sets rebuilt. Contents, the
- *   order of Maps and Sets, shared objects and cycles must stay as they were.
+ * - A value the format can't hold (cacheFormat.ts) is only not stored.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import * as v8 from 'v8';
-import { NodeAnalysisCache, analyserSalt, compactDeserialized, nodeAnalysisCacheStore } from '../src/server/nodeCache';
+import { NodeAnalysisCache, analyserSalt, nodeAnalysisCacheStore } from '../src/server/nodeCache';
 
 let dir: string;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qsp-cache-')); });
@@ -37,6 +34,18 @@ describe('NodeAnalysisCache', () => {
     expect(back.refs[0]).toBe(back.refs[1]);
     expect(back.byName.get('прихожая')).toBe(back.refs[0]);
     expect(entries()).toEqual([`${key}.bin`]);
+  });
+
+  it('stores nothing, with a warning, for a value it can\'t hold', () => {
+    const warnings: string[] = [];
+    const cache = new NodeAnalysisCache(dir, { warn: m => warnings.push(m) });
+    const cyclic: { self?: unknown } = {};
+    cyclic.self = cyclic;
+    const key = cache.key('cyclic');
+    cache.put(key, cyclic);
+    expect(cache.get(key)).toBeUndefined();
+    expect(entries()).toEqual([]);
+    expect(warnings).toHaveLength(1);
   });
 
   it('misses on an unknown key, and keys differ whenever an input does', () => {
@@ -108,46 +117,5 @@ describe('NodeAnalysisCache', () => {
     const cache = nodeAnalysisCacheStore().open(nested, () => {});
     expect(fs.existsSync(nested)).toBe(true);
     expect(cache.get(cache.key('x'))).toBeUndefined();
-  });
-});
-
-describe('compactDeserialized', () => {
-  it('keeps every value, the order of Maps and Sets, shared objects and cycles', () => {
-    const uri = 'file:///game/main.qsps';
-    const loc = { uri, line: 1, column: 2, endLine: 1, endColumn: 7, kind: 'write' };
-    const first = new Map([['счёт', [loc]], ['имя', []]]);
-    const copy = (text: string) => [...text].join('');
-    const second = new Map<unknown, unknown>([[copy('имя'), { uri: copy(uri) }], [copy('счёт'), loc], [loc, 'by object']]);
-    const cyclic: { self?: unknown; names: Set<unknown>; list: unknown[] } = { names: new Set(['b', 'а', loc]), list: [] };
-    cyclic.self = cyclic;
-    cyclic.list.push(cyclic.list, cyclic);
-    const holey = [loc, 'write'].map(x => x);
-    const value = { first, second, cyclic, refs: [loc, loc, 'write'], holey, tokens: new Uint32Array([1, 2, 3]) };
-    const expected = structuredClone(value);
-
-    const back = compactDeserialized(v8.deserialize(v8.serialize(value)) as typeof value);
-    expect(back).toEqual(expected);
-    expect([...back.second.keys()].slice(0, 2)).toEqual(['имя', 'счёт']);
-    expect([...back.cyclic.names].slice(0, 2)).toEqual(['b', 'а']);
-    expect(back.cyclic.self).toBe(back.cyclic);
-    expect(back.cyclic.list[0]).toBe(back.cyclic.list);
-    expect(back.cyclic.list[1]).toBe(back.cyclic);
-    const shared = back.first.get('счёт')![0];
-    for (const same of [back.refs[0], back.refs[1], back.holey[0], back.second.get('счёт'), [...back.second.keys()][2], [...back.cyclic.names][2]]) {
-      expect(same).toBe(shared);
-    }
-    expect(back.second.get(shared)).toBe('by object');
-    expect(back.tokens).toEqual(new Uint32Array([1, 2, 3]));
-  });
-
-  it('keeps objects it does not copy', () => {
-    class Kept { constructor(readonly n: number) {} }
-    const kept = new Kept(1);
-    const proto = JSON.parse('{"__proto__": 1, "a": 2}') as object;
-    const back = compactDeserialized({ kept, proto, again: proto });
-    expect(back.kept).toBe(kept);
-    expect(Object.getPrototypeOf(back.proto)).toBe(Object.prototype);
-    expect(Object.entries(back.proto)).toEqual([['__proto__', 1], ['a', 2]]);
-    expect(back.again).toBe(back.proto);
   });
 });

@@ -1436,7 +1436,7 @@ export function createQspServer(
       }
       if (analysis && now === text) {
         const key = project.analysisKey(uri, text);
-        if (key) project.storeAnalysis(key, analysis.symbols, analysis.syntaxErrors);
+        if (key) project.storeWorkerAnalysis(key, result!, analysis);
         openFileAnalyses.set(uri, { text, analysis });
       }
       // A failed thread leaves the file to this one; a changed text goes to the threads again.

@@ -119,6 +119,11 @@ and for the propagation of locals by `projectMode.rebuildAggregates`, keyed by t
    every key, so a rebuild never reads old results. Keep `test/analysisCache.test.ts` checking that results read from
    the cache equal a fresh analysis.
 
+❌ Don't: put a cycle, a `Date`, an `Error` or a function into a cached value, or expect a class instance to come back
+   with its methods. The format (`cacheFormat.ts`, also what worker threads hand over) refuses the first, so nothing is stored.
+✅ Do: keep cached values to plain objects, arrays, Maps, Sets, typed arrays and primitives, and give instances their
+   prototype back on read (`reviveDocumentSymbols`).
+
 **Browser tooling (Playwright)**
 ❌ Don't: ship Playwright or its browser binaries in the `.vsix`, or add them to `dependencies`.
 ✅ Do: keep it dev-only (`devDependencies` at most, or installed in a scratch directory), with browsers in

@@ -109,13 +109,15 @@ describe('a large file in a part per thread', () => {
   // Past SPLIT_MIN_CHARS: split between the threads, closed or opened.
   const big = Array.from({ length: 700 }, (_, n) => game(n) + `! ${'x'.repeat(1500)}\n`).join('');
 
-  it('has the diagnostics of the file analysed in one go, closed and opened', async () => {
+  it('has the diagnostics of the file analysed in one go, closed and opened, and from the cache', async () => {
     expect(big.length).toBeGreaterThan(1_000_000);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qsp-workers-big-'));
     try {
       fs.writeFileSync(path.join(dir, 'big.qsps'), big);
-      const run = async (workers?: AnalysisWorkerPool) => {
-        const host = new QspHost(dir, { wasmLoader: loadWasm }, () => {}, undefined, [], workers);
+      const cacheDir = path.join(dir, '.cache');
+      const logs: string[] = [];
+      const run = async (workers?: AnalysisWorkerPool, cache?: string) => {
+        const host = new QspHost(dir, { wasmLoader: loadWasm }, m => logs.push(m), cache, [], workers);
         await host.start();
         const closed = host.allDiagnostics().get([...host.allDiagnostics().keys()].find(u => u.endsWith('big.qsps'))!);
         const opened = await host.checkText(big);
@@ -124,10 +126,14 @@ describe('a large file in a part per thread', () => {
       };
       const here = await run();
       expect(here.closed!.length).toBeGreaterThanOrEqual(700);
-      const there = await run(new AnalysisWorkerPool(script, outDir, 3));
+      const there = await run(new AnalysisWorkerPool(script, outDir, 3), cacheDir);
       expect(there.closed).toEqual(here.closed);
       expect(there.opened).toEqual(here.opened);
       expect(there.opened.length).toBeGreaterThanOrEqual(700);
+      // Stored in the threads' parts, read back joined.
+      logs.length = 0;
+      expect(await run(undefined, cacheDir)).toEqual(here);
+      expect(logs.find(l => l.includes('Analysis cache:'))).toContain('1 of 1 project files read from it');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

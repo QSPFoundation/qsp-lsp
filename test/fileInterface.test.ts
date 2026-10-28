@@ -21,7 +21,6 @@
  *   back from the cache must hash the same.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
-import * as v8 from 'v8';
 import type { Connection, Diagnostic, TextDocuments } from 'vscode-languageserver';
 import type { TextDocument } from 'vscode-languageserver-textdocument';
 import { LocationSymbols, locationInterfaceHash, type DocumentSymbols } from '../src/parser';
@@ -32,7 +31,7 @@ import {
   type PropagationBase, type SymbolAggregates,
 } from '../src/server/aggregation';
 import { extractLocationSymbols } from '../src/server/locationAnalysis';
-import { compactDeserialized } from '../src/server/nodeCache';
+import { decodeValue, encodeValue } from '../src/server/cacheFormat';
 import type { DocumentState } from '../src/server/featureTypes';
 import { PerfLog } from '../src/server/perfLog';
 import { ALL_DIAGS_ON, initParser } from './testHelpers';
@@ -332,7 +331,7 @@ describe('locationInterfaceHash', () => {
   it('is the same for an analysis read back from the cache, and kept by copies', () => {
     const syms = symbolsOf(base);
     expect(LocationSymbols.copyWithLineShift(syms, 40).interfaceHash).toBe(syms.interfaceHash);
-    const back = compactDeserialized(v8.deserialize(v8.serialize(syms)) as LocationSymbols);
+    const back = decodeValue(encodeValue(syms)) as LocationSymbols;
     expect(locationInterfaceHash(back)).toBe(locationInterfaceHash(syms));
   });
 });
