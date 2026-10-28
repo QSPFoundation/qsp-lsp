@@ -36,20 +36,24 @@ panning and hovering slow: every frame redraws all arrows, hover fades every
 element. Lower `EDGE_BUDGET` in `src/webview/graph.ts` to ~1500, or skip the fade
 on large graphs.
 
-## First publication
+## Open VSX
 
-`release.yml` publishes to the VS Code Marketplace and Open VSX as
-`QSPFoundation` by trusted publishing, with no stored token: the Marketplace's
-policy for this repository, `release.yml` and the `release` environment is set
-up. Open VSX registers a trusted publisher only for an extension it already
-has, so before the first release:
+`release.yml` publishes to the VS Code Marketplace as `QSPFoundation` by
+trusted publishing, with no stored token. Its Open VSX step, trusted
+publishing too, is skipped until the repository variable `PUBLISH_OPEN_VSX`
+is `true`. Open VSX registers a trusted publisher only for an extension it
+already has, so before setting it:
 - claim the `QSPFoundation` namespace on Open VSX (it exists, unverified and
   empty: an issue in EclipseFdn/open-vsx.org), and sign the Publisher Agreement;
-- publish 0.4.0 there by hand with an access token
-  (`npx ovsx publish qsp-lsp-0.4.0.vsix -p <token>`), then add the trusted
+- publish the latest release there by hand with an access token
+  (`npx ovsx publish qsp-lsp-<version>.vsix -p <token>`, the `.vsix` of its
+  GitHub Release), then add the trusted
   publisher (Settings → Trusted Publishers: QSPFoundation/qsp-lsp,
-  `release.yml`, environment `release`) and revoke the token; the release run
-  then skips the version Open VSX has.
+  `release.yml`, environment `release`), revoke the token and set
+  `PUBLISH_OPEN_VSX`; later release runs skip a version Open VSX has.
+
+Publishing there matters to VSCodium, Cursor and other editors that use Open
+VSX; the game template, moving to VS Code, no longer needs it.
 
 After 0.4.0 is out:
 - the author of **QSP (official)** points its users to `QSPFoundation.qsp-lsp`

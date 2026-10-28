@@ -8,7 +8,9 @@
 # Steps:
 #   1. Resolve and check the version (X.Y.Z: the Marketplace takes no suffixes)
 #   2. Build & test, and package the VSIX with that version
-#   3. Publish to the VS Code Marketplace and Open VSX
+#   3. Publish to the VS Code Marketplace, and to Open VSX when the repository
+#      variable PUBLISH_OPEN_VSX is `true` (Settings → Secrets and variables →
+#      Actions → Variables); without it, Open VSX is left alone
 #   4. Create the tag (manual run) and a GitHub Release with the VSIX attached
 #
 # Each step can be run again: a version already published is skipped, a tag
@@ -24,8 +26,9 @@
 # QSPFoundation namespace, `ovsx publish --trusted-publishing`, ovsx 1.2.0 or
 # later). No token is stored for either: an OVSX_PAT would take precedence
 # over trusted publishing, so none is passed. Open VSX takes a trusted
-# publisher only for an extension it already has, so its first version was
-# published by hand with an access token (see TODO.md).
+# publisher only for an extension it already has, so its first version is
+# published by hand with an access token before PUBLISH_OPEN_VSX is set
+# (see TODO.md).
 # ─────────────────────────────────────────────────────────────────────────────
 name: Release
 
@@ -110,6 +113,7 @@ jobs:
           PRE_RELEASE_FLAG: ${{ steps.version.outputs.pre_release_flag }}
 
       - name: Publish to Open VSX
+        if: vars.PUBLISH_OPEN_VSX == 'true'
         run: npx ovsx publish "qsp-lsp-$VERSION.vsix" --trusted-publishing --skip-duplicate $PRE_RELEASE_FLAG
         env:
           VERSION: ${{ steps.version.outputs.version }}

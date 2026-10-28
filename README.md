@@ -4,7 +4,7 @@ Full-featured [QSP (Quest Soft Player)](https://qsp.org) language support for Vi
 
 ## Installation
 
-- **VS Code Marketplace** / **Open VSX**: search for *QSPeak* in the Extensions view, or run `code --install-extension QSPFoundation.qsp-lsp`.
+- **VS Code Marketplace**: search for *QSPeak* in the Extensions view, or run `code --install-extension QSPFoundation.qsp-lsp`.
 - **From a release**: download `qsp-lsp-<version>.vsix` from [GitHub Releases](https://github.com/QSPFoundation/qsp-lsp/releases) and run **Extensions: Install from VSIX…**.
 
 This extension replaces **QSP (official)** (`QSPFoundation.qsp-official`) and **qsp-ext**: they declare the same `qsp` language, so uninstall or disable them, or files get two sets of highlighting and commands.
