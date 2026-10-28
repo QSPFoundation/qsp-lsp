@@ -9,7 +9,7 @@ import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import * as vscode from 'vscode';
 
-const EXTENSION_ID = 'qsp.qsp-lsp';
+const EXTENSION_ID = 'QSPFoundation.qsp-lsp';
 
 // The server parses asynchronously (debounced, WASM loaded on start), so
 // every LSP-backed check polls instead of asserting once.

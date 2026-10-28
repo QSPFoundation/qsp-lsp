@@ -2,8 +2,8 @@
   "name": "qsp-lsp",
   "displayName": "QSP Language Support",
   "description": "QSP (Quest Soft Player) game development: IntelliSense, diagnostics, navigation, a jump graph of locations, building .qsp games and an MCP server for AI agents",
-  "version": "0.3.0",
-  "publisher": "qsp",
+  "version": "0.4.0",
+  "publisher": "QSPFoundation",
   "license": "MPL-2.0",
   "icon": "icons/qsp-logo.png",
   "repository": {
@@ -11,6 +11,7 @@
     "url": "https://github.com/QSPFoundation/qsp-lsp.git"
   },
   "homepage": "https://github.com/QSPFoundation/qsp-lsp#readme",
+  "qna": "https://github.com/QSPFoundation/qsp-lsp/issues",
   "bugs": {
     "url": "https://github.com/QSPFoundation/qsp-lsp/issues"
   },
@@ -1167,9 +1168,10 @@
     "@types/vscode": "^1.85.0",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.1.0",
-    "@vscode/vsce": "^4.0.0",
+    "@vscode/vsce": "^4.1.0",
     "esbuild": "^0.28.0",
     "eslint": "^9.0.0",
+    "ovsx": "^1.2.0",
     "tree-sitter-cli": "^0.24.7",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.0.0",

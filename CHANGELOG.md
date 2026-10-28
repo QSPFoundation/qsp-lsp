@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+First release on the VS Code Marketplace and Open VSX, as `QSPFoundation.qsp-lsp`. It replaces **QSP (official)** (`QSPFoundation.qsp-official`): both declare the `qsp` language, so uninstall or disable that one. The analysis cache starts empty once, since it is kept per extension.
 
 ### New
 - **Several players**: `"players"` in `txt2gam.json` lists the players a game can be run in, the default one first, each with a name, a path (one per OS if need be) and its arguments, `${game}` standing for the built `.qsp` (`"args": ["--file", "${game}"]` for qSpider). **Run QSP Game** and **F5** open the first; **QSP: Run QSP Game in…** asks which (in the editor's Run menu when there are two or more), and a launch configuration with `"player": "qSpider"` opens that one, so each player can have an entry in the **F5** list (**Add Configuration…** writes them). `playerExecutable` still names a single player.

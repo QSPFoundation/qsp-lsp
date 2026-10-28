@@ -2,31 +2,52 @@
 # QSP LSP — Release
 #
 # Triggered by:
-#   • Pushing a version tag with 'v' prefix: v1.2.3
-#   • Manual run via workflow_dispatch (specify version like 1.2.3)
+#   • Pushing a version tag: 1.2.3 (no 'v', like the existing tags)
+#   • Manual run via workflow_dispatch (version like 1.2.3); it creates the tag
 #
 # Steps:
-#   1. Resolve target version (from tag or manual input)
-#   2. Build & test
-#   3. Package VSIX with the resolved version
-#   4. Create a GitHub Release with the VSIX attached
-#   5. (Optional) Publish to VS Code Marketplace / Open VSX
+#   1. Resolve and check the version (X.Y.Z: the Marketplace takes no suffixes)
+#   2. Build & test, and package the VSIX with that version
+#   3. Publish to the VS Code Marketplace and Open VSX
+#   4. Create the tag (manual run) and a GitHub Release with the VSIX attached
+#
+# Each step can be run again: a version already published is skipped, a tag
+# already on this commit is kept, and the GitHub Release is updated. So a run
+# that failed half way (a registry down, an expired token) is just re-run.
+#
+# The Marketplace trusts this workflow itself (trusted publishing, no token
+# to store): its QSPFoundation publisher has a policy for this repository,
+# release.yml and the `release` environment, so the job runs in that
+# environment and may ask GitHub for an OIDC token (`id-token: write`), which
+# `vsce publish --oidc` (vsce 4.1.0 or later) exchanges for a short-lived one.
+# Open VSX trusts it the same way (Settings → Trusted Publishers of the
+# QSPFoundation namespace, `ovsx publish --trusted-publishing`, ovsx 1.2.0 or
+# later). No token is stored for either: an OVSX_PAT would take precedence
+# over trusted publishing, so none is passed. Open VSX takes a trusted
+# publisher only for an extension it already has, so its first version was
+# published by hand with an access token (see TODO.md).
 # ─────────────────────────────────────────────────────────────────────────────
 name: Release
 
 on:
   push:
     tags:
-      - "v*"
+      - "[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
     inputs:
       version:
-        description: "Version (e.g. 1.2.3 or 1.2.3-rc1)"
+        description: "Version (e.g. 1.2.3)"
         required: true
         type: string
+      pre_release:
+        description: "Publish as a pre-release (by convention an odd minor version, e.g. 0.5.0)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+  id-token: write
 
 # Prevent two releases for the same version from racing each other
 # (tag push + manual run, or two manual runs).
@@ -38,6 +59,9 @@ jobs:
   release:
     name: release ${{ inputs.version || github.ref_name }}
     runs-on: ubuntu-latest
+    # Named by the Marketplace's trusted publishing policy: another one, or
+    # none, is refused.
+    environment: release
     steps:
       - uses: actions/checkout@v4
 
@@ -55,34 +79,54 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_VERSION: ${{ inputs.version }}
+          PRE_RELEASE: ${{ inputs.pre_release }}
         run: |
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            RAW="$INPUT_VERSION"
-            # Manual runs accept the version with or without a leading 'v';
-            # the tag we create afterwards is the bare version (no 'v').
-            VERSION="${RAW#v}"
-            TAG="$VERSION"
+            VERSION="${INPUT_VERSION#v}"
           else
-            # Tag pushes require the 'v' prefix (matched by `on.push.tags`).
-            RAW="$GITHUB_REF_NAME"
-            VERSION="${RAW#v}"
-            TAG="$RAW"
+            VERSION="$GITHUB_REF_NAME"
           fi
-          if [[ -z "$VERSION" ]]; then
-            echo "::error::Empty version"
+          # The Marketplace refuses versions like 1.2.3-rc1; a pre-release is
+          # an ordinary version published with --pre-release.
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must be X.Y.Z, got '$VERSION'"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [[ "$PRE_RELEASE" == "true" ]]; then
+            echo "pre_release_flag=--pre-release" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build, test & package
         run: bash scripts/build.sh "${{ steps.version.outputs.version }}"
 
+      - name: Publish to VS Code Marketplace
+        run: npx vsce publish --oidc --packagePath "qsp-lsp-$VERSION.vsix" --skip-duplicate $PRE_RELEASE_FLAG
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PRE_RELEASE_FLAG: ${{ steps.version.outputs.pre_release_flag }}
+
+      - name: Publish to Open VSX
+        run: npx ovsx publish "qsp-lsp-$VERSION.vsix" --trusted-publishing --skip-duplicate $PRE_RELEASE_FLAG
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PRE_RELEASE_FLAG: ${{ steps.version.outputs.pre_release_flag }}
+
       - name: Create tag (manual run only)
         if: github.event_name == 'workflow_dispatch'
         env:
-          TAG: ${{ steps.version.outputs.tag }}
+          TAG: ${{ steps.version.outputs.version }}
         run: |
+          remote=$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f1)
+          [[ -n "$remote" ]] || remote=$(git ls-remote origin "refs/tags/$TAG" | cut -f1)
+          if [[ -n "$remote" ]]; then
+            if [[ "$remote" != "$(git rev-parse HEAD)" ]]; then
+              echo "::error::Tag $TAG already exists on another commit ($remote)"
+              exit 1
+            fi
+            echo "Tag $TAG already on this commit"
+            exit 0
+          fi
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "Release $TAG"
@@ -91,19 +135,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
           files: qsp-lsp-${{ steps.version.outputs.version }}.vsix
+          prerelease: ${{ inputs.pre_release == true }}
           generate_release_notes: true
-
-      # ── Uncomment to auto-publish to VS Code Marketplace ──────────────
-      # - name: Publish to VS Code Marketplace
-      #   run: npx @vscode/vsce publish --packagePath qsp-lsp-${{ steps.version.outputs.version }}.vsix
-      #   env:
-      #     VSCE_PAT: ${{ secrets.VSCE_PAT }}
-
-      # ── Uncomment to auto-publish to Open VSX ─────────────────────────
-      # - name: Publish to Open VSX
-      #   run: npx ovsx publish qsp-lsp-${{ steps.version.outputs.version }}.vsix
-      #   env:
-      #     OVSX_PAT: ${{ secrets.OVSX_PAT }}

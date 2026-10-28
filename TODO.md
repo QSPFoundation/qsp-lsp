@@ -36,10 +36,27 @@ panning and hovering slow: every frame redraws all arrows, hover fades every
 element. Lower `EDGE_BUDGET` in `src/webview/graph.ts` to ~1500, or skip the fade
 on large graphs.
 
-## Open VSX
+## First publication
 
-Publishing to Open VSX would let the `qsp-game-template` workspace install the
-extension like any other instead of a pinned `.vsix` from GitHub Releases.
+`release.yml` publishes to the VS Code Marketplace and Open VSX as
+`QSPFoundation` by trusted publishing, with no stored token: the Marketplace's
+policy for this repository, `release.yml` and the `release` environment is set
+up. Open VSX registers a trusted publisher only for an extension it already
+has, so before the first release:
+- claim the `QSPFoundation` namespace on Open VSX (it exists, unverified and
+  empty: an issue in EclipseFdn/open-vsx.org), and sign the Publisher Agreement;
+- publish 0.4.0 there by hand with an access token
+  (`npx ovsx publish qsp-lsp-0.4.0.vsix -p <token>`), then add the trusted
+  publisher (Settings → Trusted Publishers: QSPFoundation/qsp-lsp,
+  `release.yml`, environment `release`) and revoke the token; the release run
+  then skips the version Open VSX has.
+
+After 0.4.0 is out:
+- the author of **QSP (official)** points its users to `QSPFoundation.qsp-lsp`
+  (microsoft/vscode-discussions#1), and it and **qsp-ext** are marked deprecated
+  in favour of it on the Marketplace;
+- `qsp-game-template` installs the extension by its ID instead of a pinned
+  `.vsix`, and lists the old ones in `unwantedRecommendations`.
 
 ## Default library catalog
 
