@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.4.0
 
 First release on the VS Code Marketplace, as **QSPeak: QSP Language Support** (`QSPFoundation.qsp-lsp`). It replaces **QSP (official)** (`QSPFoundation.qsp-official`): both declare the `qsp` language, so uninstall or disable that one. The analysis cache starts empty once, since it is kept per extension.
@@ -72,27 +74,5 @@ First release on the VS Code Marketplace, as **QSPeak: QSP Language Support** (`
 - In files past 500 KB, hover showed no possible values for a local of a nested block that takes its value from another variable (`local y = i` in a loop body): scopes were recorded by the parse tree's node ids, which mean nothing in the location's next parse.
 - In a project, a large open file (past 500 KB, parsed location by location) showed no syntax errors at all, and closed files could lose theirs after an edit elsewhere.
 - A line starting with `--` between locations (an ASCII table, a divider) no longer breaks the highlighting and reports false syntax errors in the rest of that text: only a `#` header starts something there. Reported by Aleks Versus.
-
-## 0.3.0
-
-### New
-- **QSP Locations** view in the Explorer: every location of the project, by file or A→Z, with error counts, the start location marked, following the cursor, and rename / duplicate / delete / find references from its context menu.
-- **Jump Graph** (**QSP: Show Jump Graph**, `Ctrl+K J`): who jumps to or calls whom, in a tab beside the editor. Around a location, the whole project, or folded by file; hubs hidden, search, hover highlight, click to open a location or the place a jump is written.
-  - Dynamic jumps (`gt $next`, `gt 'room_' + n`, `gt $args[0]`, `gt func('pick')`) get **possible** arrows to the locations their variables are known to name, from the nearest write before the jump, the writes before the calls into its location, or every write in the project. Nothing is run; what can't be known still goes to a **?** node.
-  - Large games stay usable: a force layout in slices for ~1000 locations, arrows drawn on demand past 5000, and layout that keeps going while the panel is hidden.
-- **MCP server** for AI agents: the editor's diagnostics, symbols, references and project information as MCP tools (see [MCP.md](MCP.md)); offered to VS Code agents, and **QSP: Copy MCP Server Config** for other clients.
-- **Analysis status** item next to QSP in the status bar: what the server is doing, and degraded modes (**Limited mode**, **Per-location parsing**, **Reduced analysis**).
-- **Crash reports**: if the language server stops unexpectedly, a report with numbers and neutral names (never game text) is saved to `.qsp/crash-reports/`, optionally with the anonymized code of the location it was stuck on (`qsp.crashReports.*`).
-- Builds: per-file build mode, a configurable main file, the player executable in `txt2gam.json`, and unchanged `.qsp` files are no longer rewritten.
-- Syntax errors of project files that are not open are reported.
-
-### Large games
-- Games of 1000–1500 locations (25–50 million characters) load without running out of memory: parsing is 8–12× faster, the analysis keeps within bounds on shared local names and deep call graphs, and past 70% of the heap the server drops optional analysis (**Reduced analysis**) instead of crashing.
-- `qsp.diagnostics.maxPerFile` (5000) caps the diagnostics of one file.
-- `[perf]` lines in the server log give each slow phase's time and memory, without names (`qsp.debug.performanceLog` logs every phase).
-
-### Fixes
-- A server crash and parse corruption on some inputs; blocking file I/O and stale trees in project mode; cache invalidation bugs; WASM memory leaks.
-- Multiline expressions: operators at the start of a line, line continuations, and a newline before the closing bracket after a multiline `or`.
 
 Earlier versions: see the [GitHub releases](https://github.com/QSPFoundation/qsp-lsp/releases).
