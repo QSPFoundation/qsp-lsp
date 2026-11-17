@@ -25,6 +25,7 @@ import {
   extractLabel,
   extractAction,
   extractLocationRef,
+  extractAliasTargets,
   extractFuncCallLocationRef,
   extractUserCallRef,
   extractObjOperator,
@@ -338,6 +339,8 @@ export function walkLocationBody(
       do { visit(); } while (cursor.gotoNextSibling());
       cursor.gotoParent();
     }
+    // After its variables: the locals it links have to exist.
+    if (node.type === 'alias_statement') extractAliasTargets(node, locSymbols, docUri, scopeId);
   }
 
   // ── Start the main walk ─────────────────────────────────────────

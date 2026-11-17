@@ -87,6 +87,11 @@ export interface SymbolLocation {
    */
   argsConsumer?: boolean;
   /**
+   * The name of an array in ALIAS (`alias a = 'arr1'`): a reference that
+   * neither reads nor writes it.
+   */
+  aliasName?: true;
+  /**
    * Literal slot index of an `args[N]` consumer (`args[2]` → `2`).
    * Undefined when `argsConsumer` is also undefined (not an args
    * consumer) or when the index is opaque (bare `args`, non-literal).
@@ -131,6 +136,18 @@ export interface QspSymbol {
   prefixes?: Set<string>;
   /** Scope ID for local variables (0 = top-level). */
   scopeId?: number;
+  /**
+   * For a local of ALIAS (QSP 5.9.6), which shares an array instead of
+   * holding a value: a read or write through it is one of the array.
+   */
+  alias?: {
+    /** The arrays its ALIAS statements name in strings, lowercase, without a prefix. */
+    targets: string[];
+    /** Some ALIAS gives the array's name by an expression (`alias a = $name`). */
+    unknownTarget?: true;
+    /** How many ALIAS statements declare it: its definitions past these are writes. */
+    declarations: number;
+  };
 }
 
 export enum QspSymbolKind {

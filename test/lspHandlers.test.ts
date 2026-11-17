@@ -678,6 +678,26 @@ pl myVar
 // ══════════════════════════════════════════════════════════════════════
 
 describe('collectAllReferences', () => {
+  it('finds the array an ALIAS names, and renames it there keeping the prefix', () => {
+    const code = `# a
+массив[0] = 1
+---
+# b
+alias список = '$массив'
+pl список[0] + массив[0]
+---
+`;
+    const { ctx, state, doc, uri } = makeFixture(code);
+    const lines = code.split('\n');
+    const refs = collectAllReferences(ctx, state, uri, posOf(code, 'массив'), doc);
+    expect(refs.map(r => lines[r.line].slice(r.column, r.endColumn))).toEqual(['массив', 'массив', 'массив']);
+    expect(refs.map(r => r.line).sort()).toEqual([1, 4, 5]);
+    // From the name in the string too.
+    expect(collectAllReferences(ctx, state, uri, posOf(code, "'$массив'"), doc)).toHaveLength(3);
+    const edits = buildRenameEdit(ctx, state, uri, posOf(code, 'массив'), doc, 'склад')!.changes![uri];
+    expect(TextDocument.applyEdits(doc, edits)).toContain("alias список = '$склад'");
+  });
+
   it('finds all references to a global variable across locations', () => {
     const code = `# a
 x = 1

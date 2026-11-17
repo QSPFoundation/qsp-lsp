@@ -570,6 +570,53 @@ function operandString(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
   return operand ? findDirectString(operand) : null;
 }
 
+// ── ALIAS ─────────────────────────────────────────────────────────────
+
+/**
+ * Link the locals an `alias_statement` declares to the arrays its values
+ * name: `ALIAS a, $b = 'arr1', '$arr2'` makes `a` share `arr1` and `b`
+ * share `arr2`. A name in a string is also a reference to that array (for
+ * references and rename), neither a read nor a write (QSP makes the array
+ * if there is none), with no type prefix. Called after the statement's
+ * variables are recorded.
+ */
+export function extractAliasTargets(
+  node: Parser.SyntaxNode,
+  locSymbols: LocationSymbols,
+  docUri: string,
+  scopeId: number,
+): void {
+  const names = (node.childForFieldName('variables')?.namedChildren ?? [])
+    .filter(v => v.type === 'variable_ref' || v.type === 'ml_variable_ref');
+  // The field also holds the commas between the values.
+  const values = node.childrenForFieldName('value').filter(v => v.isNamed);
+  for (const [i, v] of names.entries()) {
+    const name = v.childForFieldName('name')?.text;
+    const sym = name ? locSymbols.findLocalInScope(name, scopeId) : undefined;
+    if (!sym) continue;
+    const alias = sym.alias ??= { targets: [], declarations: 0 };
+    alias.declarations++;
+    // QSP pairs names and values one to one, and stops on any other count.
+    const str = values.length === names.length ? findDirectString(values[i]) : null;
+    const quoted = str && str.type !== 'code_block' ? extractQuotedRefInfo(str, docUri) : null;
+    const target = quoted ? parseVarStringArg(quoted.name) : null;
+    if (!quoted || !target) {
+      alias.unknownTarget = true;
+      continue;
+    }
+    const base = target.base.toLowerCase();
+    if (!alias.targets.includes(base)) alias.targets.push(base);
+    // The name alone, without a prefix: QSP takes only the name ('$arr1'
+    // is arr1), and a rename keeps the prefix.
+    const at = quoted.name.indexOf(target.base);
+    const loc = quoted.loc.line === quoted.loc.endLine
+      ? { ...quoted.loc, column: quoted.loc.column + at, endColumn: quoted.loc.column + at + target.base.length }
+      : quoted.loc;
+    loc.aliasName = true;
+    locSymbols.addVariable(target.base, loc, false, false, '', scopeId, false);
+  }
+}
+
 // ── Variable-from-string reference ────────────────────────────────────
 
 /**

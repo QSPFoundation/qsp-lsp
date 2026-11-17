@@ -77,6 +77,13 @@ export interface SymbolAggregates {
    */
   globallyValueDefined: Set<string>;
   globallyRead: Set<string>;
+  /**
+   * Arrays read, and given a value, through a local of ALIAS
+   * (`alias a = 'arr1'`, then `pl a[0]` / `a[0] = 1`), by lowercase name:
+   * a read or a write of the array itself, wherever it is.
+   */
+  readThroughAlias: Set<string>;
+  writtenThroughAlias: Set<string>;
   definedActions: Set<string>;
   definedObjects: Set<string>;
   referencedLocations: Set<string>;
@@ -328,6 +335,8 @@ export function emptyAggregates(): SymbolAggregates {
     globallyDefined: new Set(),
     globallyValueDefined: new Set(),
     globallyRead: new Set(),
+    readThroughAlias: new Set(),
+    writtenThroughAlias: new Set(),
     definedActions: new Set(),
     definedObjects: new Set(),
     referencedLocations: new Set(),
@@ -349,6 +358,17 @@ export function emptyAggregates(): SymbolAggregates {
   };
 }
 
+// What a local of ALIAS does to the arrays it shares: its ALIAS
+// statements are definitions too, so a write is a definition past those.
+function addAliasUses(sym: QspSymbol, alias: NonNullable<QspSymbol['alias']>, out: SymbolAggregates): void {
+  const read = sym.references.some(ref => ref.isProperUsage);
+  const written = sym.references.filter(ref => ref.isDefinition).length > alias.declarations;
+  for (const target of alias.targets) {
+    if (read) out.readThroughAlias.add(target);
+    if (written) out.writtenThroughAlias.add(target);
+  }
+}
+
 /** Collect symbol aggregates from a set of LocationSymbols into `out`. */
 export function collectAggregates(
   locations: Iterable<LocationSymbols>,
@@ -357,6 +377,7 @@ export function collectAggregates(
   for (const locSyms of locations) {
     if (locSyms.regexOnly) out.hasRegexOnlyLocations = true;
     for (const sym of locSyms.ownedVariables) {
+      if (sym.alias) addAliasUses(sym, sym.alias, out);
       // Local variables are scoped to their location — skip them
       // for cross-location aggregates
       if (sym.isLocal) continue;

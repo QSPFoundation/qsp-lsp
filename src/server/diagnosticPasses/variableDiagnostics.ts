@@ -100,6 +100,8 @@ export function* checkUninitializedVariables(
     for (const sym of locSyms.ownedVariables) {
       if (sym.hasValueDefinition) continue;
       if (RUNTIME_INITIALIZED_VAR_NAMES.has(sym.nameLower)) continue;
+      // Given its value through a local of ALIAS that shares it.
+      if (!sym.isLocal && agg.writtenThroughAlias.has(sym.nameLower)) continue;
 
       // Name-propagated local from an upstream caller — suppress only
       // when at least one provider is value-bearing.
@@ -125,7 +127,7 @@ export function* checkUninitializedVariables(
       if (hasValueBinding) continue;
 
       for (const ref of sym.references) {
-        if (ref.isDefinition) continue;
+        if (ref.isDefinition || ref.aliasName) continue;
         ctx.push(
           DiagnosticSeverity.Warning,
           ctx.locRange(ref),
@@ -281,7 +283,7 @@ export function* checkUnusedVariables(
   agg: SymbolAggregates,
   docUri: string,
 ): Steps {
-  const { globallyRead, propagatedSyms, propagatedLocals, crossCallWrites, namedInText } = agg;
+  const { globallyRead, readThroughAlias, propagatedSyms, propagatedLocals, crossCallWrites, namedInText } = agg;
 
   for (const [, locSyms] of symbols.locations) {
     yield;
@@ -291,6 +293,28 @@ export function* checkUnusedVariables(
     for (const sym of locSyms.ownedVariables) {
       if (!sym.definition) continue;
       if (BUILTIN_VAR_NAMES.has(sym.nameLower)) continue;
+
+      if (sym.alias) {
+        // A local of ALIAS holds no value of its own: what is written
+        // through it is the shared array's, used if that is read anywhere.
+        // Passed to the locations it calls, it is used there.
+        const { alias } = sym;
+        if (propagatedSyms.has(sym)) continue;
+        if (sym.references.length > alias.declarations) {
+          if (sym.references.some(ref => ref.isProperUsage)) continue;
+          if (alias.unknownTarget) continue;
+          if (alias.targets.some(t => globallyRead.has(t) || readThroughAlias.has(t))) continue;
+        }
+        ctx.push(
+          DiagnosticSeverity.Information,
+          ctx.locRange(sym.definition),
+          sym.references.length > alias.declarations
+            ? `Variable '${sym.name}' is assigned but never read`
+            : `Variable '${sym.name}' is declared but never used`,
+          { code: 'unusedVariables', name: sym.name, unnecessary: true },
+        );
+        continue;
+      }
 
       if (sym.isLocal) {
         // Locals are scope-bounded by the parser.  A proper-usage ref
@@ -319,6 +343,8 @@ export function* checkUnusedVariables(
         // project — globallyRead aggregates isProperUsage refs across all
         // locations and documents, so it is the correct and sufficient check.
         if (globallyRead.has(sym.nameLower)) continue;
+        // Read through a local of ALIAS that shares it.
+        if (readThroughAlias.has(sym.nameLower)) continue;
       }
 
       ctx.push(

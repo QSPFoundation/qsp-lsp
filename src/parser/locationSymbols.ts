@@ -396,6 +396,7 @@ export class LocationSymbols {
     loc: SymbolLocation,
     isLocal: boolean,
     isDefinition = false,
+    // '' for a reference that says nothing of the type (an array named in ALIAS).
     prefix = '',
     scopeId = 0,
     hasValue = isDefinition,
@@ -473,7 +474,7 @@ export class LocationSymbols {
       if (hasValue) sym.hasValueDefinition = true;
     }
     sym.references.push(loc);
-    sym.prefixes!.add(prefix);
+    if (prefix) sym.prefixes!.add(prefix);
     if (writtenPrefix !== undefined && !sym.isLocal) {
       // A number reads as `name` or `#name`, text as `$name`; 5.9.5
       // ignores a value written with another prefix (`$usehtml`, `fname`).

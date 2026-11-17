@@ -3177,6 +3177,41 @@ dynamic $never
       expect(all.map(d => d.message)).toEqual(["Variable 'alias' is assigned but never read"]);
     });
 
+    // A local of ALIAS shares the array its value names: a read or write
+    // through it is one of the array, in this location or any other.
+    describe('ALIAS', () => {
+      const varDiags = (code: string) =>
+        run(code, { uninitializedVariables: true, unusedVariables: true, mixedVariablePrefixes: true, syntaxVersion: '5.9.6' })
+          .map(d => `${d.range.start.line}:${d.range.start.character} ${d.message}`);
+
+      it('counts a write through the alias as giving the array a value', () => {
+        const code = "# а\nalias список = 'массив'\nсписок[0] = 5\n--- а ---\n# б\npl массив[0]\n--- б ---\n";
+        expect(varDiags(code)).toEqual([]);
+      });
+
+      it('counts a read through the alias as reading the array, whatever prefix its name has', () => {
+        const code = "# а\nмассив[0] = 5\n--- а ---\n# б\nalias a, $b = '$массив', 'arr2'\npl a[0]\n$b = 'x'\n--- б ---\n";
+        expect(varDiags(code)).toEqual(['4:10 Variable \'b\' is assigned but never read']);
+      });
+
+      it('reports an alias nothing goes through, and not the array it names', () => {
+        const code = "# а\nalias a = 'arr1'\n--- а ---\n# б\narr1 = 1\npl arr1\n--- б ---\n";
+        expect(varDiags(code)).toEqual(["1:6 Variable 'a' is declared but never used"]);
+        // Naming an array is no use of it.
+        expect(varDiags("# а\nalias a = 'arr1'\npl a\n--- а ---\n")).toEqual([]);
+      });
+
+      it('takes an alias read in a location it calls as used', () => {
+        const code = "# а\nalias a = 'arr1'\ngs 'б'\n--- а ---\n# б\npl a[0]\n--- б ---\n";
+        expect(varDiags(code)).toEqual([]);
+      });
+
+      it('takes an alias whose array is given by an expression as used', () => {
+        const code = "# а\n$n = 'arr1'\nalias a = $n\na = 1\npl $n\n--- а ---\n";
+        expect(varDiags(code)).toEqual([]);
+      });
+    });
+
     it('reads insvar and arrkey as names where 5.9.5 does, which 5.9.6 reserves', () => {
       const code = "# a\ninsvar = 1\nx = arrkey + insvar\npl x\n--- a ---\n";
       expect(versionDiags(code, '5.9.5')).toEqual([]);

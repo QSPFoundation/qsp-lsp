@@ -735,6 +735,40 @@ describe('LSP e2e: closing a project file', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
+// ALIAS across files
+// ──────────────────────────────────────────────────────────────────────
+//
+// A local of ALIAS (QSP 5.9.6) shares the array it names, which may be
+// written or read only in another file: the project aggregates carry what
+// goes through the alias to the checks of that file.
+describe('LSP e2e: an array shared through ALIAS in another file', () => {
+  it('is neither unread nor unassigned there', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qsp-alias-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'main.qsps'), "# начало\nсклад[0] = 1\nвещи = 2\ngs 'запись'\n--- начало ---\n");
+      fs.writeFileSync(path.join(dir, 'alias.qsps'), "# запись\nalias a, b = 'склад', 'вещи'\npl a[0]\nb = 3\npl $n[0]\n--- запись ---\n# чтение\nalias c = 'n'\n$c = 'x'\n--- чтение ---\n");
+      const h = await startServer({ syntaxVersion: '5.9.6' }, dir);
+      try {
+        const uri = (name: string) => fsProvider.pathToUri(path.join(dir, name));
+        await Promise.all([h.diagnosticsFor(uri('main.qsps')), h.diagnosticsFor(uri('alias.qsps'))]);
+        // Project diagnostics follow the per-file ones.
+        await new Promise(r => setTimeout(r, 1500));
+        const messages = async (name: string) => (await h.diagnosticsFor(uri(name))).diagnostics
+          .filter(d => d.code === 'unusedVariables' || d.code === 'uninitializedVariables').map(d => d.message);
+        // `склад` is read through `a`, `n` written through `c`; `вещи` is
+        // written through `b` and read by nothing.
+        expect(await messages('main.qsps')).toEqual(["Variable 'вещи' is assigned but never read"]);
+        expect(await messages('alias.qsps')).toEqual(["Variable 'b' is assigned but never read"]);
+      } finally {
+        h.shutdown();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
+// ──────────────────────────────────────────────────────────────────────
 // Opening a large file reuses a stored analysis
 // ──────────────────────────────────────────────────────────────────────
 //

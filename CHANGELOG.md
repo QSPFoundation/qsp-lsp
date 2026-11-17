@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### New
+- A local of `ALIAS` (QSP 5.9.6) is followed to the array it shares: `alias a = 'arr1'` then `a[0] = 5` gives `arr1` a value, and `pl a[0]` reads it, in this location or any other file, so neither is reported as used but never assigned or assigned but never read any more. The name in the string is a reference to the array: **Find All References** lists it, and renaming the array renames it there too, keeping its prefix (`'$arr1'`). An alias nothing goes through is reported as declared but never used; one whose array is given by an expression (`alias a = $name`) counts as used.
+
 ## 0.4.0
 
 First release on the VS Code Marketplace, as **QSPeak: QSP Language Support** (`QSPFoundation.qsp-lsp`). It replaces **QSP (official)** (`QSPFoundation.qsp-official`): both declare the `qsp` language, so uninstall or disable that one. The analysis cache starts empty once, since it is kept per extension.
