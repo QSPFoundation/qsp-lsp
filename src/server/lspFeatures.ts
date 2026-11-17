@@ -453,7 +453,9 @@ export function registerLspFeatures(ctx: ServerContext): void {
             `**${builtin.name}** *(${builtin.kind})*`,
             '', builtin.description, '',
             '```qsp', builtin.signature ?? builtin.name, '```',
-            ...(existsIn(found, version) ? [] : ['', `*New in QSP ${found.since}; the syntax version is ${version}.*`]),
+            ...(existsIn(found, version) ? [] : ['', found.since === '5.9.6'
+              ? `*New in QSP 5.9.6; the syntax version is ${version}.*`
+              : `*Newer than QSP 5.7; the syntax version is ${version}.*`]),
           ].join('\n'),
         },
       };

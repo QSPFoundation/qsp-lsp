@@ -63,8 +63,10 @@ export function checkSyntaxErrors(
   for (let i = 0; i < locationIndex.length; i++) endLines.add(locationIndex[i].endLine);
 
   const buckets = new Map<number, SyntaxError[]>();
+  const version = ctx.settings.syntaxVersion;
   for (const err of syntaxErrors) {
     if (endLines.has(err.startRow)) continue;
+    if (err.versions && !err.versions.includes(version)) continue;
     // A block kept in a variable is text until something runs it: games
     // keep lists of words in them (`{ apple, pear }`). Running a block
     // doesn't run the blocks inside it, so the error's own block counts.

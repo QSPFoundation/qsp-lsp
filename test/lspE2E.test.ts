@@ -43,6 +43,7 @@ import {
 } from 'vscode-jsonrpc/node';
 import {
   CodeActionRequest,
+  CompletionRequest,
   ConfigurationRequest,
   DefinitionRequest,
   DidChangeConfigurationNotification,
@@ -65,6 +66,7 @@ import {
   SemanticTokensRangeRequest,
   SemanticTokensRequest,
   type CodeAction,
+  type CompletionItem,
   type DocumentSymbol,
   type Hover,
   type InitializeParams,
@@ -426,6 +428,38 @@ describe('LSP end-to-end: syntax version', () => {
       expect(after).not.toContain('unsupportedSyntax');
       expect(after).not.toContain('invalidBuiltinArgCount');
       expect((await hoverAt()).value).toContain('COUNTOBJ[([$object])]');
+    } finally {
+      h.shutdown();
+    }
+  }, 30_000);
+
+  it('checks, describes and completes by QSP 5.7', async () => {
+    const qspConfig: Record<string, unknown> = { syntaxVersion: '5.7.0' };
+    const h = await startServer(qspConfig);
+    try {
+      const uri = 'file:///syntax-version-57.qsps';
+      const code = "# a\nlocal n = instr(1, 'abc', 'b')\nx = max(n,\n 2)\npl x\n--- a ---\n";
+      await new Promise((r) => setTimeout(r, 200));
+      h.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: { uri, languageId: 'qsp', version: 1, text: code },
+      });
+      const lines = (diags: PublishDiagnosticsParams) => diags.diagnostics.map(d => `${d.range.start.line} ${d.code}`);
+      expect(lines(await h.diagnosticsFor(uri))).toEqual(['2 syntax', '1 unsupportedSyntax']);
+      const hoverAt = async (character: number) => (await h.client.sendRequest(HoverRequest.type, {
+        textDocument: { uri }, position: { line: 1, character },
+      }) as Hover).contents as { value: string };
+      expect((await hoverAt(10)).value).toContain('INSTR([#start position],[$text],[$search text])');
+      expect((await hoverAt(1)).value).toContain('*Newer than QSP 5.7; the syntax version is 5.7.0.*');
+      const labels = (await h.client.sendRequest(CompletionRequest.type, {
+        textDocument: { uri }, position: { line: 3, character: 0 },
+      }) as CompletionItem[]).map(c => c.label);
+      expect(labels).toContain('addqst');
+      expect(labels).not.toContain('local');
+
+      qspConfig.syntaxVersion = '5.9.5';
+      const next = h.nextDiagnosticsFor(uri);
+      h.client.sendNotification(DidChangeConfigurationNotification.type, { settings: {} });
+      expect(lines(await next)).toEqual([]);
     } finally {
       h.shutdown();
     }

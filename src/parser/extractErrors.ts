@@ -6,6 +6,7 @@
  * blocks).
  */
 import type Parser from 'web-tree-sitter';
+import type { SyntaxVersion } from '../common/syntaxVersion';
 import {
   RESERVED_WORDS,
   isOrphanBlockMarker,
@@ -13,13 +14,17 @@ import {
   checkReservedWordMisuse,
   checkPrefixWhitespace,
   checkContinuationInBrackets,
+  checkLineBreaksInBrackets,
   continuationInBracketsError,
   isContinuationInBrackets,
+  lineBreaksInBrackets,
+  opensBracketsAcrossLines,
+  reservedWordVersions,
 } from './lintChecks';
 import { isDynamicArgCodeBlock } from './scopeUtils';
 import { blockLocation, blockStatements, descendantsOfType, isNeverRunBlock, parentOf } from './blockTrees';
 
-export { checkFunctionNameAsLvalue, checkReservedWordMisuse, checkPrefixWhitespace, checkContinuationInBrackets };
+export { checkFunctionNameAsLvalue, checkReservedWordMisuse, checkPrefixWhitespace, checkContinuationInBrackets, checkLineBreaksInBrackets };
 
 /** A syntax error extracted from the parse tree. */
 export interface SyntaxError {
@@ -28,6 +33,8 @@ export interface SyntaxError {
   endRow: number;
   endCol: number;
   message: string;
+  /** The syntax versions it is an error in. Omitted = every version. */
+  versions?: readonly SyntaxVersion[];
   /** True when the error is inside a code block or <<>> string interpolation. */
   inCodeBlock?: boolean;
   /**
@@ -297,11 +304,11 @@ export function extractErrors(tree: Parser.Tree): SyntaxError[] {
 /**
  * Single-pass version of `checkReservedWordMisuse` +
  * `checkPrefixWhitespace` + `checkFunctionNameAsLvalue` +
- * `checkContinuationInBrackets`. Walks the tree
+ * `checkContinuationInBrackets` + `checkLineBreaksInBrackets`. Walks the tree
  * once with shared depth counters for `code_block` / `string_interpolation`
  * context, instead of three separate full-tree walks.
  *
- * Behaviour MUST match the union of the four public functions exactly;
+ * Behaviour MUST match the union of the five public functions exactly;
  * the test suite still calls those public functions individually.
  */
 function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
@@ -310,6 +317,11 @@ function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
   let codeBlockDepth = 0;
   let interpolationDepth = 0;
   let errorDepth = 0;
+  // The nodes around the one visited, in its tree, and which of them has
+  // brackets across lines already looked into for line breaks (-1: none);
+  // `lineBreaksInBrackets` covers the brackets inside them.
+  const parents: Parser.SyntaxNode[] = [];
+  let bracketRegion = -1;
   // The stored blocks around the node being visited, innermost last.
   const storedBlocks: Parser.SyntaxNode[] = [];
   const storedContext = () => {
@@ -370,6 +382,7 @@ function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
           endRow: n.endPosition.row,
           endCol: n.endPosition.column,
           message: `'${n.text}' is a reserved keyword and cannot be used as a variable name`,
+          versions: reservedWordVersions(text),
           inCodeBlock: codeBlockDepth > 0 || undefined,
           ...storedContext(),
           inInterpolation: interpolationDepth > 0 || undefined,
@@ -433,11 +446,35 @@ function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
       });
     }
 
+    // ── Pass 5: line breaks inside brackets (QSP 5.7) ─────────────
+    // Looked for at a bracket, far rarer than the nodes that can hold one.
+    if ((t === '(' || t === '[') && bracketRegion < 0 && errorDepth === 0) {
+      const holder = parents.at(-1);
+      if (holder && opensBracketsAcrossLines(holder)) {
+        bracketRegion = parents.length - 1;
+        for (const err of lineBreaksInBrackets(holder)) {
+          errors.push({
+            ...err,
+            inCodeBlock: codeBlockDepth > 0 || undefined,
+            ...storedContext(),
+            inInterpolation: interpolationDepth > 0 || undefined,
+          });
+        }
+      }
+    }
+
     if (t === 'code_block') {
-      // Text nothing runs: an array's key, an operand of `=`.
+      // Text nothing runs: an array's key, an operand of `=`. A block's
+      // code has brackets of its own.
+      const outer = bracketRegion;
+      bracketRegion = -1;
       if (!isNeverRunBlock(n)) visitStatements(n);
+      bracketRegion = outer;
     } else if (cursor.gotoFirstChild()) {
+      parents.push(n);
       do { visit(); } while (cursor.gotoNextSibling());
+      parents.pop();
+      if (bracketRegion === parents.length) bracketRegion = -1;
       cursor.gotoParent();
     }
 

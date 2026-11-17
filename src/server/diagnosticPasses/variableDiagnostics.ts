@@ -240,7 +240,7 @@ export function* checkTypeMismatch(
 ): Steps {
   const typeLabel = (p: string) => p === '$' ? 'string' : p === '%' ? 'tuple' : 'numeric';
   // In 5.9.6 a variable without a prefix holds a value of any type.
-  const untyped = ctx.settings.syntaxVersion !== '5.9.5';
+  const untyped = ctx.settings.syntaxVersion === '5.9.6';
 
   for (const [, locSyms] of symbols.locations) {
     yield;

@@ -10,8 +10,9 @@
  * authoritative standalone versions.
  */
 import type Parser from 'web-tree-sitter';
-import { QSP_STATEMENTS } from './builtins';
+import { ALL_BUILTINS, QSP_STATEMENTS } from './builtins';
 import { forEachDescendant, parentOf } from './blockTrees';
+import { SYNTAX_VERSIONS, isAtLeast, type SyntaxVersion } from '../common/syntaxVersion';
 
 /** A syntax error extracted from the parse tree. */
 export interface SyntaxError {
@@ -20,6 +21,8 @@ export interface SyntaxError {
   endRow: number;
   endCol: number;
   message: string;
+  /** The syntax versions it is an error in. Omitted = every version. */
+  versions?: readonly SyntaxVersion[];
   inCodeBlock?: boolean;
   /** See extractErrors.ts. */
   inStoredBlock?: boolean;
@@ -44,7 +47,7 @@ const RESERVED_BINARY_OPS = ['and', 'or', 'mod'];
 // ALIAS and INSVAR are names in 5.9.5 (`alias = 1`); 5.9.6 reserves
 // them, which the `unsupportedSyntax` diagnostic reports.
 const RESERVED_STATEMENT_NAMES = QSP_STATEMENTS
-  .filter(s => !s.since)
+  .filter(s => s.since !== '5.9.6')
   .map(s => s.name.toLowerCase())
   .filter(n => /^[a-z_][a-z_]*$/.test(n));
 
@@ -53,6 +56,15 @@ export const RESERVED_WORDS = new Set<string>([
   ...RESERVED_BINARY_OPS,
   ...RESERVED_STATEMENT_NAMES,
 ]);
+
+// LOCAL, LOOP, SETVAR…: names in 5.7, which has no such statements.
+const NEWER_THAN_57 = SYNTAX_VERSIONS.filter(v => isAtLeast(v, '5.9.5'));
+const RESERVED_AFTER_57 = new Set(ALL_BUILTINS.filter(s => s.since === '5.9.5').map(s => s.name.toLowerCase()));
+
+/** The versions in which `word` (lower case, in `RESERVED_WORDS`) can't name a variable. */
+export function reservedWordVersions(word: string): readonly SyntaxVersion[] | undefined {
+  return RESERVED_AFTER_57.has(word) ? NEWER_THAN_57 : undefined;
+}
 
 // ── Orphan block marker detection ────────────────────────────────────
 
@@ -194,6 +206,7 @@ export function checkReservedWordMisuse(tree: Parser.Tree): SyntaxError[] {
           endRow: node.endPosition.row,
           endCol: node.endPosition.column,
           message: `'${node.text}' is a reserved keyword and cannot be used as a variable name`,
+          versions: reservedWordVersions(text),
           inCodeBlock: inCB || undefined,
           inInterpolation: inIntp || undefined,
         });
@@ -273,10 +286,12 @@ export function checkPrefixWhitespace(tree: Parser.Tree): SyntaxError[] {
 
 /**
  * Whether a line continuation (` _` and a line break) is inside `(…)` or
- * `[…]`. QSP joins lines only where no bracket is open: inside brackets the
- * line break is a blank, and `_` a variable named `_` (checked on the 5.9.5
- * and 5.9.6 libraries: `max(1, _⏎ 2)` is "Unknown action"). A block's code
- * is joined again when it runs, so the climb stops at the block.
+ * `[…]`. QSP 5.9 joins lines only where no bracket is open: inside brackets
+ * the line break is a blank, and `_` a variable named `_` (checked on the
+ * 5.9.5 and 5.9.6 libraries: `max(1, _⏎ 2)` is "Unknown action"). QSP 5.7 is
+ * the reverse: there ` _` is the only way to break a line inside brackets
+ * (see `lineBreaksInBrackets`). A block's code is joined again when it runs,
+ * so the climb stops at the block.
  */
 export function isContinuationInBrackets(node: Parser.SyntaxNode): boolean {
   for (let p = node.parent; p; p = p.parent) {
@@ -301,7 +316,100 @@ export function continuationInBracketsError(node: Parser.SyntaxNode): SyntaxErro
     endRow: row,
     endCol: column + 1,
     message: "Inside brackets '_' doesn't join lines: QSP reads it as a variable named '_'. Break the line without it",
+    versions: NEWER_THAN_57,
   };
+}
+
+const ONLY_57: readonly SyntaxVersion[] = ['5.7.0'];
+
+/**
+ * The node types with `(` or `[` among their own tokens (in grammar.js,
+ * through the hidden rules they take in). Looked up first, since reading a
+ * node's position costs more than all else the lint walk does with it.
+ */
+export const BRACKET_HOLDERS: ReadonlySet<string> = new Set([
+  'statement', 'user_call_statement', 'user_func_call', 'ml_user_func_call', 'na_func_call', 'ext_func_call',
+  'ml_func_call', 'paren_expr', 'paren_args', 'bracket_tuple', 'paren_tuple', 'array_index',
+]);
+
+/** Whether `node` has brackets of its own, (…) or […], across lines. */
+export function opensBracketsAcrossLines(node: Parser.SyntaxNode): boolean {
+  if (!BRACKET_HOLDERS.has(node.type)) return false;
+  if (node.startPosition.row === node.endPosition.row || node.hasError) return false;
+  for (let i = 0; i < node.childCount; i++) {
+    const t = node.child(i)!.type;
+    if (t === '(' || t === '[') return true;
+  }
+  return false;
+}
+
+/**
+ * Line breaks inside the brackets of `node` (see `opensBracketsAcrossLines`)
+ * with no ` _` before them: an error in QSP 5.7 ("Syntax error", "Bracket
+ * not found"), which joins lines there only with ` _`. The grammar keeps
+ * such a line break in a hidden token, so it is a gap between two tokens on
+ * different lines; ` _` ends on the next line and leaves none. A string or
+ * block that spans lines counts as one token. Covers the brackets inside
+ * too, so call it for the outermost ones only.
+ */
+export function lineBreaksInBrackets(node: Parser.SyntaxNode): SyntaxError[] {
+  const errors: SyntaxError[] = [];
+  let depth = 0;
+  let last: Parser.SyntaxNode | null = null;
+  const token = (tok: Parser.SyntaxNode) => {
+    if (depth > 0 && last && tok.startPosition.row > last.endPosition.row) {
+      // On the last thing before the break: `max(1,` gets it on the comma.
+      const end = last.endPosition;
+      errors.push({
+        startRow: end.row,
+        startCol: last.startPosition.row === end.row ? last.startPosition.column : Math.max(0, end.column - 1),
+        endRow: end.row,
+        endCol: end.column,
+        message: "In QSP 5.7 a line breaks inside brackets only after ' _': end this line with it",
+        versions: ONLY_57,
+      });
+    }
+    last = tok;
+  };
+  const tokens = (n: Parser.SyntaxNode) => {
+    if (n.childCount === 0 || n.type === 'code_block' || n.type === 'string') { token(n); return; }
+    for (let i = 0; i < n.childCount; i++) tokens(n.child(i)!);
+  };
+  for (let i = 0; i < node.childCount; i++) {
+    const c = node.child(i)!;
+    if (c.type === ')' || c.type === ']') {
+      token(c);
+      depth = Math.max(0, depth - 1);
+    } else if (c.type === '(' || c.type === '[') {
+      token(c);
+      depth++;
+    } else if (depth > 0) {
+      tokens(c);
+    } else {
+      last = c;
+    }
+  }
+  return errors;
+}
+
+/** Line breaks inside brackets that QSP 5.7 doesn't take (see `lineBreaksInBrackets`). */
+export function checkLineBreaksInBrackets(tree: Parser.Tree): SyntaxError[] {
+  const errors: SyntaxError[] = [];
+  // How many brackets being looked into hold the node; a block's code
+  // starts again from none.
+  let inside = 0;
+  const outside: number[] = [];
+  forEachDescendant(tree.rootNode, (n) => {
+    if (n.type === 'code_block') { outside.push(inside); inside = 0; return; }
+    if (inside > 0 || opensBracketsAcrossLines(n)) {
+      if (inside === 0) errors.push(...lineBreaksInBrackets(n));
+      inside++;
+    }
+  }, (n) => {
+    if (n.type === 'code_block') inside = outside.pop()!;
+    else if (inside > 0) inside--;
+  });
+  return errors;
 }
 
 /** Line continuations inside `(…)` or `[…]` (see `isContinuationInBrackets`). */

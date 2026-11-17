@@ -13,10 +13,11 @@ import {
   type LocationSymbols,
   type QspSymbol,
   argCountsFor,
+  forVersion,
   lookupBuiltin,
 } from '../../parser';
 import type { SyntaxFeatureUse } from '../../parser/symbolTypes';
-import { SYNTAX_VERSION_LABELS } from '../../common/syntaxVersion';
+import { SYNTAX_VERSION_LABELS, isAtLeast, type SyntaxVersion } from '../../common/syntaxVersion';
 import { DiagnosticCtx, mapPush } from './diagnosticHelpers';
 
 // ── Labels ────────────────────────────────────────────────────────────
@@ -302,8 +303,8 @@ export function checkSystemVariablePrefix(
   locSyms: LocationSymbols,
 ): void {
   // 5.9.6 reads a system variable as the type it needs, whatever was
-  // stored in it; 5.9.5 ignores a value of the other type.
-  if (ctx.settings.syntaxVersion !== '5.9.5') return;
+  // stored in it; 5.9.5 and 5.7 ignore a value of the other type.
+  if (ctx.settings.syntaxVersion === '5.9.6') return;
   for (const w of locSyms.systemVariablePrefixWarnings) {
     const holds = w.valueType === '$'
       ? `holds text: write it '$${w.varName}'`
@@ -317,13 +318,38 @@ export function checkSystemVariablePrefix(
   }
 }
 
-const FEATURE_LABELS: Record<Exclude<SyntaxFeatureUse['feature'], 'builtin' | 'spaceAfterAt' | 'nameDelimiter' | 'reservedName'>, string> = {
+type VersionedFeature = Exclude<SyntaxFeatureUse['feature'], 'builtin' | 'nameDelimiter' | 'reservedName' | 'commentAfterColon'>;
+
+// The versions that have each construct (a builtin's follow from its `since`).
+const NEWER_THAN_57: readonly SyntaxVersion[] = ['5.9.5', '5.9.6'];
+const FEATURE_VERSIONS: Record<VersionedFeature, readonly SyntaxVersion[]> = {
+  undefinedValue: ['5.9.6'],
+  unaryPlus: ['5.7.0', '5.9.6'],
+  tabContinuation: ['5.9.6'],
+  spaceAfterAt: ['5.9.6'],
+  tuple: NEWER_THAN_57,
+  multipleAssignment: NEWER_THAN_57,
+  tuplePrefix: NEWER_THAN_57,
+  userFunctionCall: NEWER_THAN_57,
+  multipleIndex: NEWER_THAN_57,
+  inlineElseif: NEWER_THAN_57,
+};
+
+const FEATURE_LABELS: Record<Exclude<VersionedFeature, 'spaceAfterAt' | 'userFunctionCall'>, string> = {
   undefinedValue: "The undefined value '?'",
   unaryPlus: 'Unary plus',
   tabContinuation: "A tab before the '_' that joins lines",
+  tuple: 'A tuple',
+  multipleAssignment: 'Assigning several values at once',
+  tuplePrefix: "The tuple prefix '%'",
+  multipleIndex: 'An index of several values',
+  inlineElseif: 'ELSEIF on the line of its IF',
 };
 
-/** Constructs the chosen syntax version doesn't have. */
+// What 5.7 calls the statements that replaced its own.
+const NAMES_57: Record<string, string> = { inclib: 'ADDQST', freelib: 'KILLQST' };
+
+/** Constructs the chosen syntax version doesn't have, or reads otherwise. */
 export function checkUnsupportedSyntax(
   ctx: DiagnosticCtx,
   locSyms: LocationSymbols,
@@ -332,19 +358,37 @@ export function checkUnsupportedSyntax(
   for (const fu of locSyms.syntaxFeatureUses) {
     let message: string;
     if (fu.feature === 'nameDelimiter') {
-      if (version === '5.9.5') continue;
+      if (version !== '5.9.6') continue;
       const ch = /[\\;^@?]/.exec(fu.name!)![0];
       message = `'${ch}' ends a name in QSP ${SYNTAX_VERSION_LABELS[version]}: '${fu.name}' is not one name`;
     } else if (fu.feature === 'reservedName') {
-      if (version === '5.9.5') continue;
+      if (version !== '5.9.6') continue;
       const isFunction = lookupBuiltin(fu.name!)?.kind === 'function';
       message = `'${fu.name}' ${isFunction ? 'is a function' : 'starts a statement'} in QSP ${SYNTAX_VERSION_LABELS[version]} and can't name a variable`;
+    } else if (fu.feature === 'commentAfterColon') {
+      if (version !== '5.7.0') continue;
+      // QSP 5.7 makes a line with more than the header a one-line block.
+      message = `In QSP 5.7 a comment here makes the ${fu.name!.toUpperCase()} one line long, with only the comment in it: `
+        + 'the lines below aren\'t part of it. Move the comment to the next line';
     } else {
-      if (version !== '5.9.5') continue;
-      const what = fu.feature === 'builtin' ? fu.name!.toUpperCase()
-        : fu.feature === 'spaceAfterAt' ? `A space after '${fu.name}'`
-          : FEATURE_LABELS[fu.feature];
-      message = `${what} is new in QSP 5.9.6; the syntax version is 5.9.5`;
+      let has: boolean;
+      let what: string;
+      if (fu.feature === 'builtin') {
+        const since = lookupBuiltin(fu.name!)?.since;
+        has = since === undefined || isAtLeast(version, since);
+        what = fu.name!.toUpperCase();
+      } else {
+        // In 5.7 `@ name` is reported as the call it is.
+        has = FEATURE_VERSIONS[fu.feature].includes(version) || (fu.feature === 'spaceAfterAt' && version === '5.7.0');
+        what = fu.feature === 'spaceAfterAt' ? `A space after '${fu.name}'`
+          : fu.feature === 'userFunctionCall' ? `A call with '${fu.name}'`
+            : FEATURE_LABELS[fu.feature];
+      }
+      if (has) continue;
+      const instead = fu.feature === 'builtin' ? NAMES_57[fu.name!] : undefined;
+      message = version === '5.7.0'
+        ? `${what} is newer than QSP 5.7${instead ? `, which has ${instead} instead` : ''}; the syntax version is 5.7.0`
+        : `${what} is new in QSP 5.9.6; the syntax version is ${version}`;
     }
     ctx.push(
       DiagnosticSeverity.Error,
@@ -385,11 +429,15 @@ export function checkDeprecatedBuiltins(
   locSyms: LocationSymbols,
 ): void {
   for (const dw of locSyms.deprecationWarnings) {
+    // ADDQST and KILLQST are 5.7's own names, ADDLIB and DELLIB stand for them there.
+    const builtin = lookupBuiltin(dw.name);
+    const replacement = builtin ? forVersion(builtin, ctx.settings.syntaxVersion).deprecated : dw.replacement;
+    if (!replacement) continue;
     const kindLabel = dw.kind === 'statement' ? 'Statement' : 'Function';
     ctx.push(
       DiagnosticSeverity.Warning,
       ctx.locRange(dw.loc),
-      `${kindLabel} '${dw.name.toUpperCase()}' is outdated; use '${dw.replacement.toUpperCase()}' instead`,
+      `${kindLabel} '${dw.name.toUpperCase()}' is outdated; use '${replacement.toUpperCase()}' instead`,
       { code: 'deprecatedBuiltins', name: dw.name, deprecated: true },
     );
   }

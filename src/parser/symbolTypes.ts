@@ -376,14 +376,22 @@ export interface ArgCountWarning {
 
 /**
  * A construct that only some syntax versions have: new in 5.9.6
- * (`?`, INSVAR, ARRKEY, unary plus, a tab before ` _`, `@ name`), or a name that
- * 5.9.6 splits (`a\b`: `\ ; ^ @ ?` end a name there) or reserves (`alias`). Recorded whatever
+ * (`?`, INSVAR, ARRKEY, unary plus, a tab before ` _`, `@ name`), newer than
+ * 5.7 (LOCAL, LOOP, tuples, `%`, `@name`, several values at once, ELSEIF on
+ * the line of its IF), one 5.7 reads otherwise (a comment after the `:` of a
+ * multi-line IF, ACT, ELSEIF or ELSE), or a name that 5.9.6 splits (`a\b`:
+ * `\ ; ^ @ ?` end a name there) or reserves (`alias`). Recorded whatever
  * the version; the `unsupportedSyntax` diagnostic picks those to report.
  */
 export interface SyntaxFeatureUse {
   loc: SymbolLocation;
-  feature: 'undefinedValue' | 'builtin' | 'unaryPlus' | 'tabContinuation' | 'spaceAfterAt' | 'nameDelimiter' | 'reservedName';
-  /** The builtin's lower-case name, `@` or `@@`, or the name 5.9.6 splits or reserves. */
+  feature: 'undefinedValue' | 'builtin' | 'unaryPlus' | 'tabContinuation' | 'spaceAfterAt' | 'nameDelimiter' | 'reservedName'
+    | 'tuple' | 'multipleAssignment' | 'tuplePrefix' | 'userFunctionCall' | 'multipleIndex' | 'inlineElseif'
+    | 'commentAfterColon';
+  /**
+   * The builtin's lower-case name, `@` or `@@`, the name 5.9.6 splits or
+   * reserves, or the keyword (`if`, `act`, `elseif`, `else`) a comment follows.
+   */
   name?: string;
 }
 

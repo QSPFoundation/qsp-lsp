@@ -2,15 +2,6 @@
 
 Work that is planned but not started: why it is wanted and what is known.
 
-## Syntax version 5.7.0
-
-Games written for the QSP 5.7 player (github.com/QSPFoundation/qsp-legacy) follow
-other rules than `qsp.syntaxVersion` 5.9.5 and 5.9.6, checked by running code on
-the three libraries: inside `(…)` and `[…]` a line breaks only with ` _` (a bare
-line break there is "Syntax error" / "Bracket not found"; 5.9 is the reverse), true
-is -1, and there are no tuples, `%`, and several 5.9 functions. A third version would
-gate these like 5.9.6's constructs are gated now.
-
 ## Jump Graph frame rate on large views
 
 ~3000 arrows at once (a ~1000-location game, under the 5000-arrow threshold) make

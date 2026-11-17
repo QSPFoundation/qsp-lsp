@@ -23,6 +23,7 @@ import { QspTreeSitterParser, extractSymbols } from '../src/parser/treeSitter';
 import { buildLocationIndex } from '../src/common/locations';
 import { computeDiagnostics, type DiagnosticSettings } from '../src/server/diagnostics';
 import { WASM_PATH } from './testHelpers';
+import type { SyntaxVersion } from '../src/common/syntaxVersion';
 
 const ALL_OFF: DiagnosticSettings = {
   duplicateLocations: false,
@@ -3149,7 +3150,7 @@ dynamic $never
   // ends a name at `\ ; ^ @ ?`; the parser reads both, the diagnostic
   // reports what the chosen version lacks.
   describe('unsupportedSyntax', () => {
-    const versionDiags = (code: string, syntaxVersion: '5.9.5' | '5.9.6') =>
+    const versionDiags = (code: string, syntaxVersion: SyntaxVersion) =>
       run(code, { unsupportedSyntax: true, syntaxVersion })
         .map(d => `${d.range.start.line}:${d.range.start.character} ${d.message}`);
 
@@ -3239,6 +3240,107 @@ dynamic $never
         "3:9 '@' ends a name in QSP 5.9.6 (dev): 'g@h' is not one name",
         "3:15 '?' ends a name in QSP 5.9.6 (dev): 'i?j' is not one name",
       ]);
+    });
+
+    // QSP 5.7 (qsp-legacy), checked on its library: what 5.8 and 5.9 added
+    // is unknown there, and a few lines read otherwise.
+    describe('5.7.0', () => {
+      const diags57 = (code: string, overrides: Partial<DiagnosticSettings> = { unsupportedSyntax: true }) =>
+        run(code, { ...overrides, syntaxVersion: '5.7.0' })
+          .map(d => `${d.range.start.line}:${d.range.start.character} ${d.message}`);
+
+      it('reports the statements, functions and constructs newer than 5.7', () => {
+        const code = "# a\nlocal x = 1\nloop while x < 3 step x += 1: pl x\nsetvar 'a', 1\n%t = [1, 2]\n"
+          + "y, z = 1, 2\nw = a[1, 2]\nq = @f(1)\nif x: pl 1 elseif x = 2: pl 2 else pl 3\n"
+          + "$o = $curobjs\ninclib 'lib.qsp'\nfreelib\nn = ?\n--- a ---\n# f\n--- f ---\n";
+        expect(diags57(code)).toEqual([
+          '1:0 LOCAL is newer than QSP 5.7; the syntax version is 5.7.0',
+          '2:0 LOOP is newer than QSP 5.7; the syntax version is 5.7.0',
+          '3:0 SETVAR is newer than QSP 5.7; the syntax version is 5.7.0',
+          "4:0 The tuple prefix '%' is newer than QSP 5.7; the syntax version is 5.7.0",
+          '4:5 A tuple is newer than QSP 5.7; the syntax version is 5.7.0',
+          '5:0 Assigning several values at once is newer than QSP 5.7; the syntax version is 5.7.0',
+          '6:5 An index of several values is newer than QSP 5.7; the syntax version is 5.7.0',
+          "7:4 A call with '@' is newer than QSP 5.7; the syntax version is 5.7.0",
+          '8:11 ELSEIF on the line of its IF is newer than QSP 5.7; the syntax version is 5.7.0',
+          '9:6 CUROBJS is newer than QSP 5.7; the syntax version is 5.7.0',
+          '10:0 INCLIB is newer than QSP 5.7, which has ADDQST instead; the syntax version is 5.7.0',
+          '11:0 FREELIB is newer than QSP 5.7, which has KILLQST instead; the syntax version is 5.7.0',
+          "12:4 The undefined value '?' is newer than QSP 5.7; the syntax version is 5.7.0",
+        ]);
+        expect(run(code, { unsupportedSyntax: true, syntaxVersion: '5.9.5' }).map(d => d.message))
+          .toEqual(["The undefined value '?' is new in QSP 5.9.6; the syntax version is 5.9.5"]);
+      });
+
+      it('takes unary plus and the names 5.9.6 splits, as 5.9.5 does', () => {
+        expect(diags57('# a\nx = +1\na\\b = 1\npl x + a\\b + c?d\n--- a ---\n')).toEqual([]);
+      });
+
+      it("reports a comment after the ':' of a multi-line block, which 5.7 makes a one-line one", () => {
+        const code = "# a\nif x: ! note\n  pl 1\nend\nact 'go': ! note\n  pl 2\nend\nif x:\n  pl 1\nelseif x = 2: ! c\n  pl 2\n"
+          + "else ! c\n  pl 3\nend\nif x:\n  pl 1\nelse: ! only a comment\nend\n--- a ---\n";
+        const lines = (name: string) => `In QSP 5.7 a comment here makes the ${name} one line long, with only the comment in it: `
+          + "the lines below aren't part of it. Move the comment to the next line";
+        expect(diags57(code)).toEqual([
+          `1:6 ${lines('IF')}`,
+          `4:10 ${lines('ACT')}`,
+          `9:14 ${lines('ELSEIF')}`,
+          `11:5 ${lines('ELSE')}`,
+        ]);
+        expect(versionDiags(code, '5.9.5')).toEqual([]);
+      });
+
+      it('breaks a line inside brackets only after _, the reverse of 5.9', () => {
+        const code = '# a\nx = max(1,\n 2)\ny = max(1, _\n 2)\npl (x + _\n  y) * arr[1 +\n 1]\n--- a ---\n';
+        const breakMessage = "In QSP 5.7 a line breaks inside brackets only after ' _': end this line with it";
+        const joinMessage = "Inside brackets '_' doesn't join lines: QSP reads it as a variable named '_'. Break the line without it";
+        expect(diags57(code, {})).toEqual([`1:9 ${breakMessage}`, `6:13 ${breakMessage}`]);
+        expect(run(code, { syntaxVersion: '5.9.5' }).map(d => `${d.range.start.line}:${d.range.start.character} ${d.message}`))
+          .toEqual([`3:11 ${joinMessage}`, `5:8 ${joinMessage}`]);
+      });
+
+      it('takes the names of 5.9 statements as the variable names they are in 5.7', () => {
+        const code = '# a\nx = local + setvar\nstep = 1\npl x + step\n--- a ---\n';
+        expect(diags57(code, {})).toEqual([]);
+        expect(run(code, { syntaxVersion: '5.9.5' }).map(d => d.message)).toEqual([
+          "'local' is a reserved keyword and cannot be used as a variable name",
+          "'setvar' is a reserved keyword and cannot be used as a variable name",
+          "'step' is a reserved keyword and cannot be used as a variable name",
+          "'step' is a reserved keyword and cannot be used as a variable name",
+        ]);
+      });
+
+      it('counts the arguments as 5.7 takes them', () => {
+        const code = "# a\ngs 'a', 1,2,3,4,5,6,7,8,9,10\ndelobj 'x', 1\nr = rand(1, 2, 3)\n$s = $replace('a', 'b', 'c', 1)\n"
+          + "$v = $qspver('platform')\np\n--- a ---\n";
+        expect(diags57(code, { invalidBuiltinArgCount: true })).toEqual([
+          "1:0 Statement 'gs' expects 1 to 10 arguments, got 11 arguments",
+          "2:0 Statement 'delobj' expects 1 arguments, got 2 arguments",
+          "3:4 Function 'rand' expects 1 to 2 arguments, got 3 arguments",
+          "4:6 Function 'replace' expects 2 to 3 arguments, got 4 arguments",
+          "5:6 Function 'qspver' expects 0 arguments, got 1 argument",
+          "6:0 Statement 'p' expects 1 arguments, got 0 arguments",
+        ]);
+        expect(run(code, { invalidBuiltinArgCount: true, syntaxVersion: '5.9.5' })).toEqual([]);
+      });
+
+      it('takes ADDQST and KILLQST as 5.7 names, and points ADDLIB and DELLIB to them', () => {
+        const code = "# a\naddqst 'lib.qsp'\nkillqst\naddlib 'lib.qsp'\ndellib\n--- a ---\n";
+        expect(diags57(code, { deprecatedBuiltins: true })).toEqual([
+          "3:0 Statement 'ADDLIB' is outdated; use 'ADDQST' instead",
+          "4:0 Statement 'DELLIB' is outdated; use 'KILLQST' instead",
+        ]);
+        expect(run(code, { deprecatedBuiltins: true, syntaxVersion: '5.9.5' }).map(d => d.message)).toEqual([
+          "Statement 'ADDQST' is outdated; use 'INCLIB' instead",
+          "Statement 'KILLQST' is outdated; use 'FREELIB' instead",
+          "Statement 'ADDLIB' is outdated; use 'INCLIB' instead",
+          "Statement 'DELLIB' is outdated; use 'FREELIB' instead",
+        ]);
+      });
+
+      it('types variables as 5.9.5 does', () => {
+        expect(diags57("# a\nx = 'abc'\npl x\n--- a ---\n", { typeMismatch: true })).toHaveLength(1);
+      });
     });
   });
 

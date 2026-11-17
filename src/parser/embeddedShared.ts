@@ -182,6 +182,7 @@ export function collectEmbeddedErrors(
       endRow: m.endLine,
       endCol: m.endColumn,
       message: e.message,
+      ...(e.versions && { versions: e.versions }),
       inCodeBlock: e.inCodeBlock,
       inStoredBlock: e.inStoredBlock,
       storedBlock: e.storedBlock && pointOf(translate({

@@ -253,7 +253,7 @@ The quick fix menu (**Ctrl+.** or the light bulb) on a diagnostic writes these c
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `qsp.project.enabled` | `true` | Enable project mode: treat all `.qsps`/`.qsrc` files as one combined game |
-| `qsp.syntaxVersion` | `5.9.5` | The QSP library the game is written for: `5.9.5` (the last release) or `5.9.6` (the library's development version). Constructs of a newer version are errors. Also picked from the `QSP 5.9.5` status bar item and saved in the workspace settings |
+| `qsp.syntaxVersion` | `5.9.5` | The QSP library the game is written for: `5.7.0` (the classic player, [qsp-legacy](https://github.com/QSPFoundation/qsp-legacy)), `5.9.5` (the last release) or `5.9.6` (the library's development version). Constructs of a newer version are errors, and hovers, completion and argument counts follow the version. Also picked from the `QSP 5.9.5` status bar item and saved in the workspace settings |
 | `qsp.trace.server`    | `off`  | Traces LSP communication (`off`, `messages`, `verbose`) |
 | `qsp.semanticHighlighting.enabled` | `true` | Enable semantic token highlighting (requires tree-sitter) |
 | `qsp.locations.followCursor` | `true` | Select the location under the cursor in the QSP Locations view. |
@@ -288,8 +288,8 @@ All diagnostic checks are enabled by default. Set to `false` to disable a specif
 | `qsp.diagnostics.unusedVariables` | `true` | Hint about variables assigned but never read |
 | `qsp.diagnostics.unusedObjects` | `true` | Hint about objects added but never referenced |
 | `qsp.diagnostics.invalidFunctionPrefix` | `true` | Warn when function called with wrong type prefix |
-| `qsp.diagnostics.unsupportedSyntax` | `true` | Error on constructs the chosen `qsp.syntaxVersion` doesn't have: in 5.9.5 `?`, `INSVAR`, `ARRKEY`, `ALIAS`, unary plus, a space after `@`, a tab before the `_` that joins lines; in 5.9.6 a name with `\ ; ^ @ ?` in it, or a variable named `alias` |
-| `qsp.diagnostics.systemVariablePrefix` | `true` | Warn when a system variable is written with a prefix of another type than it holds (`$usehtml`, `fname`): QSP 5.9.5 ignores such a value. Off for `qsp.syntaxVersion` 5.9.6, which converts it |
+| `qsp.diagnostics.unsupportedSyntax` | `true` | Error on constructs the chosen `qsp.syntaxVersion` doesn't have: in 5.7 `LOCAL`, `LOOP`, `INCLIB` and the other statements and functions of 5.9, tuples, the `%` prefix, calls with `@`, several values at once, `ELSEIF` on the line of its `IF`, and a comment after the `:` of a multi-line `IF` or `ACT`, which 5.7 makes a one-line one; in 5.9.5 `?`, `INSVAR`, `ARRKEY`, `ALIAS`, unary plus, a space after `@`, a tab before the `_` that joins lines; in 5.9.6 a name with `\ ; ^ @ ?` in it, or a variable named `alias` |
+| `qsp.diagnostics.systemVariablePrefix` | `true` | Warn when a system variable is written with a prefix of another type than it holds (`$usehtml`, `fname`): QSP 5.9.5 and 5.7 ignore such a value. Off for `qsp.syntaxVersion` 5.9.6, which converts it |
 | `qsp.diagnostics.invalidBuiltinArgCount` | `true` | Warn when built-in called with wrong arg count |
 | `qsp.diagnostics.deprecatedBuiltins` | `true` | Warn about outdated built-ins (e.g. `ADDQST` instead of `INCLIB`) and strike them through |
 | `qsp.diagnostics.mixedVariablePrefixes` | `true` | Info when variable uses inconsistent type prefixes |

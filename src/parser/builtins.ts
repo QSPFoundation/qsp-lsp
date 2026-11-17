@@ -2,9 +2,10 @@
  * QSP built-in keyword data for completions, hover, and diagnostics.
  *
  * An entry describes the newest syntax version; `since` and `in595` say
- * how 5.9.5 differs. Read an entry for a version with `forVersion`.
+ * how 5.9.5 differs, `DIFFERENCES_57` how 5.7 differs from 5.9.5. Read an
+ * entry for a version with `forVersion`.
  */
-import { SYNTAX_VERSIONS, type SyntaxVersion } from '../common/syntaxVersion';
+import { SYNTAX_VERSIONS, isAtLeast, type SyntaxVersion } from '../common/syntaxVersion';
 
 export interface BuiltinInfo {
   name: string;
@@ -39,7 +40,7 @@ export interface BuiltinInfo {
   /** Marks an outdated/legacy builtin. The string names the modern
    *  replacement (used in diagnostics and hovers).  Omitted = current. */
   deprecated?: string;
-  /** The first syntax version that has it. Omitted = every version. */
+  /** The first syntax version that has it. Omitted = every version (5.7 on). */
   since?: SyntaxVersion;
   /** What differs in 5.9.5. Arg counts go in `ARG_CONSTRAINTS_595`. */
   in595?: Pick<BuiltinInfo, 'description' | 'signature'>;
@@ -83,9 +84,9 @@ export const QSP_STATEMENTS: BuiltinInfo[] = [
   { name: 'add obj', kind: 'statement', description: 'Add an inventory object', signature: 'ADD OBJ [$name],[$image file],[#position]' },
   { name: 'delobj', kind: 'statement', description: 'Delete inventory objects with the specified name', signature: 'DELOBJ [$name],[#objects count]' },
   { name: 'del obj', kind: 'statement', description: 'Delete inventory objects with the specified name', signature: 'DEL OBJ [$name],[#objects count]' },
-  { name: 'modobj', kind: 'statement', description: 'Change how inventory objects with the specified name are visually represented', signature: 'MODOBJ [$name],[$title],[$image file]' },
-  { name: 'mod obj', kind: 'statement', description: 'Change how inventory objects with the specified name are visually represented', signature: 'MOD OBJ [$name],[$title],[$image file]' },
-  { name: 'resetobj', kind: 'statement', description: 'Revert modifications made by MODOBJ. If [$name] is given, only that object is reset; otherwise all objects are reset', signature: 'RESETOBJ [$name]' },
+  { name: 'modobj', kind: 'statement', description: 'Change how inventory objects with the specified name are visually represented', signature: 'MODOBJ [$name],[$title],[$image file]', since: '5.9.5' },
+  { name: 'mod obj', kind: 'statement', description: 'Change how inventory objects with the specified name are visually represented', signature: 'MOD OBJ [$name],[$title],[$image file]', since: '5.9.5' },
+  { name: 'resetobj', kind: 'statement', description: 'Revert modifications made by MODOBJ. If [$name] is given, only that object is reset; otherwise all objects are reset', signature: 'RESETOBJ [$name]', since: '5.9.5' },
   { name: 'killobj', kind: 'statement', description: 'Clear the inventory / remove the inventory object at the specified position', signature: 'KILLOBJ [#position]' },
   { name: 'unselect', kind: 'statement', description: 'Cancel the selection of an inventory object', signature: 'UNSELECT' },
   { name: 'unsel', kind: 'statement', description: 'Cancel the selection of an inventory object', signature: 'UNSEL' },
@@ -99,21 +100,21 @@ export const QSP_STATEMENTS: BuiltinInfo[] = [
   { name: 'cmdclr', kind: 'statement', description: 'Clear the input line', signature: 'CMDCLR' },
   { name: 'menu', kind: 'statement', description: 'Show a menu from the array with the given name', signature: 'MENU [$array name]' },
   // Variables & arrays
-  { name: 'setvar', kind: 'statement', description: 'Assign a value to the specified array element at the given index', signature: 'SETVAR [$variable name],[value],[index]' },
+  { name: 'setvar', kind: 'statement', description: 'Assign a value to the specified array element at the given index', signature: 'SETVAR [$variable name],[value],[index]', since: '5.9.5' },
   { name: 'insvar', kind: 'statement', description: 'Insert a value into an array: at its end, at the given position (moving the elements after it), or under the given key. With a fourth argument, move the element at the position (or key) given third to the position given fourth', signature: 'INSVAR [$variable name],[value],[index],[#new position]', since: '5.9.6' },
   { name: 'killvar', kind: 'statement', description: 'Delete all global variables (local ones stay) / the specified variable / the value at the specified index', signature: 'KILLVAR [$variable name],[index]', in595: { description: 'Delete all variables / the specified variable / the value at the specified index' } },
   { name: 'copyarr', kind: 'statement', description: 'Copy the contents of one array into another array', signature: 'COPYARR [$destination array],[$source array],[#start index],[#count]' },
-  { name: 'sortarr', kind: 'statement', description: 'Sort an array', signature: 'SORTARR [$array name],[#reverse order]' },
-  { name: 'scanstr', kind: 'statement', description: 'Find all substrings matching the regular expression', signature: 'SCANSTR [$array name],[$string],[$pattern],[#group number]' },
-  { name: 'unpackarr', kind: 'statement', description: 'Create an array from the elements of the specified slice of a tuple', signature: 'UNPACKARR [$array name],[%tuple],[#start],[#length]' },
+  { name: 'sortarr', kind: 'statement', description: 'Sort an array', signature: 'SORTARR [$array name],[#reverse order]', since: '5.9.5' },
+  { name: 'scanstr', kind: 'statement', description: 'Find all substrings matching the regular expression', signature: 'SCANSTR [$array name],[$string],[$pattern],[#group number]', since: '5.9.5' },
+  { name: 'unpackarr', kind: 'statement', description: 'Create an array from the elements of the specified slice of a tuple', signature: 'UNPACKARR [$array name],[%tuple],[#start],[#length]', since: '5.9.5' },
   // Save/load
   { name: 'opengame', kind: 'statement', description: 'Load the game state', signature: 'OPENGAME [$file]' },
   { name: 'savegame', kind: 'statement', description: 'Save the game state', signature: 'SAVEGAME [$file]' },
   { name: 'openqst', kind: 'statement', description: 'Open and run a game file', signature: 'OPENQST [$file]' },
-  { name: 'inclib', kind: 'statement', description: 'Add locations from the specified file', signature: 'INCLIB [$file]' },
+  { name: 'inclib', kind: 'statement', description: 'Add locations from the specified file', signature: 'INCLIB [$file]', since: '5.9.5' },
   { name: 'addqst', kind: 'statement', description: 'Add locations from the specified file (replaced by INCLIB)', signature: 'ADDQST [$file]', deprecated: 'inclib' },
   { name: 'addlib', kind: 'statement', description: 'Add locations from the specified file (replaced by INCLIB)', signature: 'ADDLIB [$file]', deprecated: 'inclib' },
-  { name: 'freelib', kind: 'statement', description: 'Remove all locations added via INCLIB', signature: 'FREELIB' },
+  { name: 'freelib', kind: 'statement', description: 'Remove all locations added via INCLIB', signature: 'FREELIB', since: '5.9.5' },
   { name: 'killqst', kind: 'statement', description: 'Remove all locations added via ADDQST (replaced by FREELIB)', signature: 'KILLQST', deprecated: 'freelib' },
   { name: 'dellib', kind: 'statement', description: 'Remove all locations added via ADDLIB (replaced by FREELIB)', signature: 'DELLIB', deprecated: 'freelib' },
   // UI
@@ -143,14 +144,14 @@ export const QSP_FUNCTIONS: BuiltinInfo[] = [
   { name: 'countobj', kind: 'function', description: 'Returns the number of objects in the inventory, or of the objects with the specified name', signature: 'COUNTOBJ[([$object])]', validPrefixes: '#', returnType: '#', in595: { description: 'Returns the number of objects in the inventory', signature: 'COUNTOBJ' } },
   { name: 'selobj', kind: 'function', description: 'Returns the name of the selected inventory object', signature: 'SELOBJ', validPrefixes: '$', returnType: '$' },
   { name: 'curloc', kind: 'function', description: 'Returns the name of the current location', signature: 'CURLOC', validPrefixes: '$', returnType: '$' },
-  { name: 'curobjs', kind: 'function', description: 'Returns all current inventory objects as code', signature: 'CUROBJS', validPrefixes: '$', returnType: '$' },
+  { name: 'curobjs', kind: 'function', description: 'Returns all current inventory objects as code', signature: 'CUROBJS', validPrefixes: '$', returnType: '$', since: '5.9.5' },
   { name: 'selact', kind: 'function', description: 'Returns the name of the selected action', signature: 'SELACT', validPrefixes: '$', returnType: '$' },
   { name: 'curacts', kind: 'function', description: 'Returns all current actions as code', signature: 'CURACTS', validPrefixes: '$', returnType: '$' },
   { name: 'arrsize', kind: 'function', description: 'Returns the number of elements in the specified array', signature: 'ARRSIZE([$array name])', validPrefixes: '#', returnType: '#' },
-  { name: 'arrtype', kind: 'function', description: "Returns the type prefix (''/'#'/'$'/'%') of the value of the element in the specified array", signature: 'ARRTYPE([$array name],[index])', validPrefixes: '$', returnType: '$' },
+  { name: 'arrtype', kind: 'function', description: "Returns the type prefix (''/'#'/'$'/'%') of the value of the element in the specified array", signature: 'ARRTYPE([$array name],[index])', validPrefixes: '$', returnType: '$', since: '5.9.5' },
   { name: 'arrkey', kind: 'function', description: 'Returns the key of the element at the given position in the specified array (0 by default); no value (?) if the element has no key', signature: 'ARRKEY([$array name],[#position])', validPrefixes: '$#%', since: '5.9.6' },
-  { name: 'arritem', kind: 'function', description: 'Returns the value of the element in the specified array', signature: 'ARRITEM([$array name],[index])', validPrefixes: '$#%' },
-  { name: 'arrpack', kind: 'function', description: 'Returns a tuple obtained from the specified part of the array', signature: 'ARRPACK([$array name],[#start],[#length])', validPrefixes: '%', returnType: '%' },
+  { name: 'arritem', kind: 'function', description: 'Returns the value of the element in the specified array', signature: 'ARRITEM([$array name],[index])', validPrefixes: '$#%', since: '5.9.5' },
+  { name: 'arrpack', kind: 'function', description: 'Returns a tuple obtained from the specified part of the array', signature: 'ARRPACK([$array name],[#start],[#length])', validPrefixes: '%', returnType: '%', since: '5.9.5' },
   { name: 'arrpos', kind: 'function', description: 'Search the array for an element with the specified value', signature: 'ARRPOS([$array name],[value],[#start index])', validPrefixes: '#', returnType: '#' },
   { name: 'arrcomp', kind: 'function', description: 'Search the array for an element matching the regular expression', signature: 'ARRCOMP([$array name],[$pattern],[#start index])', validPrefixes: '#', returnType: '#' },
   { name: 'strcomp', kind: 'function', description: 'Checks whether the specified text matches the regular expression', signature: 'STRCOMP([$text],[$pattern])', validPrefixes: '#', returnType: '#' },
@@ -202,12 +203,12 @@ export const QSP_KEYWORDS: BuiltinInfo[] = [
   { name: 'else', kind: 'statement', description: 'Execute code when the IF condition is not true', signature: 'ELSE' },
   { name: 'end', kind: 'statement', description: 'End the multi-line form of IF / ACT / LOOP', signature: 'END' },
   { name: 'act', kind: 'statement', description: 'Add an action', signature: 'ACT [$name],[$image file]: [action code]' },
-  { name: 'loop', kind: 'statement', description: 'Loop', signature: 'LOOP [initialization code] WHILE [#condition] STEP [step code]: [loop body code]' },
-  { name: 'while', kind: 'statement', description: 'Loop condition (used with LOOP)', signature: 'WHILE [#condition]' },
-  { name: 'step', kind: 'statement', description: 'Loop step expression (used with LOOP)', signature: 'STEP [step code]' },
+  { name: 'loop', kind: 'statement', description: 'Loop', signature: 'LOOP [initialization code] WHILE [#condition] STEP [step code]: [loop body code]', since: '5.9.5' },
+  { name: 'while', kind: 'statement', description: 'Loop condition (used with LOOP)', signature: 'WHILE [#condition]', since: '5.9.5' },
+  { name: 'step', kind: 'statement', description: 'Loop step expression (used with LOOP)', signature: 'STEP [step code]', since: '5.9.5' },
   { name: 'set', kind: 'statement', description: 'Set variable values', signature: 'SET [variable names] = [variable values]' },
   { name: 'let', kind: 'statement', description: 'Set variable values', signature: 'LET [variable names] = [variable values]' },
-  { name: 'local', kind: 'statement', description: 'Declare local variables and set their values', signature: 'LOCAL [variable names] = [variable values]' },
+  { name: 'local', kind: 'statement', description: 'Declare local variables and set their values', signature: 'LOCAL [variable names] = [variable values]', since: '5.9.5' },
   { name: 'alias', kind: 'statement', description: 'Declare local variables that share the arrays with the given names: a change through one is a change of the array', signature: 'ALIAS [variable names] = [$array names]', since: '5.9.6' },
   { name: 'and', kind: 'function', description: 'Logical "AND". The resulting expression is true if both conditions are true', signature: '[#condition 1] AND [#condition 2]' },
   { name: 'or', kind: 'function', description: 'Logical "OR". The resulting expression is true if at least one condition is true', signature: '[#condition 1] OR [#condition 2]' },
@@ -372,6 +373,53 @@ const ARG_CONSTRAINTS_595: Record<string, { min: number; max?: number }> = {
   arritem: { min: 2, max: 2 },
 };
 
+// Where 5.7 takes another number of arguments than 5.9.5 (qsp-legacy's
+// statements.c and mathops.c): ten at most where 5.9 takes twenty.
+const ARG_CONSTRAINTS_57: Record<string, { min: number; max?: number }> = {
+  p: { min: 1, max: 1 },
+  '*p': { min: 1, max: 1 },
+  goto: { min: 1, max: 10 },
+  gt: { min: 1, max: 10 },
+  xgoto: { min: 1, max: 10 },
+  xgt: { min: 1, max: 10 },
+  gosub: { min: 1, max: 10 },
+  gs: { min: 1, max: 10 },
+  dynamic: { min: 1, max: 10 },
+  delobj: { min: 1, max: 1 },
+  'del obj': { min: 1, max: 1 },
+  max: { min: 1, max: 10 },
+  min: { min: 1, max: 10 },
+  rand: { min: 1, max: 2 },
+  dyneval: { min: 1, max: 10 },
+  func: { min: 1, max: 10 },
+  countobj: { min: 0, max: 0 },
+  replace: { min: 2, max: 3 },
+  qspver: { min: 0, max: 0 },
+};
+
+// What 5.7 describes otherwise than 5.9.5. Its true is -1, and AND, OR and
+// NO work on the bits of numbers; the start position comes first in INSTR,
+// ARRPOS and ARRCOMP; ADDQST and KILLQST are its names for INCLIB and FREELIB.
+const DIFFERENCES_57: Record<string, Pick<BuiltinInfo, 'description' | 'signature' | 'deprecated'>> = {
+  delobj: { description: 'Delete the inventory object with the specified name', signature: 'DELOBJ [$name]' },
+  'del obj': { description: 'Delete the inventory object with the specified name', signature: 'DEL OBJ [$name]' },
+  killvar: { description: 'Delete all variables / the specified variable / the value at the specified index', signature: 'KILLVAR [$variable name],[#index]' },
+  addqst: { description: 'Add locations from the specified file', signature: 'ADDQST [$file]', deprecated: undefined },
+  killqst: { description: 'Remove all locations added via ADDQST', signature: 'KILLQST', deprecated: undefined },
+  addlib: { description: 'Add locations from the specified file (QSP 5.7 has ADDQST instead)', signature: 'ADDLIB [$file]', deprecated: 'addqst' },
+  dellib: { description: 'Remove all locations added via ADDLIB (QSP 5.7 has KILLQST instead)', signature: 'DELLIB', deprecated: 'killqst' },
+  rand: { description: 'Returns a random number between the specified values; the second is 0 by default', signature: 'RAND([#expression 1],[#expression 2])' },
+  arrpos: { description: 'Search the array for an element with the specified value', signature: 'ARRPOS([#start index],[$array name],[value])' },
+  arrcomp: { description: 'Search the array for an element matching the regular expression', signature: 'ARRCOMP([#start index],[$array name],[$pattern])' },
+  instr: { description: 'Search for a substring', signature: 'INSTR([#start position],[$text],[$search text])' },
+  replace: { description: 'Replace the specified substring in the text', signature: 'REPLACE([$text],[$search text],[$replacement text])' },
+  obj: { description: 'Whether the inventory has an object with the specified name: -1 (true) or 0' },
+  loc: { description: 'Whether the location exists: -1 (true) or 0' },
+  and: { description: 'AND of the bits of two numbers: true (-1) only if both are true (-1); 1 AND 3 is 1' },
+  or: { description: 'OR of the bits of two numbers: true (-1) if either is true (-1); 1 OR 2 is 3' },
+  no: { description: 'Flips the bits of a number: NO 0 is -1 (true), NO -1 is 0, but NO 1 is -2, which is true too' },
+};
+
 // Merge the constraint table into BuiltinInfo entries so consumers can
 // read them off the same object as the rest of the metadata.
 for (const b of ALL_BUILTINS) {
@@ -457,23 +505,29 @@ function hasArgConstraints(b: BuiltinInfo | undefined): b is BuiltinInfo & { min
   return b?.minArgs !== undefined;
 }
 
-const entries595 = new Map<BuiltinInfo, BuiltinInfo>();
+const olderEntries = { '5.7.0': new Map<BuiltinInfo, BuiltinInfo>(), '5.9.5': new Map<BuiltinInfo, BuiltinInfo>() };
 
-/** The entry as `version` has it: 5.9.5's description, signature and arg counts. */
+/** The entry as `version` has it: 5.9.5's (and 5.7's) description, signature and arg counts. */
 export function forVersion(b: BuiltinInfo, version: SyntaxVersion): BuiltinInfo {
-  if (version !== '5.9.5') return b;
-  let e = entries595.get(b);
+  if (version === '5.9.6') return b;
+  const entries = olderEntries[version];
+  let e = entries.get(b);
   if (!e) {
-    const args = b.kind === 'variable' ? undefined : ARG_CONSTRAINTS_595[b.name.toLowerCase()];
-    e = { ...b, ...b.in595, ...(args && { minArgs: args.min, maxArgs: args.max }) };
-    entries595.set(b, e);
+    const name = b.name.toLowerCase();
+    const args = b.kind === 'variable' ? undefined
+      : (version === '5.7.0' && ARG_CONSTRAINTS_57[name]) || ARG_CONSTRAINTS_595[name];
+    e = {
+      ...b, ...b.in595, ...(version === '5.7.0' && DIFFERENCES_57[name]),
+      ...(args && { minArgs: args.min, maxArgs: args.max }),
+    };
+    entries.set(b, e);
   }
   return e;
 }
 
-/** Whether `version` has the builtin: INSVAR and ARRKEY are new in 5.9.6. */
+/** Whether `version` has the builtin: LOCAL is new after 5.7, INSVAR and ARRKEY in 5.9.6. */
 export function existsIn(b: BuiltinInfo, version: SyntaxVersion): boolean {
-  return b.since === undefined || SYNTAX_VERSIONS.indexOf(b.since) <= SYNTAX_VERSIONS.indexOf(version);
+  return b.since === undefined || isAtLeast(version, b.since);
 }
 
 /**

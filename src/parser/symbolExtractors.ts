@@ -8,7 +8,7 @@
 
 
 import type Parser from 'web-tree-sitter';
-import type { SymbolLocation, TypePrefix } from './symbolTypes';
+import type { SymbolLocation, SyntaxFeatureUse, TypePrefix } from './symbolTypes';
 import type { LocationSymbols } from './locationSymbols';
 import { classifyAssignmentLhs, isLocalVariable, variableDefinitionHasValue } from './variableUtils';
 import {
@@ -446,22 +446,51 @@ export function noteSyntaxFeature(
       const builtin = lookupBuiltin(nameNode.text);
       if (NAME_DELIMITERS_596.test(nameNode.text)) {
         uses.push({ loc: nodeLoc(nameNode, docUri), feature: 'nameDelimiter', name: nameNode.text });
-      } else if (builtin?.since && builtin.kind !== 'variable') {
+      } else if (builtin?.since === '5.9.6' && builtin.kind !== 'variable') {
         // ALIAS, INSVAR, ARRKEY: names in 5.9.5, builtins in 5.9.6.
         uses.push({ loc: nodeLoc(nameNode, docUri), feature: 'reservedName', name: nameNode.text });
       }
       return;
     }
-    case 'alias_statement': {
+    case 'alias_statement':
+    case 'local_statement':
+    case 'loop_inline':
+    case 'loop_block': {
       const keyword = node.childForFieldName('keyword');
-      if (keyword) uses.push({ loc: nodeLoc(keyword, docUri), feature: 'builtin', name: 'alias' });
+      if (keyword) uses.push({ loc: nodeLoc(keyword, docUri), feature: 'builtin', name: keyword.text.toLowerCase() });
+      if (node.type === 'local_statement') noteSeveralValues(node, uses, docUri);
       return;
     }
+    case 'assignment_statement':
+      noteSeveralValues(node, uses, docUri);
+      return;
+    case 'bracket_tuple':
+    case 'paren_tuple':
+      uses.push({ loc: nodeLoc(node, docUri), feature: 'tuple' });
+      return;
+    case 'type_prefix':
+      if (node.text === '%') uses.push({ loc: nodeLoc(node, docUri), feature: 'tuplePrefix' });
+      return;
+    case 'array_index':
+      if (node.namedChildCount > 1 && node.children.some(c => c.type === ',')) uses.push({ loc: nodeLoc(node, docUri), feature: 'multipleIndex' });
+      return;
+    case 'elseif_inline': {
+      const keyword = node.childForFieldName('keyword');
+      if (keyword) uses.push({ loc: nodeLoc(keyword, docUri), feature: 'inlineElseif' });
+      return;
+    }
+    case 'if_block':
+    case 'act_block':
+    case 'elseif_clause':
+    case 'else_clause':
+      noteCommentAfterColon(node, uses, docUri);
+      return;
     case 'user_func_call':
     case 'ml_user_func_call':
     case 'user_call_statement': {
       const opener = node.child(0);
       const nameNode = node.childForFieldName('name');
+      if (opener) uses.push({ loc: nodeLoc(opener, docUri), feature: 'userFunctionCall', name: opener.type });
       if (opener && nameNode && !nameNode.isMissing && opener.endIndex !== nameNode.startIndex) {
         uses.push({
           loc: { uri: docUri, line: opener.endPosition.row, column: opener.endPosition.column, endLine: nameNode.startPosition.row, endColumn: nameNode.startPosition.column },
@@ -482,6 +511,37 @@ export function noteSyntaxFeature(
       return;
     }
   }
+}
+
+// `a, b = 1, 2` and `x = 1, 2`: several variables or values (5.9 tuples).
+function noteSeveralValues(node: Parser.SyntaxNode, uses: SyntaxFeatureUse[], docUri: string): void {
+  const variables = node.childForFieldName('variables');
+  const values = node.childrenForFieldName('value').filter(v => v.isNamed);
+  if ((variables && variables.namedChildCount > 1) || values.length > 1) {
+    uses.push({ loc: nodeLoc(node, docUri), feature: 'multipleAssignment' });
+  }
+}
+
+// A comment right after the `:` (or ELSE) of a multi-line block. 5.7 makes
+// such a line a one-line IF (ACT, ELSE…) whose code is the comment, so an
+// ELSEIF or ELSE with no lines below it means the same in every version.
+function noteCommentAfterColon(node: Parser.SyntaxNode, uses: SyntaxFeatureUse[], docUri: string): void {
+  const keyword = node.childForFieldName('keyword');
+  if (!keyword) return;
+  const header = new Set([keyword, node.childForFieldName('condition'), ...node.childrenForFieldName('args')]
+    .filter(h => h !== null).map(h => h.id));
+  let comment: Parser.SyntaxNode | null = null;
+  for (let i = 0; i < node.childCount && !comment; i++) {
+    const c = node.child(i)!;
+    if (c.type === 'comment_statement') comment = c;
+    else if (c.isNamed && !header.has(c.id)) return;
+  }
+  if (!comment) return;
+  const isClause = node.type === 'elseif_clause' || node.type === 'else_clause';
+  if (isClause && !node.namedChildren.some(c => c.startPosition.row > comment!.endPosition.row)) return;
+  const name = node.type === 'if_block' ? 'if' : node.type === 'act_block' ? 'act'
+    : node.type === 'elseif_clause' ? 'elseif' : 'else';
+  uses.push({ loc: nodeLoc(comment, docUri), feature: 'commentAfterColon', name });
 }
 
 /**
