@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### New
+- A dynamic jump (`gt $to`) whose location and direct callers don't set the variable is followed back through their callers, up to three locations (A sets `$to` and calls B, B calls C, C jumps to `$to`), each location once: the Jump Graph draws it to the locations set back there instead of any `$to` in the game. A location looked through that nothing calls, or that declares the variable `local`, leaves the jump open. On a catalog game every dynamic jump left unresolved for this reason is resolved now; the Jump Graph of a 1000-location synthetic game takes 2 s instead of 1.6 s.
 - A local of `ALIAS` (QSP 5.9.6) is followed to the array it shares: `alias a = 'arr1'` then `a[0] = 5` gives `arr1` a value, and `pl a[0]` reads it, in this location or any other file, so neither is reported as used but never assigned or assigned but never read any more. The name in the string is a reference to the array: **Find All References** lists it, and renaming the array renames it there too, keeping its prefix (`'$arr1'`). An alias nothing goes through is reported as declared but never used; one whose array is given by an expression (`alias a = $name`) counts as used.
 
 ## 0.4.0

@@ -11,14 +11,6 @@ line break there is "Syntax error" / "Bracket not found"; 5.9 is the reverse), t
 is -1, and there are no tuples, `%`, and several 5.9 functions. A third version would
 gate these like 5.9.6's constructs are gated now.
 
-## Dynamic jumps through several hops
-
-`gt $to` resolves from the nearest write before it or before the jumps into its
-location (`src/parser/targetResolver.ts`). A value set two or more hops earlier
-(A → B → C) stays unknown; in two real games `callers: not written before a call`
-is most of what is left. Follow callers of callers a few hops, with a visited set:
-unbounded, it overflowed the stack on the stress games.
-
 ## Jump Graph frame rate on large views
 
 ~3000 arrows at once (a ~1000-location game, under the 5000-arrow threshold) make

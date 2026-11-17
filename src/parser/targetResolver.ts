@@ -16,7 +16,9 @@
 // variable is not seen.
 // Without such a write, the nearest writes before each static jump or
 // call into the location are taken instead (`$to = 'forest'` then
-// `gt 'road'`, and `gt $to` in road), when any caller writes it.
+// `gt 'road'`, and `gt $to` in road), when any caller writes it; a caller
+// that doesn't is looked through to its own callers, up to MAX_HOPS
+// locations back (A writes $to and calls B, B calls C, C jumps to $to).
 // Three variables are the game's own:
 //   $curloc     the location the code is in (`$back = $curloc`, `gt $curloc`)
 //   $args[N]    the Nth argument of the location's static call sites
@@ -55,6 +57,12 @@ const MAX_DEPTH = 4;
 // variable shared by a whole game can be written thousands of times; the
 // first ones give enough values.
 const MAX_WRITES = 500;
+// How many locations back callers are followed for a variable none of the
+// nearer ones writes, and how many calls they may look at in all: a game
+// whose locations all reach each other would otherwise walk all of it for
+// every variable.
+const MAX_HOPS = 3;
+const MAX_CALLER_CALLS = 200;
 
 interface Values {
   values: Set<string>;
@@ -273,32 +281,58 @@ export class TargetResolver {
 
   // `name` as it is where `loc` is jumped to or called from: the nearest
   // write before each static call (`$to = 'forest'` then `gt 'road'`, and
-  // `gt $to` in road). Undefined when no caller writes it before the call,
-  // and for a variable local to `loc`; callers that don't write it make
-  // the result incomplete.
+  // `gt $to` in road). A caller that doesn't write it before the call is
+  // looked through to its callers, breadth first, each location once and
+  // MAX_HOPS back at most (a loop, not recursion: the call graph of a large
+  // game is deep). Undefined when no caller writes it, and for a variable
+  // local to `loc`; a call nobody is found to write it before makes the
+  // result incomplete.
   private fromCallers(name: string, loc: LocationSymbols, depth: number, visiting: Set<string>): Values | undefined {
     if (name === ARGS_VAR_NAME || name === RESULT_VAR_NAME || name === CURLOC) return undefined;
-    if (loc.variableBindings.get(name)?.some(b => b.isLocal)) return undefined;
+    if (isLocalIn(loc, name)) return undefined;
     let cache = this.callerCache.get(loc);
     if (!cache) this.callerCache.set(loc, cache = new Map());
     const cached = cache.get(name);
     if (cached !== undefined) return cached ?? undefined;
     const out = emptyValues();
     let found = false;
-    const calls = this.callsOf(loc.locationName.toLowerCase());
-    if (calls.length > MAX_WRITES) incomplete(out, 'too many writes');
-    for (const call of calls.slice(0, MAX_WRITES)) {
-      const near = call.loc === loc ? undefined : this.nearestWrites(name, call.loc, call.at);
-      if (!near) {
-        incomplete(out, 'callers: not written before a call');
-        continue;
+    const seen = new Set<LocationSymbols>([loc]);
+    let frontier = [loc];
+    let budget = MAX_CALLER_CALLS;
+    for (let hop = 1; hop <= MAX_HOPS && frontier.length > 0; hop++) {
+      const next: LocationSymbols[] = [];
+      for (const target of frontier) {
+        const calls = this.callsOf(target.locationName.toLowerCase());
+        // A caller looked through that nothing calls: it may be the start,
+        // or reached by a dynamic jump, with the variable anything.
+        if (target !== loc && !calls.some(c => c.loc !== target)) incomplete(out, 'callers: not written before a call');
+        if (calls.length > MAX_WRITES) incomplete(out, 'too many writes');
+        for (const call of calls.slice(0, MAX_WRITES)) {
+          if (call.loc === target) continue;
+          if (--budget < 0) {
+            incomplete(out, 'callers: too many');
+            break;
+          }
+          const near = this.nearestWrites(name, call.loc, call.at);
+          if (near) {
+            found = true;
+            absorb(out, this.fromWrites(near, call.loc, depth, visiting));
+          } else if (hop === MAX_HOPS || isLocalIn(call.loc, name)) {
+            // Too far back, or a local there hides the variable from its callers.
+            incomplete(out, 'callers: not written before a call');
+          } else if (!seen.has(call.loc)) {
+            seen.add(call.loc);
+            next.push(call.loc);
+          }
+          if (out.values.size > MAX_VALUES) {
+            incomplete(out, 'too many values');
+            break;
+          }
+        }
+        if (budget < 0 || out.values.size > MAX_VALUES) break;
       }
-      found = true;
-      absorb(out, this.fromWrites(near, call.loc, depth, visiting));
-      if (out.values.size > MAX_VALUES) {
-        incomplete(out, 'too many values');
-        break;
-      }
+      if (budget < 0 || out.values.size > MAX_VALUES) break;
+      frontier = next;
     }
     cache.set(name, found ? out : null);
     return found ? out : undefined;
@@ -374,6 +408,10 @@ export class TargetResolver {
     if (!m) this.locals.set(loc, m = new Map());
     return m;
   }
+}
+
+function isLocalIn(loc: LocationSymbols, name: string): boolean {
+  return loc.variableBindings.get(name)?.some(b => b.isLocal) ?? false;
 }
 
 function emptyValues(): Values {

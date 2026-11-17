@@ -311,4 +311,36 @@ describe('buildJumpGraph: possible targets of dynamic jumps', () => {
     // A caller that doesn't set it: the jump may also go elsewhere.
     expect(possible(code + "\n# c\ngt 'road'\n---").unresolved).toEqual(['road:$to']);
   });
+
+  it('looks through callers that don\'t write it to their own callers, a few locations back', () => {
+    const others = Array.from({ length: 60 }, (_, i) => `# o${i}\n$to = 'r${i}'\n---`).join('\n');
+    // старт writes $to; путь and перекрёсток pass through; дорога jumps.
+    const chain = [
+      "# старт\n$to = 'r1'\ngs 'путь'\n---",
+      "# путь\n*pl 1\ngt 'перекрёсток'\n---",
+      "# перекрёсток\ngs 'дорога'\n---",
+      '# дорога\ngt $to\n---',
+      others, rooms(['r1', 'r2']),
+    ].join('\n');
+    expect(possible(chain)).toEqual({ edges: ['дорога->r1:goto via $to'], unresolved: [] });
+    // Branches back meet the same location once, and each writer counts.
+    const branches = chain + "\n# другой\n$to = 'r2'\ngt 'перекрёсток'\n---\n# ещё\n$to = 'r2'\ngs 'путь'\n---";
+    expect(possible(branches).edges).toEqual(['дорога->r1:goto via $to', 'дорога->r2:goto via $to']);
+    // Calls going round in a circle end.
+    expect(possible(chain + "\n# круг\ngt 'путь'\n---\n# путь2\ngt 'круг'\n---").edges).toEqual(['дорога->r1:goto via $to']);
+  });
+
+  it('stops looking back at a location nothing calls, at a local, and past three locations', () => {
+    const others = Array.from({ length: 60 }, (_, i) => `# o${i}\n$to = 'r${i}'\n---`).join('\n');
+    const tail = ["# b\ngt 'c'\n---", "# c\ngt 'd'\n---", '# d\ngt $to\n---', others, rooms(['r1'])].join('\n');
+    // A writes it three locations back: found, and b is called from nothing else.
+    expect(possible("# a\n$to = 'r1'\ngt 'b'\n---\n" + tail)).toEqual({ edges: ['d->r1:goto via $to'], unresolved: [] });
+    // b is also entered with nothing set before it.
+    expect(possible("# a\n$to = 'r1'\ngt 'b'\n---\n# z\ngt 'b'\n---\n" + tail).unresolved).toEqual(['d:$to']);
+    // Four locations back: too far.
+    expect(possible("# a0\n$to = 'r1'\ngt 'a'\n---\n# a\ngt 'b'\n---\n" + tail).edges).toEqual([]);
+    // A local in between hides the variable from its callers.
+    expect(possible("# a\n$to = 'r1'\ngs 'b'\n---\n# b\nlocal $to\ngs 'c'\n---\n# c\ngt 'd'\n---\n# d\ngt $to\n---\n" + others + '\n' + rooms(['r1'])).edges)
+      .toEqual([]);
+  });
 });
