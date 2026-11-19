@@ -52,11 +52,23 @@ function asDescription(value: unknown): Record<string, string> {
 }
 
 /**
+ * What a catalog that comes with a GitHub release leaves out: the release's
+ * tag stands for `version`, and GitHub's checksum of each file for `sha256`.
+ */
+export interface CatalogDefaults {
+  version?: string;
+  /** The SHA-256 of a file, by its resolved URL. */
+  sha256Of?: (url: string) => string | undefined;
+  /** What the libraries record as their catalog, instead of the catalog's own URL. */
+  source?: string;
+}
+
+/**
  * Read a catalog. Entries that can't be used are left out, each with a
  * problem saying why; the rest stay usable. `catalogUrl` resolves the
  * relative `file` paths.
  */
-export function parseCatalog(json: unknown, catalogUrl: string): ParsedCatalog {
+export function parseCatalog(json: unknown, catalogUrl: string, defaults: CatalogDefaults = {}): ParsedCatalog {
   const problems: string[] = [];
   if (!json || typeof json !== 'object') {
     return { libraries: [], problems: [`${catalogUrl}: not a libraries.json catalog`] };
@@ -80,17 +92,22 @@ export function parseCatalog(json: unknown, catalogUrl: string): ParsedCatalog {
     const where = `${catalogUrl}: library ${id ? `"${id}"` : `#${index + 1}`}`;
     if (!id || !isValidLibraryId(id)) { problems.push(`${where}: "id" must be letters, digits, "_", "-" or "."`); return; }
     if (seen.has(id.toLowerCase())) { problems.push(`${where}: listed twice; the first one is used`); return; }
-    const version = asText(entry.version);
+    const version = asText(entry.version) ?? defaults.version;
     if (!version) { problems.push(`${where}: no "version"`); return; }
     const file = asText(entry.file);
     if (!file || !/\.qsps$/i.test(file)) { problems.push(`${where}: "file" must name a .qsps file`); return; }
-    const sha256 = asText(entry.sha256);
-    if (!sha256 || !SHA256_RE.test(sha256)) { problems.push(`${where}: "sha256" must be 64 hex digits`); return; }
     let url: string;
     try {
       url = new URL(file, catalogUrl).href;
     } catch {
       problems.push(`${where}: "file" is not a valid path or URL`);
+      return;
+    }
+    const sha256 = asText(entry.sha256) ?? defaults.sha256Of?.(url);
+    if (!sha256 || !SHA256_RE.test(sha256)) {
+      problems.push(defaults.sha256Of && !entry.sha256
+        ? `${where}: "${file}" is not a file of the release, so it has no checksum; attach it or give "sha256"`
+        : `${where}: "sha256" must be 64 hex digits`);
       return;
     }
     const requires = Array.isArray(entry.requires)
@@ -106,7 +123,7 @@ export function parseCatalog(json: unknown, catalogUrl: string): ParsedCatalog {
       sha256: sha256.toLowerCase(),
       usage: typeof entry.usage === 'string' ? entry.usage : `inclib '${LIBRARY_FOLDER}/${id}.qsp'`,
       requires,
-      catalog: catalogUrl,
+      catalog: defaults.source ?? catalogUrl,
     });
   });
   return { libraries, problems };

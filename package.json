@@ -1034,7 +1034,7 @@
             "format": "uri"
           },
           "default": [],
-          "markdownDescription": "URLs of `libraries.json` catalogs for the **QSP Libraries** view, e.g. `https://raw.githubusercontent.com/<user>/<repo>/main/libraries.json`. When two catalogs offer the same library, the first one wins."
+          "markdownDescription": "Library catalogs for the **QSP Libraries** view: a GitHub repository whose latest release holds the libraries (`https://github.com/<user>/<repo>`), or the URL of a `libraries.json` (e.g. `https://raw.githubusercontent.com/<user>/<repo>/main/libraries.json`). When two catalogs offer the same library, the first one wins."
         }
       }
     },

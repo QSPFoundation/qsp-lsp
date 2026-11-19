@@ -1,11 +1,13 @@
 // ── Libraries: install, update, remove ───────────────────────────────
 //
-// Fetches the catalogs named in `qsp.libraries.sources`, and installs a
-// library into libs/<id>.qsps with its entry in txt2gam.json. Nothing is
+// Fetches the catalogs named in `qsp.libraries.sources` (a libraries.json,
+// or a GitHub repository whose latest release is the catalog), and installs
+// a library into libs/<id>.qsps with its entry in txt2gam.json. Nothing is
 // written until every file has downloaded, matched its checksum and been
 // checked against the game for same-named locations, so a failed install
 // leaves the game as it was. Uses fetch and vscode.workspace.fs only, so it
-// works on the desktop and in vscode.dev alike.
+// works on the desktop and in vscode.dev alike, except for files of GitHub
+// releases, which GitHub doesn't let a web page download.
 
 import * as vscode from 'vscode';
 import {
@@ -26,6 +28,7 @@ import { buildLibraryTree, type InstalledState, type LibraryTreeNode } from '../
 import { findLocationConflicts, locationConflictMessage } from '../common/locationConflicts';
 import { normalizeText } from '../common/projectFiles';
 import { sha256Hex } from '../common/sha256';
+import { catalogAsset, catalogFromRelease, latestReleaseApiUrl, parseGitHubRepo, readRelease, type GitHubRepo } from '../common/githubReleases';
 import { currentGameFolderUri, readFileAsText } from './exportCommands';
 import { orderedProjectUris, readGameConfig, workspaceRoot, writeGameConfig, type GameConfig } from './gameConfig';
 import * as logger from './logger';
@@ -33,12 +36,12 @@ import { parseTextBytes } from './txt2gam';
 
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
-async function download(url: string): Promise<Uint8Array> {
+async function download(url: string, headers?: Record<string, string>): Promise<Uint8Array> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
   try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
+    const response = await fetch(url, { signal: controller.signal, headers });
+    if (!response.ok) throw new Error(httpProblem(response));
     return new Uint8Array(await response.arrayBuffer());
   } catch (err) {
     const reason = controller.signal.aborted ? 'no answer in 30 s' : err instanceof Error ? err.message : String(err);
@@ -46,6 +49,56 @@ async function download(url: string): Promise<Uint8Array> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function httpProblem(response: Response): string {
+  const status = `HTTP ${response.status} ${response.statusText}`.trim();
+  // GitHub's API answers 60 requests an hour without signing in.
+  if ((response.status === 403 || response.status === 429) && response.headers.get('x-ratelimit-remaining') === '0') {
+    const reset = Number(response.headers.get('x-ratelimit-reset'));
+    const when = Number.isFinite(reset) && reset > 0 ? ` after ${new Date(reset * 1000).toLocaleTimeString()}` : ' later';
+    return `${status}: GitHub's limit of requests is used up; try again${when}, or sign in to GitHub in VS Code (Accounts menu) for a higher limit`;
+  }
+  return status;
+}
+
+async function downloadJson(url: string, headers?: Record<string, string>): Promise<unknown> {
+  const bytes = await download(url, headers);
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (err) {
+    throw new Error(`${url} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// Headers for GitHub's API, with the GitHub session VS Code already has, if
+// any: never asks to sign in, but a session raises the limit of requests and
+// reaches private repositories.
+async function gitHubApiHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  try {
+    const session = await vscode.authentication.getSession('github', [], { silent: true });
+    if (session) headers.Authorization = `Bearer ${session.accessToken}`;
+  } catch {
+    // No GitHub authentication provider here: go without.
+  }
+  return headers;
+}
+
+async function fetchGitHubCatalog(repo: GitHubRepo, source: string): Promise<ParsedCatalog> {
+  let json: unknown;
+  try {
+    json = await downloadJson(latestReleaseApiUrl(repo), await gitHubApiHeaders());
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(message.includes('HTTP 404')
+      ? `${repo.owner}/${repo.repo}: no release found (only a published release that isn't a pre-release counts), or no such repository`
+      : message);
+  }
+  const release = readRelease(json);
+  if (!release) throw new Error(`${repo.owner}/${repo.repo}: GitHub's answer about the latest release can't be read`);
+  const asset = catalogAsset(release);
+  return catalogFromRelease(release, source, asset ? await downloadJson(asset.url) : undefined);
 }
 
 async function readBytes(uri: vscode.Uri): Promise<Uint8Array | undefined> {
@@ -106,14 +159,8 @@ export class LibraryManager {
     const failures: string[] = [];
     for (const url of sources) {
       try {
-        const bytes = await download(url);
-        let json: unknown;
-        try {
-          json = JSON.parse(new TextDecoder().decode(bytes));
-        } catch (err) {
-          throw new Error(`${url} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
-        }
-        parsed.push(parseCatalog(json, url));
+        const repo = parseGitHubRepo(url);
+        parsed.push(repo ? await fetchGitHubCatalog(repo, url) : parseCatalog(await downloadJson(url), url));
       } catch (err) {
         failures.push(err instanceof Error ? err.message : String(err));
       }

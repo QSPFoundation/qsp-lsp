@@ -59,6 +59,19 @@ After 0.4.0 is out:
 - `qsp-game-template` installs the extension by its ID instead of a pinned
   `.vsix`, and lists the old ones in `unwantedRecommendations`.
 
+## Library files besides the .qsps
+
+Alex Versus: a release can hold not only the `.qsps` but the files a library needs (pictures, sounds, scripts).
+Today a library is exactly one `libs/<id>.qsps`. To decide: where the files go (`libs/<id>/…`), how the library's
+code names them (a path relative to the game, so the install folder must be fixed), whether the build copies them
+beside the game's `.qsp` when it is built elsewhere, and what an update or a removal does with them. The catalog
+entry would list them (`files`), or a release's attached files would be taken by a naming rule.
+
+## Pick a library's version
+
+A release source offers only the latest release. Installing an older tag (a game that must stay on 1.x) would read
+`/releases` instead of `/releases/latest` and offer the tags in **Add Library**; `txt2gam.json` would keep the tag.
+
 ## Default library catalog
 
 `qsp.libraries.sources` is empty by default, so authors must find a catalog URL
