@@ -318,7 +318,7 @@ export function checkSystemVariablePrefix(
   }
 }
 
-type VersionedFeature = Exclude<SyntaxFeatureUse['feature'], 'builtin' | 'nameDelimiter' | 'reservedName' | 'commentAfterColon'>;
+type VersionedFeature = Exclude<SyntaxFeatureUse['feature'], 'builtin' | 'nameDelimiter' | 'reservedName' | 'commentAfterColon' | 'fieldIndex' | 'dottedName'>;
 
 // The versions that have each construct (a builtin's follow from its `since`).
 const NEWER_THAN_57: readonly SyntaxVersion[] = ['5.9.5', '5.9.6'];
@@ -333,6 +333,8 @@ const FEATURE_VERSIONS: Record<VersionedFeature, readonly SyntaxVersion[]> = {
   userFunctionCall: NEWER_THAN_57,
   multipleIndex: NEWER_THAN_57,
   inlineElseif: NEWER_THAN_57,
+  fieldAccess: ['5.9.6'],
+  recordField: ['5.9.6'],
 };
 
 const FEATURE_LABELS: Record<Exclude<VersionedFeature, 'spaceAfterAt' | 'userFunctionCall'>, string> = {
@@ -344,6 +346,8 @@ const FEATURE_LABELS: Record<Exclude<VersionedFeature, 'spaceAfterAt' | 'userFun
   tuplePrefix: "The tuple prefix '%'",
   multipleIndex: 'An index of several values',
   inlineElseif: 'ELSEIF on the line of its IF',
+  fieldAccess: 'A field of a record',
+  recordField: 'A named field',
 };
 
 // What 5.7 calls the statements that replaced its own.
@@ -365,6 +369,22 @@ export function checkUnsupportedSyntax(
       if (version !== '5.9.6') continue;
       const isFunction = lookupBuiltin(fu.name!)?.kind === 'function';
       message = `'${fu.name}' ${isFunction ? 'is a function' : 'starts a statement'} in QSP ${SYNTAX_VERSION_LABELS[version]} and can't name a variable`;
+    } else if (fu.feature === 'fieldIndex') {
+      // Older players read `a.b[0]` as an item of the array `a.b` (`dottedName`).
+      if (version !== '5.9.6') continue;
+      message = "QSP 5.9.6 takes no index after a field: it stops with 'Incorrect field name'";
+    } else if (fu.feature === 'dottedName') {
+      if (version === '5.9.6') continue;
+      const [base, ...fields] = fu.name!.split('.');
+      const holder = [base, ...fields.slice(0, -1)].join('.');
+      ctx.push(
+        DiagnosticSeverity.Warning,
+        ctx.locRange(fu.loc),
+        `In QSP ${SYNTAX_VERSION_LABELS[version]} '${fu.name}' is one name, in 5.9.6 the field '${fields.at(-1)}' of '${holder}', `
+          + `as the analysis reads it. Rename it (e.g. '${fu.name!.replace(/\./g, '_')}') to keep one variable in every version`,
+        { code: 'unsupportedSyntax', name: fu.name },
+      );
+      continue;
     } else if (fu.feature === 'commentAfterColon') {
       if (version !== '5.7.0') continue;
       // QSP 5.7 makes a line with more than the header a one-line block.

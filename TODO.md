@@ -2,6 +2,30 @@
 
 Work that is planned but not started: why it is wanted and what is known.
 
+## Suggest the syntax version a project is written in
+
+`qsp.syntaxVersion` is set by hand (5.9.5 by default). A light heuristic
+could offer to switch, once per project:
+- to 5.9.6 when a project set to an older version uses what only 5.9.6 has
+  (records `[x: 1]` / `r.$x`, `?`, `INSVAR`, `ARRKEY`, `ALIAS`, `MOVEARR`);
+- to 5.7.0 when it uses what only 5.7 reads that way: `ADDQST`/`KILLQST`
+  and no `INCLIB`/`FREELIB`, ` _` inside brackets, a comment after the `:`
+  of a multi-line `IF`, and none of 5.8–5.9's statements (`LOCAL`, `LOOP`…).
+
+When 5.9.6 is released, make it the default and drop "(dev)".
+
+## Dotted names in 5.9.5 and 5.7
+
+`a.b` is one name to QSP 5.9.5 and 5.7, and the field `b` of `a` to 5.9.6.
+The analysis reads it as 5.9.6 does in every version, with a warning in the
+older ones; the catalog games use no such names in code. Should a game rely
+on them, read them as names when an older version is chosen: the parser
+marks such a chain (`dottedName` in `noteFieldAccess`), so a location using
+them could be extracted a second time with the old names and its symbols
+swapped in when the version changes (kept out of the analysis cache, whose
+entries hold the 5.9.6 reading). Names in strings (`killvar 'a.b'`) stay
+whole in every version today.
+
 ## Jump Graph frame rate on large views
 
 ~3000 arrows at once (a ~1000-location game, under the 5000-arrow threshold) make

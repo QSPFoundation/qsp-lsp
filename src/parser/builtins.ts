@@ -100,10 +100,11 @@ export const QSP_STATEMENTS: BuiltinInfo[] = [
   { name: 'cmdclr', kind: 'statement', description: 'Clear the input line', signature: 'CMDCLR' },
   { name: 'menu', kind: 'statement', description: 'Show a menu from the array with the given name', signature: 'MENU [$array name]' },
   // Variables & arrays
-  { name: 'setvar', kind: 'statement', description: 'Assign a value to the specified array element at the given index', signature: 'SETVAR [$variable name],[value],[index]', since: '5.9.5' },
+  { name: 'setvar', kind: 'statement', description: 'Assign a value to the specified array element at the given index, or to a field of the record there: the fourth argument is the path to it, a tuple of field names', signature: 'SETVAR [$variable name],[value],[index],[%field path]', since: '5.9.5', in595: { description: 'Assign a value to the specified array element at the given index', signature: 'SETVAR [$variable name],[value],[index]' } },
   { name: 'insvar', kind: 'statement', description: 'Insert a value into an array: at its end, at the given position (moving the elements after it), or under the given key. With a fourth argument, move the element at the position (or key) given third to the position given fourth', signature: 'INSVAR [$variable name],[value],[index],[#new position]', since: '5.9.6' },
-  { name: 'killvar', kind: 'statement', description: 'Delete all global variables (local ones stay) / the specified variable / the value at the specified index', signature: 'KILLVAR [$variable name],[index]', in595: { description: 'Delete all variables / the specified variable / the value at the specified index' } },
+  { name: 'killvar', kind: 'statement', description: 'Delete all global variables (local ones stay) / the specified variable / the value at the specified index / the field of the record there, given by its path (a tuple of field names)', signature: 'KILLVAR [$variable name],[index],[%field path]', in595: { description: 'Delete all variables / the specified variable / the value at the specified index', signature: 'KILLVAR [$variable name],[index]' } },
   { name: 'copyarr', kind: 'statement', description: 'Copy the contents of one array into another array', signature: 'COPYARR [$destination array],[$source array],[#start index],[#count]' },
+  { name: 'movearr', kind: 'statement', description: 'Move the contents of one array into another array: as COPYARR, then the source array is emptied', signature: 'MOVEARR [$destination array],[$source array],[#start index],[#count]', since: '5.9.6' },
   { name: 'sortarr', kind: 'statement', description: 'Sort an array', signature: 'SORTARR [$array name],[#reverse order]', since: '5.9.5' },
   { name: 'scanstr', kind: 'statement', description: 'Find all substrings matching the regular expression', signature: 'SCANSTR [$array name],[$string],[$pattern],[#group number]', since: '5.9.5' },
   { name: 'unpackarr', kind: 'statement', description: 'Create an array from the elements of the specified slice of a tuple', signature: 'UNPACKARR [$array name],[%tuple],[#start],[#length]', since: '5.9.5' },
@@ -148,9 +149,9 @@ export const QSP_FUNCTIONS: BuiltinInfo[] = [
   { name: 'selact', kind: 'function', description: 'Returns the name of the selected action', signature: 'SELACT', validPrefixes: '$', returnType: '$' },
   { name: 'curacts', kind: 'function', description: 'Returns all current actions as code', signature: 'CURACTS', validPrefixes: '$', returnType: '$' },
   { name: 'arrsize', kind: 'function', description: 'Returns the number of elements in the specified array', signature: 'ARRSIZE([$array name])', validPrefixes: '#', returnType: '#' },
-  { name: 'arrtype', kind: 'function', description: "Returns the type prefix (''/'#'/'$'/'%') of the value of the element in the specified array", signature: 'ARRTYPE([$array name],[index])', validPrefixes: '$', returnType: '$', since: '5.9.5' },
+  { name: 'arrtype', kind: 'function', description: "Returns the type prefix (''/'#'/'$'/'%') of the value of the element in the specified array, or of a field of the record there, given by its path (a tuple of field names)", signature: 'ARRTYPE([$array name],[index],[%field path])', validPrefixes: '$', returnType: '$', since: '5.9.5', in595: { description: "Returns the type prefix (''/'#'/'$'/'%') of the value of the element in the specified array", signature: 'ARRTYPE([$array name],[index])' } },
   { name: 'arrkey', kind: 'function', description: 'Returns the key of the element at the given position in the specified array (0 by default); no value (?) if the element has no key', signature: 'ARRKEY([$array name],[#position])', validPrefixes: '$#%', since: '5.9.6' },
-  { name: 'arritem', kind: 'function', description: 'Returns the value of the element in the specified array', signature: 'ARRITEM([$array name],[index])', validPrefixes: '$#%', since: '5.9.5' },
+  { name: 'arritem', kind: 'function', description: 'Returns the value of the element in the specified array, or of a field of the record there, given by its path (a tuple of field names)', signature: 'ARRITEM([$array name],[index],[%field path])', validPrefixes: '$#%', since: '5.9.5', in595: { description: 'Returns the value of the element in the specified array', signature: 'ARRITEM([$array name],[index])' } },
   { name: 'arrpack', kind: 'function', description: 'Returns a tuple obtained from the specified part of the array', signature: 'ARRPACK([$array name],[#start],[#length])', validPrefixes: '%', returnType: '%', since: '5.9.5' },
   { name: 'arrpos', kind: 'function', description: 'Search the array for an element with the specified value', signature: 'ARRPOS([$array name],[value],[#start index])', validPrefixes: '#', returnType: '#' },
   { name: 'arrcomp', kind: 'function', description: 'Search the array for an element matching the regular expression', signature: 'ARRCOMP([$array name],[$pattern],[#start index])', validPrefixes: '#', returnType: '#' },
@@ -295,10 +296,11 @@ const ARG_CONSTRAINTS: Record<string, ArgRange> = {
   cmdclr: { min: 0, max: 0 },
   menu: { min: 1, max: 3 },
   // ── Variables & arrays ──────────────────────────────────────────
-  setvar: { min: 2, max: 3 },
+  setvar: { min: 2, max: 4 },
   insvar: { min: 2, max: 4 },
-  killvar: { min: 0, max: 2 },
+  killvar: { min: 0, max: 3 },
   copyarr: { min: 2, max: 4 },
+  movearr: { min: 2, max: 4 },
   sortarr: { min: 1, max: 2 },
   scanstr: { min: 3, max: 4 },
   unpackarr: { min: 2, max: 4 },
@@ -342,9 +344,9 @@ const ARG_CONSTRAINTS: Record<string, ArgRange> = {
   selact: { min: 0, max: 0 },
   curacts: { min: 0, max: 0 },
   arrsize: { min: 1, max: 1 },
-  arrtype: { min: 1, max: 2 },
+  arrtype: { min: 1, max: 3 },
   arrkey: { min: 1, max: 2 },
-  arritem: { min: 1, max: 2 },
+  arritem: { min: 1, max: 3 },
   arrpack: { min: 1, max: 3 },
   arrpos: { min: 2, max: 3 },
   arrcomp: { min: 2, max: 3 },
@@ -367,10 +369,13 @@ const ARG_CONSTRAINTS: Record<string, ArgRange> = {
 };
 
 // Where 5.9.5 takes another number of arguments. Its ARRITEM accepted one
-// but read the second all the same.
+// but read the second all the same; the path to a field came with 5.9.6.
 const ARG_CONSTRAINTS_595: Record<string, { min: number; max?: number }> = {
   countobj: { min: 0, max: 0 },
   arritem: { min: 2, max: 2 },
+  arrtype: { min: 1, max: 2 },
+  setvar: { min: 2, max: 3 },
+  killvar: { min: 0, max: 2 },
 };
 
 // Where 5.7 takes another number of arguments than 5.9.5 (qsp-legacy's

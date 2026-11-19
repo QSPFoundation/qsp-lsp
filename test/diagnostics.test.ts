@@ -3342,6 +3342,71 @@ dynamic $never
         expect(diags57("# a\nx = 'abc'\npl x\n--- a ---\n", { typeMismatch: true })).toHaveLength(1);
       });
     });
+
+    // Records (QSP 5.9.6): `[x: 1]` names its fields, `r.x` reads one and
+    // `r.x = 5` writes it. A dot ends a name there, so `a.b` is the field
+    // `b` of `a`, which older players read as one name.
+    describe('records', () => {
+      const varDiags = (code: string, syntaxVersion: SyntaxVersion = '5.9.6') =>
+        run(code, { uninitializedVariables: true, unusedVariables: true, mixedVariablePrefixes: true, typeMismatch: true, syntaxVersion })
+          .map(d => `${d.range.start.line}:${d.range.start.character} ${d.message}`);
+
+      it('reads and writes the record through its fields, whatever their prefixes', () => {
+        const code = "# a\n%r = [x: 1, $name: 'a', len: 2]\nr.y = 5\npl r.x + r.$name + r.y + r.len + r.'my key'\n"
+          + "hero.hp = 10\npl hero.hp\nq.a, n = 1, 2\npl q.a + n\npl w.z\n--- a ---\n";
+        expect(varDiags(code)).toEqual(["8:3 Variable 'w' is used but never assigned"]);
+        expect(versionDiags(code, '5.9.6')).toEqual([]);
+      });
+
+      it('takes a field of a record in an expression, a call or an array item', () => {
+        const code = "# a\n%a[0] = [x: [y: 1]]\na[0].x.y += 1\npl a[0].x.y + func('f').z + (func('f')).z\n--- a ---\n# f\nresult = [z: 1]\n--- f ---\n";
+        expect(varDiags(code)).toEqual([]);
+      });
+
+      it('reports the fields as new in 5.9.6, and a dotted name as one name in older versions', () => {
+        const code = "# a\n%r = [x: 1]\npl r.$x + func('f').z\nhero.hp = 10\n--- a ---\n# f\n--- f ---\n";
+        const dotted = (version: string) => `In QSP ${version} 'hero.hp' is one name, in 5.9.6 the field 'hp' of 'hero', `
+          + "as the analysis reads it. Rename it (e.g. 'hero_hp') to keep one variable in every version";
+        expect(versionDiags(code, '5.9.5')).toEqual([
+          '1:6 A named field is new in QSP 5.9.6; the syntax version is 5.9.5',
+          '2:4 A field of a record is new in QSP 5.9.6; the syntax version is 5.9.5',
+          '2:19 A field of a record is new in QSP 5.9.6; the syntax version is 5.9.5',
+          `3:0 ${dotted('5.9.5')}`,
+        ]);
+        expect(run(code, { unsupportedSyntax: true, syntaxVersion: '5.9.5' }).map(d => d.severity)).toEqual([1, 1, 1, 2]);
+        expect(versionDiags(code, '5.7.0')).toContain(`3:0 ${dotted('5.7.0')}`);
+        expect(versionDiags(code, '5.9.6')).toEqual([]);
+      });
+
+      it('reads a.b[0] as an item of the array a.b in older versions, and reports the index in 5.9.6', () => {
+        const code = '# a\ninv.items[0] = 1\npl inv.items[0]\n--- a ---\n';
+        expect(versionDiags(code, '5.9.6')).toEqual([
+          "1:9 QSP 5.9.6 takes no index after a field: it stops with 'Incorrect field name'",
+          "2:12 QSP 5.9.6 takes no index after a field: it stops with 'Incorrect field name'",
+        ]);
+        expect(versionDiags(code, '5.9.5').map(d => d.slice(0, 22))).toEqual(["1:0 In QSP 5.9.5 'inv.", "2:3 In QSP 5.9.5 'inv."]);
+      });
+
+      it('reports a field named twice in a record, whatever its case, prefix or quotes', () => {
+        const code = "# a\n%r = [x: 1, $X: 'a', 'x': 2, ' x': 3, '<<$k>>': 4]\npl r\n--- a ---\n";
+        const twice = (name: string) => `Field '${name}' is already in this record: QSP stops with 'Duplicate field name'`;
+        expect(run(code, { syntaxVersion: '5.9.6' }).map(d => `${d.range.start.line}:${d.range.start.character} ${d.message}`))
+          .toEqual([`1:13 ${twice('X')}`, `1:21 ${twice("'x'")}`]);
+        expect(run(code, { syntaxVersion: '5.9.5' })).toEqual([]);
+      });
+
+      it('takes MOVEARR and the field paths of 5.9.6, with the older argument counts before it', () => {
+        const code = "# a\nmovearr 'b', 'c'\nsetvar 'c', 1, 0, ['x']\nx = arritem('c', 0, ['x']) + arrtype('c', 0, ['x'])\nkillvar 'c', 0, ['x']\n--- a ---\n";
+        expect(run(code, { unsupportedSyntax: true, invalidBuiltinArgCount: true, syntaxVersion: '5.9.6' })).toEqual([]);
+        expect(run(code, { unsupportedSyntax: true, invalidBuiltinArgCount: true, syntaxVersion: '5.9.5' }).map(d => d.message)).toEqual([
+          'MOVEARR is new in QSP 5.9.6; the syntax version is 5.9.5',
+          "Statement 'setvar' expects 2 to 3 arguments, got 4 arguments",
+          "Function 'arritem' expects 2 arguments, got 3 arguments",
+          "Function 'arrtype' expects 1 to 2 arguments, got 3 arguments",
+          "Statement 'killvar' expects 0 to 2 arguments, got 3 arguments",
+        ]);
+      });
+    });
   });
 
   // ── #obj, #loc ─────────────────────────────────────────────────────

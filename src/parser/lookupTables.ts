@@ -70,10 +70,10 @@ export const ACTION_REF_NAMES = new Set(['delact', 'del act']);
 
 /**
  * Statements whose first string argument is a variable name being defined.
- * `copyarr` also reads its second string arg as a proper-usage source
- * reference — handled inline in the statement walker.
+ * `copyarr` and `movearr` also read their second string arg as a
+ * proper-usage source reference — handled inline in the statement walker.
  */
-export const VAR_DEF_STMT_NAMES = new Set(['setvar', 'insvar', 'scanstr', 'unpackarr', 'copyarr']);
+export const VAR_DEF_STMT_NAMES = new Set(['setvar', 'insvar', 'scanstr', 'unpackarr', 'copyarr', 'movearr']);
 
 /**
  * Statements whose first string argument is a variable name being mutated.

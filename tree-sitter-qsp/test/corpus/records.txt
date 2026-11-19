@@ -1,0 +1,388 @@
+================
+Record literal with named fields
+================
+# test
+%r = [x: 157, $name: 'a', 'my key': 1, 2]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        (variable_list
+          (variable_ref
+            (type_prefix)
+            (identifier_text)))
+        (assignment_operator)
+        (tuple
+          (bracket_tuple
+            (tuple_field
+              (field_name
+                (identifier_text))
+              (number_literal))
+            (tuple_field
+              (type_prefix)
+              (field_name
+                (identifier_text))
+              (string
+                (single_quoted_string)))
+            (tuple_field
+              (field_name
+                (string
+                  (single_quoted_string)))
+              (number_literal))
+            (number_literal)))))
+    (location_end)))
+
+================
+Record literal in statement arguments
+================
+# test
+unpackarr 'mass2', [x:157, a:250]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        (statement_name)
+        (string
+          (single_quoted_string))
+        (tuple
+          (bracket_tuple
+            (tuple_field
+              (field_name
+                (identifier_text))
+              (number_literal))
+            (tuple_field
+              (field_name
+                (identifier_text))
+              (number_literal))))))
+    (location_end)))
+
+================
+Record literal over several lines
+================
+# test
+x = [
+  x: 1,
+  y: [z: 2]
+]
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        (variable_list
+          (variable_ref
+            (identifier_text)))
+        (assignment_operator)
+        (tuple
+          (bracket_tuple
+            (tuple_field
+              (field_name
+                (identifier_text))
+              (number_literal))
+            (tuple_field
+              (field_name
+                (identifier_text))
+              (tuple
+                (bracket_tuple
+                  (tuple_field
+                    (field_name
+                      (identifier_text))
+                    (number_literal)))))))))
+    (location_end)))
+
+================
+Field reads with prefixes and string names
+================
+# test
+pl r.x + r.$name & pl r.'my key' & pl r.'<<$k>>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        (statement_name)
+        (na_binary
+          (field_access
+            (variable_ref
+              (identifier_text))
+            (field_name
+              (identifier_text)))
+          (op_arith)
+          (field_access
+            (variable_ref
+              (identifier_text))
+            (type_prefix)
+            (field_name
+              (identifier_text)))))
+      (statement
+        (statement_name)
+        (field_access
+          (variable_ref
+            (identifier_text))
+          (field_name
+            (string
+              (single_quoted_string)))))
+      (statement
+        (statement_name)
+        (field_access
+          (variable_ref
+            (identifier_text))
+          (field_name
+            (string
+              (single_quoted_string
+                (string_interpolation
+                  (ml_variable_ref
+                    (type_prefix)
+                    (identifier_text)))))))))
+    (location_end)))
+
+================
+Fields of an array item, a call and parentheses
+================
+# test
+pl func('f').y + a[0].x.y + (r).x
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        (statement_name)
+        (na_binary
+          (na_binary
+            (field_access
+              (na_func_call
+                (function_name)
+                (paren_args
+                  (string
+                    (single_quoted_string))))
+              (field_name
+                (identifier_text)))
+            (op_arith)
+            (field_access
+              (field_access
+                (variable_ref
+                  (identifier_text)
+                  (array_index
+                    (number_literal)))
+                (field_name
+                  (identifier_text)))
+              (field_name
+                (identifier_text))))
+          (op_arith)
+          (field_access
+            (paren_expr
+              (ml_variable_ref
+                (identifier_text)))
+            (field_name
+              (identifier_text))))))
+    (location_end)))
+
+================
+Field as an argument without parentheses
+================
+# test
+pl len r.$name
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        (statement_name)
+        (na_func_call
+          (function_name)
+          (field_access
+            (variable_ref
+              (identifier_text))
+            (type_prefix)
+            (field_name
+              (identifier_text))))))
+    (location_end)))
+
+================
+Fields as assignment targets
+================
+# test
+r.x = 5 & a[0].x.y += 1 & r.x, r.y = 1, 2
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        (variable_list
+          (field_access
+            (variable_ref
+              (identifier_text))
+            (field_name
+              (identifier_text))))
+        (assignment_operator)
+        (number_literal))
+      (assignment_statement
+        (variable_list
+          (field_access
+            (field_access
+              (variable_ref
+                (identifier_text)
+                (array_index
+                  (number_literal)))
+              (field_name
+                (identifier_text)))
+            (field_name
+              (identifier_text))))
+        (assignment_operator)
+        (number_literal))
+      (assignment_statement
+        (variable_list
+          (field_access
+            (variable_ref
+              (identifier_text))
+            (field_name
+              (identifier_text)))
+          (field_access
+            (variable_ref
+              (identifier_text))
+            (field_name
+              (identifier_text))))
+        (assignment_operator)
+        (number_literal)
+        (number_literal)))
+    (location_end)))
+
+================
+Field as a local
+================
+# test
+local r.z = 3
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (local_statement
+        (local_keyword)
+        (variable_list
+          (field_access
+            (variable_ref
+              (identifier_text))
+            (field_name
+              (identifier_text))))
+        (number_literal)))
+    (location_end)))
+
+================
+Field in an interpolation
+================
+# test
+$s = 'v<<r.x>>'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (assignment_statement
+        (variable_list
+          (variable_ref
+            (type_prefix)
+            (identifier_text)))
+        (assignment_operator)
+        (string
+          (single_quoted_string
+            (string_interpolation
+              (field_access
+                (ml_variable_ref
+                  (identifier_text))
+                (field_name
+                  (identifier_text))))))))
+    (location_end)))
+
+================
+Field in a condition
+================
+# test
+if r.x = 1 and r.#y: pl 1
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (if_inline
+        (if_keyword)
+        (ext_binary
+          (ext_binary
+            (field_access
+              (variable_ref
+                (identifier_text))
+              (field_name
+                (identifier_text)))
+            (op_cmp)
+            (number_literal))
+          (op_and)
+          (field_access
+            (variable_ref
+              (identifier_text))
+            (type_prefix)
+            (field_name
+              (identifier_text))))
+        (statement
+          (statement_name)
+          (number_literal))))
+    (location_end)))
+
+================
+MOVEARR statement
+================
+# test
+movearr 'b', 'a'
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (single_line_block
+      (statement
+        (statement_name)
+        (string
+          (single_quoted_string))
+        (string
+          (single_quoted_string))))
+    (location_end)))

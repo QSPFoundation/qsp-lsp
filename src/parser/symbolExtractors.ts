@@ -10,7 +10,7 @@
 import type Parser from 'web-tree-sitter';
 import type { SymbolLocation, SyntaxFeatureUse, TypePrefix } from './symbolTypes';
 import type { LocationSymbols } from './locationSymbols';
-import { classifyAssignmentLhs, isLocalVariable, variableDefinitionHasValue } from './variableUtils';
+import { classifyAssignmentLhs, isAssignmentTarget, isLocalVariable, variableDefinitionHasValue } from './variableUtils';
 import {
   LOCATION_REF_NAMES,
   LOCALS_PROPAGATING_NAMES,
@@ -55,8 +55,11 @@ export function extractVariable(
 
   const name = nameNode.text.trim();
   if (!name) return;
-  const prefixNode = node.childForFieldName('prefix');
-  const prefix = (prefixNode?.text || '#') as TypePrefix;
+  // The record a field is read from or written to (`r.x`, `$s.name`, QSP
+  // 5.9.6): its prefix types the field, and says nothing of the variable.
+  const holdsField = node.parent?.type === 'field_access';
+  const prefixNode = holdsField ? null : node.childForFieldName('prefix');
+  const prefix = holdsField ? '' : (prefixNode?.text || '#') as TypePrefix;
 
   const loc: SymbolLocation = nodeLoc(nameNode, docUri);
 
@@ -278,8 +281,9 @@ export function extractLocationRef(
     if (firstString) {
       addVarRefFromString(firstString, docUri, locSymbols, true, scopeId);
     }
-    // copyarr(dst, src): second arg is a proper-usage source reference.
-    if (stmtName === 'copyarr') {
+    // copyarr/movearr(dst, src): second arg is a proper-usage source
+    // reference (MOVEARR empties it after reading it).
+    if (stmtName === 'copyarr' || stmtName === 'movearr') {
       const srcNode = getNthArgNode(node, 1);
       const srcString = srcNode ? findDirectString(srcNode) : null;
       if (srcString) addVarRefFromString(srcString, docUri, locSymbols, false, scopeId);
@@ -474,6 +478,14 @@ export function noteSyntaxFeature(
     case 'array_index':
       if (node.namedChildCount > 1 && node.children.some(c => c.type === ',')) uses.push({ loc: nodeLoc(node, docUri), feature: 'multipleIndex' });
       return;
+    case 'tuple_field': {
+      const name = node.childForFieldName('name');
+      if (name) uses.push({ loc: nodeLoc(name, docUri), feature: 'recordField' });
+      return;
+    }
+    case 'field_access':
+      noteFieldAccess(node, uses, docUri);
+      return;
     case 'elseif_inline': {
       const keyword = node.childForFieldName('keyword');
       if (keyword) uses.push({ loc: nodeLoc(keyword, docUri), feature: 'inlineElseif' });
@@ -510,6 +522,41 @@ export function noteSyntaxFeature(
       if (lookupBuiltin(name)?.since) uses.push({ loc: nodeLoc(nameNode, docUri), feature: 'builtin', name });
       return;
     }
+  }
+}
+
+// A chain of fields, noted once at its outermost one: `a.b.c` read with a
+// plain name at each step is one name to older players (`dottedName`), and
+// the rest is 5.9.6 (`fieldAccess`). An index after a field isn't 5.9.6.
+function noteFieldAccess(node: Parser.SyntaxNode, uses: SyntaxFeatureUse[], docUri: string): void {
+  const parent = node.parent;
+  if (parent?.type === 'field_access' && parent.childForFieldName('object')?.id === node.id) return;
+  let dotted = true;
+  let base: Parser.SyntaxNode = node;
+  const names: string[] = [];
+  for (let n: Parser.SyntaxNode | null = node; n?.type === 'field_access'; n = n.childForFieldName('object')) {
+    const index = n.childForFieldName('index');
+    if (index) uses.push({ loc: nodeLoc(index, docUri), feature: 'fieldIndex' });
+    const field = n.childForFieldName('field')?.namedChild(0);
+    if (n.childForFieldName('prefix') || field?.type !== 'identifier_text' || (index && n.id !== node.id)) dotted = false;
+    names.unshift(field?.text ?? '');
+    base = n.childForFieldName('object') ?? n;
+  }
+  const isVariable = base.type === 'variable_ref' || base.type === 'ml_variable_ref';
+  if (dotted && isVariable && !base.childForFieldName('index')) {
+    const end = (node.childForFieldName('field') ?? node).endPosition;
+    uses.push({
+      loc: { uri: docUri, line: base.startPosition.row, column: base.startPosition.column, endLine: end.row, endColumn: end.column },
+      feature: 'dottedName',
+      name: [base.text, ...names].join('.'),
+    });
+  } else {
+    const dot = node.child(1) ?? node;
+    const end = (node.childForFieldName('field') ?? node).endPosition;
+    uses.push({
+      loc: { uri: docUri, line: dot.startPosition.row, column: dot.startPosition.column, endLine: end.row, endColumn: end.column },
+      feature: 'fieldAccess',
+    });
   }
 }
 
@@ -646,12 +693,12 @@ export function extractAliasTargets(
   docUri: string,
   scopeId: number,
 ): void {
-  const names = (node.childForFieldName('variables')?.namedChildren ?? [])
-    .filter(v => v.type === 'variable_ref' || v.type === 'ml_variable_ref');
+  // A field (`alias r.x = …`) takes its place but declares no alias.
+  const names = (node.childForFieldName('variables')?.namedChildren ?? []).filter(isAssignmentTarget);
   // The field also holds the commas between the values.
   const values = node.childrenForFieldName('value').filter(v => v.isNamed);
   for (const [i, v] of names.entries()) {
-    const name = v.childForFieldName('name')?.text;
+    const name = v.type === 'field_access' ? undefined : v.childForFieldName('name')?.text;
     const sym = name ? locSymbols.findLocalInScope(name, scopeId) : undefined;
     if (!sym) continue;
     const alias = sym.alias ??= { targets: [], declarations: 0 };

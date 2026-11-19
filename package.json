@@ -732,7 +732,7 @@
           "enumDescriptions": [
             "The classic QSP 5.7 player (qsp-legacy): no LOCAL, LOOP, tuples, % or @ calls; inside brackets a line breaks only after ' _'; true is -1.",
             "The last released QSP library (November 2025).",
-            "The QSP library's development version: the undefined value ?, INSVAR, ARRKEY, ALIAS, unary plus, COUNTOBJ with a name, variables without a prefix that hold any type, and \\ ; ^ @ ? ending a name."
+            "The QSP library's development version: records with named fields ([x: 1], r.x), the undefined value ?, INSVAR, ARRKEY, ALIAS, MOVEARR, unary plus, COUNTOBJ with a name, variables without a prefix that hold any type, and \\ ; ^ @ ? . ending a name."
           ],
           "default": "5.9.5",
           "scope": "window",
@@ -836,7 +836,7 @@
         "qsp.diagnostics.unsupportedSyntax": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Report constructs the chosen `#qsp.syntaxVersion#` doesn't have: in 5.7 `LOCAL`, `LOOP`, `INCLIB` and the other statements and functions of 5.9, tuples, the `%` prefix, calls with `@`, several values at once, `ELSEIF` on the line of its `IF`, and a comment after the `:` of a multi-line `IF` or `ACT`, which 5.7 reads as a one-line one; in 5.9.5 the undefined value `?`, `INSVAR`, `ARRKEY`, `ALIAS`, unary plus, a space after `@`, a tab before the `_` that joins lines; in 5.9.6 a name with `\\ ; ^ @ ?` in it, which 5.9.6 splits, and a variable named `alias`."
+          "markdownDescription": "Report constructs the chosen `#qsp.syntaxVersion#` doesn't have: in 5.7 `LOCAL`, `LOOP`, `INCLIB` and the other statements and functions of 5.9, tuples, the `%` prefix, calls with `@`, several values at once, `ELSEIF` on the line of its `IF`, and a comment after the `:` of a multi-line `IF` or `ACT`, which 5.7 reads as a one-line one; in 5.9.5 records (`[x: 1]`, `r.$x`), the undefined value `?`, `INSVAR`, `ARRKEY`, `ALIAS`, `MOVEARR`, unary plus, a space after `@`, a tab before the `_` that joins lines; in 5.9.6 a name with `\\ ; ^ @ ?` in it, which 5.9.6 splits, a variable named `alias` and an index after a field (`a.b[0]`); in 5.9.5 and 5.7 a warning on `a.b`, one name there, which is read as the field `b` of `a`, as 5.9.6 does."
         },
         "qsp.diagnostics.invalidBuiltinArgCount": {
           "type": "boolean",
@@ -1030,6 +1030,13 @@
         "label": "QSP"
       }
     ],
+    "semanticTokenTypes": [
+      {
+        "id": "field",
+        "superType": "property",
+        "description": "A field of a QSP record (QSP 5.9.6): r.x, [x: 1]"
+      }
+    ],
     "semanticTokenScopes": [
       {
         "language": "qsp",
@@ -1078,6 +1085,9 @@
           ],
           "enumMember": [
             "comment.line.location-end.qsp"
+          ],
+          "field": [
+            "variable.other.property.qsp"
           ]
         }
       }

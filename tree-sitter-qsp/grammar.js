@@ -46,7 +46,7 @@ function kwc(word) {
 const STATEMENTS = [
   '*clear', '*clr', '*nl', '*pl', '*p',
   'add obj', 'addobj', 'cla', 'clear', 'close all', 'close', 'clr', 'cls',
-  'cmdclear', 'cmdclr', 'copyarr',
+  'cmdclear', 'cmdclr', 'copyarr', 'movearr',
   'del act', 'del obj', 'delact', 'delobj', 'dynamic', 'exit',
   'freelib', 'killqst', 'dellib',
   'gosub', 'goto', 'gs', 'gt',
@@ -167,8 +167,13 @@ module.exports = grammar({
   word: $ => $.identifier_text,
 
   conflicts: $ => [
-    // variable_ref could start variable_list (assignment) or be a primary expression
-    [$.variable_list, $._na_primary],
+    // variable_ref could start an assignment target or be a primary expression
+    [$._assignment_target, $._na_primary],
+    // `[x: 1]` or `[x]`: a field name or a variable, told apart by the `:` after it.
+    [$.field_name, $.ml_variable_ref],
+    [$.field_name, $._ml_primary],
+    [$.field_name, $.function_name],
+    [$.field_name, $._no_arg_function_name],
     // `if cond : !comment \n` — comment_statement could belong to
     // _stmt_single (if_inline's body) or be if_block's trailing comment.
     // Same pattern applies to act, loop, elseif, and else.
@@ -355,10 +360,23 @@ module.exports = grammar({
       field('value', $._na_arg_list),
     )),
 
+    // PEG: assignmentTargets = assignmentTarget (ws "," ws assignmentTarget)*
     variable_list: $ => prec.right(seq(
-      $.variable_ref,
-      repeat(seq(',', $.variable_ref)),
+      $._assignment_target,
+      repeat(seq(',', $._assignment_target)),
     )),
+
+    // PEG: assignmentTarget = variableRef (ws fieldAccess)*
+    // `r.x = 5`, `a[0].x.y += 1`: a field of a record (QSP 5.9.6).
+    _assignment_target: $ => choice($.variable_ref, alias($._target_field_access, $.field_access)),
+
+    _target_field_access: $ => seq(
+      field('object', $._assignment_target),
+      '.',
+      field('prefix', optional($.type_prefix)),
+      field('field', $.field_name),
+      optional(field('index', $.array_index)),
+    ),
 
     assignment_operator: $ => choice('=', '+=', '-=', '*=', '/='),
 
@@ -697,6 +715,7 @@ module.exports = grammar({
     ),
 
     _na_primary: $ => choice(
+      alias($._na_field_access, $.field_access),
       $.paren_expr,
       $.number_literal,
       $.undefined_literal,
@@ -733,6 +752,7 @@ module.exports = grammar({
     ),
 
     _ext_primary: $ => choice(
+      alias($._ext_field_access, $.field_access),
       $.paren_expr,
       $.number_literal,
       $.undefined_literal,
@@ -769,6 +789,7 @@ module.exports = grammar({
     ),
 
     _ml_primary: $ => choice(
+      alias($._ml_field_access, $.field_access),
       $.paren_expr,
       $.number_literal,
       $.undefined_literal,
@@ -778,6 +799,53 @@ module.exports = grammar({
       $.ml_user_func_call,
       $.ml_func_call,
       $.ml_variable_ref,
+    ),
+
+    // ── Fields of a record (QSP 5.9.6) ──────────────────────────────────────
+
+    // PEG: primaryExpression = primaryValue (ws fieldAccess)*
+    // PEG: fieldAccess = "." ws typePrefix? fieldName
+    // Any value can be followed by fields: `r.x`, `a[0].x.y`, `func('f').$name`.
+    // The prefix sets the type the field is read as. An index after a field
+    // isn't QSP 5.9.6 ("Incorrect field name"), but `a.b[0]` is an item of
+    // the array `a.b` in older players, which read `a.b` as one name.
+    _na_field_access: $ => prec.left(20, seq(
+      field('object', $._na_primary),
+      '.',
+      field('prefix', optional($.type_prefix)),
+      field('field', $.field_name),
+      optional(field('index', $.array_index)),
+    )),
+
+    _ext_field_access: $ => prec.left(20, seq(
+      field('object', $._ext_primary),
+      '.',
+      field('prefix', optional($.type_prefix)),
+      field('field', $.field_name),
+      optional(field('index', $.array_index)),
+    )),
+
+    // PEG: multilineFieldAccess = "." mws typePrefix? fieldName
+    // The PEG also takes line breaks before the `.` (`multilinePrimaryValue
+    // (mws multilineFieldAccess)*`); here they'd compete with the one before
+    // a closing bracket, so a field starts on the line of its value.
+    _ml_field_access: $ => prec.left(20, seq(
+      field('object', $._ml_primary),
+      '.',
+      optional($._nls),
+      field('prefix', optional($.type_prefix)),
+      field('field', $.field_name),
+      optional(field('index', $.array_index)),
+    )),
+
+    // PEG: fieldName = (~digit ~typePrefix nameChar+) | interpolatedString | rawStringLiteral
+    // A string gives a name that isn't one otherwise: `r.'my key'`, `r.'<<$k>>'`.
+    // A field may be named as a function (`[len: 3]`): where a value could
+    // start, the lexer reads such a word as the function, so it is taken here too.
+    field_name: $ => choice(
+      $.identifier_text,
+      alias(choice(kw(FUNCTIONS), kw(NO_ARG_FUNCTIONS), ci('no'), ci('obj'), ci('loc')), $.identifier_text),
+      $.string,
     ),
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -817,13 +885,27 @@ module.exports = grammar({
     ),
 
     // PEG: emptyTuple / nonEmptyTuple — [...]
+    // PEG: nonEmptyTuple = "[" mws tupleItem (mws "," mws tupleItem)* mws "]"
     bracket_tuple: $ => seq(
       '[', optional($._nls),
       optional(seq(
-        $._ml_expression, optional($._nls),
-        repeat(seq(',', optional($._nls), $._ml_expression, optional($._nls))),
+        $._tuple_item, optional($._nls),
+        repeat(seq(',', optional($._nls), $._tuple_item, optional($._nls))),
       )),
       ']',
+    ),
+
+    _tuple_item: $ => choice($._ml_expression, $.tuple_field),
+
+    // PEG: tupleItem = (typePrefix? fieldName mws ":" mws)? multilineExpression
+    // A named field of a record (QSP 5.9.6): `[x: 157, $name: 'a']`.
+    tuple_field: $ => seq(
+      field('prefix', optional($.type_prefix)),
+      field('name', $.field_name),
+      optional($._nls),
+      ':',
+      optional($._nls),
+      field('value', $._ml_expression),
     ),
 
     // PEG: emptyPseudoTuple / nonEmptyPseudoTuple — (...)
@@ -995,11 +1077,13 @@ module.exports = grammar({
     // First char: non-delimiter, non-digit, non-typePrefix (#$%), non-@
     //   (`@` at start always introduces a user call: `@foo` / `@@foo`), and
     //   a `?` only with more name after it (`?` alone is undefined_literal).
-    // Rest: any non-delimiter char — `@` and `.` ARE allowed inside a name,
-    //   so `a@b`, `a.b`, `foo@bar` are valid variable / location names
-    //   (PEG `nameChar+`: the newest library's delimiters `\ ; ^ @ ?` are
-    //   still name characters here, as older players read them).
-    identifier_text: $ => /(?:[^\s&'"()\[\]=!<>+\-\/*:,{}@0-9#$%?]|\?[^\s&'"()\[\]=!<>+\-\/*:,{}])[^\s&'"()\[\]=!<>+\-\/*:,{}]*/,
+    // Rest: any non-delimiter char but `.` — `@` IS allowed inside a name,
+    //   so `a@b`, `foo@bar` are valid variable names (PEG `nameChar+`: the
+    //   newest library's delimiters `\ ; ^ @ ?` are still name characters
+    //   here, as older players read them). A `.` starts a field (QSP 5.9.6:
+    //   `nameChar = ~"." nonDelimiterChar`); older players read `a.b` as one
+    //   name, which the LSP gives back for those versions (`dottedName`).
+    identifier_text: $ => /(?:[^\s&'"()\[\]=!<>+\-\/*:,{}@0-9#$%?.]|\?[^\s&'"()\[\]=!<>+\-\/*:,{}.])[^\s&'"()\[\]=!<>+\-\/*:,{}.]*/,
 
     // ══════════════════════════════════════════════════════════════════════════
     // WHITESPACE / NEWLINES

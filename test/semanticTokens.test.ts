@@ -48,4 +48,11 @@ describe('semantic tokens', () => {
     expect(toks).toContainEqual({ type: 'string', text: '{ Ann, Bob, }' });
     expect(toks).toContainEqual({ type: 'variable', text: 'x' });
   });
+
+  it('colour the fields of a record as fields, and a field named by text as a string', () => {
+    const toks = tokensFor("# a\n%r = [x: 1, $len: 'a']\npl r.x + r.$len + r.'my key'\n---\n");
+    expect(toks.filter(t => t.type === 'field').map(t => t.text)).toEqual(['x', 'len', 'x', 'len']);
+    expect(toks).toContainEqual({ type: 'string', text: 'my key' });
+    expect(toks.filter(t => t.type === 'variable').map(t => t.text)).toEqual(['r', 'r', 'r', 'r']);
+  });
 });

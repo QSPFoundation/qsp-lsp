@@ -380,17 +380,21 @@ export interface ArgCountWarning {
  * 5.7 (LOCAL, LOOP, tuples, `%`, `@name`, several values at once, ELSEIF on
  * the line of its IF), one 5.7 reads otherwise (a comment after the `:` of a
  * multi-line IF, ACT, ELSEIF or ELSE), or a name that 5.9.6 splits (`a\b`:
- * `\ ; ^ @ ?` end a name there) or reserves (`alias`). Recorded whatever
- * the version; the `unsupportedSyntax` diagnostic picks those to report.
+ * `\ ; ^ @ ?` end a name there) or reserves (`alias`). The fields of
+ * records are 5.9.6's too (`r.x`, `[x: 1]`), and an index after a field
+ * isn't (`a.b[0]`); `a.b` is one name to older players (`dottedName`),
+ * which the analysis reads as 5.9.6 does. Recorded whatever the version;
+ * the `unsupportedSyntax` diagnostic picks those to report.
  */
 export interface SyntaxFeatureUse {
   loc: SymbolLocation;
   feature: 'undefinedValue' | 'builtin' | 'unaryPlus' | 'tabContinuation' | 'spaceAfterAt' | 'nameDelimiter' | 'reservedName'
     | 'tuple' | 'multipleAssignment' | 'tuplePrefix' | 'userFunctionCall' | 'multipleIndex' | 'inlineElseif'
-    | 'commentAfterColon';
+    | 'commentAfterColon' | 'fieldAccess' | 'recordField' | 'fieldIndex' | 'dottedName';
   /**
    * The builtin's lower-case name, `@` or `@@`, the name 5.9.6 splits or
-   * reserves, or the keyword (`if`, `act`, `elseif`, `else`) a comment follows.
+   * reserves, the keyword (`if`, `act`, `elseif`, `else`) a comment follows,
+   * or the name with dots (`a.b`, `$a.b.c`).
    */
   name?: string;
 }

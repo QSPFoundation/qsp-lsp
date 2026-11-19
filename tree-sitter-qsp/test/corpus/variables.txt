@@ -948,7 +948,7 @@ a@b = 1
     (location_end)))
 
 ================
-Variable name with dot inside
+A dot after a variable name reads a field (QSP 5.9.6)
 ================
 # test
 foo.bar = 1
@@ -962,8 +962,11 @@ foo.bar = 1
     (single_line_block
       (assignment_statement
         variables: (variable_list
-          (variable_ref
-            name: (identifier_text)))
+          (field_access
+            object: (variable_ref
+              name: (identifier_text))
+            field: (field_name
+              (identifier_text))))
         operator: (assignment_operator)
         value: (number_literal)))
     (location_end)))

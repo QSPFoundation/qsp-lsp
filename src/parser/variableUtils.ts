@@ -72,6 +72,7 @@ export function subtreeReferencesVariable(
  */
 function isSelfRefLhs(
   varNode: Parser.SyntaxNode,
+  slot: Parser.SyntaxNode,
   parent: Parser.SyntaxNode,
   grandparent: Parser.SyntaxNode,
   opNode: Parser.SyntaxNode,
@@ -80,16 +81,15 @@ function isSelfRefLhs(
   if (!target) return false;
 
   // Locate this LHS's zero-based index among the variable_list's
-  // var-ref entries (and total var-ref count).  Identity comparison
-  // works because tree-sitter reuses one wrapper per node within a walk.
-  const varId = varNode.id;
+  // targets (and total target count).
+  const slotId = slot.id;
   let lhsIdx = -1;
   let lhsCount = 0;
   const vlc = parent.namedChildCount;
   for (let i = 0; i < vlc; i++) {
     const v = parent.namedChild(i);
-    if (!v || (v.type !== 'variable_ref' && v.type !== 'ml_variable_ref')) continue;
-    if (v.id === varId) lhsIdx = lhsCount;
+    if (!v || !isAssignmentTarget(v)) continue;
+    if (v.id === slotId) lhsIdx = lhsCount;
     lhsCount++;
   }
   if (lhsIdx < 0) return false;
@@ -141,7 +141,8 @@ export function isVariableDefinition(varNode: Parser.SyntaxNode): boolean {
 export function classifyAssignmentLhs(
   varNode: Parser.SyntaxNode,
 ): 'definition' | 'compound' | null {
-  const parent = varNode.parent;
+  const slot = assignmentSlotOf(varNode);
+  const parent = slot.parent;
   if (!parent || parent.type !== 'variable_list') return null;
   const grandparent = parent.parent;
   if (!grandparent) return null;
@@ -150,7 +151,26 @@ export function classifyAssignmentLhs(
   const opNode = findNamedChildOfType(grandparent, 'assignment_operator');
   if (!opNode) return null;
   if (opNode.text !== '=') return 'compound';
-  return isSelfRefLhs(varNode, parent, grandparent, opNode) ? 'compound' : 'definition';
+  return isSelfRefLhs(varNode, slot, parent, grandparent, opNode) ? 'compound' : 'definition';
+}
+
+/** Whether `node`, in a `variable_list`, is one of the targets assigned to. */
+export function isAssignmentTarget(node: Parser.SyntaxNode): boolean {
+  return node.type === 'variable_ref' || node.type === 'ml_variable_ref' || node.type === 'field_access';
+}
+
+/**
+ * The target of an assignment `varNode` stands for: itself, or the field
+ * of it assigned to (`r.x = 5`, `a[0].x.y += 1`, QSP 5.9.6), which writes
+ * the variable as an index does: QSP makes the record if there is none.
+ */
+export function assignmentSlotOf(varNode: Parser.SyntaxNode): Parser.SyntaxNode {
+  let slot = varNode;
+  for (let p = slot.parent; p?.type === 'field_access'; p = p.parent) {
+    if (p.childForFieldName('object')?.id !== slot.id) break;
+    slot = p;
+  }
+  return slot;
 }
 
 /**
@@ -220,7 +240,8 @@ export function tupleLiteralOf(node: Parser.SyntaxNode): Parser.SyntaxNode | nul
  *   `x += 1`            → n/a — `isVariableDefinition` returns false for compound ops
  */
 export function variableDefinitionHasValue(varNode: Parser.SyntaxNode): boolean {
-  const parent = varNode.parent;
+  const slot = assignmentSlotOf(varNode);
+  const parent = slot.parent;
   if (!parent) return false;
 
   const scanRhs = (stmt: Parser.SyntaxNode): { count: number; first: Parser.SyntaxNode | null } => {
@@ -262,14 +283,14 @@ export function variableDefinitionHasValue(varNode: Parser.SyntaxNode): boolean 
   // Single pass: locate this varNode's index in the variable_list,
   // count total LHS vars, and capture the tail node — all from one
   // walk of `parent.namedChild(i)`.
-  const sr = varNode.startPosition.row;
-  const sc = varNode.startPosition.column;
+  const sr = slot.startPosition.row;
+  const sc = slot.startPosition.column;
   const vlc = parent.namedChildCount;
   let totalVars = 0;
   let idx = -1;
   for (let i = 0; i < vlc; i++) {
     const v = parent.namedChild(i);
-    if (!v || (v.type !== 'variable_ref' && v.type !== 'ml_variable_ref')) continue;
+    if (!v || !isAssignmentTarget(v)) continue;
     if (v.startPosition.row === sr && v.startPosition.column === sc) idx = totalVars;
     totalVars++;
   }
@@ -301,7 +322,7 @@ export function variableDefinitionHasValue(varNode: Parser.SyntaxNode): boolean 
 
 /** Check if a variable is declared with LOCAL. */
 export function isLocalVariable(varNode: Parser.SyntaxNode): boolean {
-  const parent = varNode.parent;
+  const parent = assignmentSlotOf(varNode).parent;
   if (!parent) return false;
   if (parent.type !== 'variable_list') return false;
   return parent.parent?.type === 'local_statement' || parent.parent?.type === 'alias_statement';

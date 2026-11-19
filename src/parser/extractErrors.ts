@@ -14,7 +14,9 @@ import {
   checkReservedWordMisuse,
   checkPrefixWhitespace,
   checkContinuationInBrackets,
+  checkDuplicateFields,
   checkLineBreaksInBrackets,
+  duplicateFields,
   continuationInBracketsError,
   isContinuationInBrackets,
   lineBreaksInBrackets,
@@ -24,7 +26,7 @@ import {
 import { isDynamicArgCodeBlock } from './scopeUtils';
 import { blockLocation, blockStatements, descendantsOfType, isNeverRunBlock, parentOf } from './blockTrees';
 
-export { checkFunctionNameAsLvalue, checkReservedWordMisuse, checkPrefixWhitespace, checkContinuationInBrackets, checkLineBreaksInBrackets };
+export { checkFunctionNameAsLvalue, checkReservedWordMisuse, checkPrefixWhitespace, checkContinuationInBrackets, checkLineBreaksInBrackets, checkDuplicateFields };
 
 /** A syntax error extracted from the parse tree. */
 export interface SyntaxError {
@@ -304,11 +306,12 @@ export function extractErrors(tree: Parser.Tree): SyntaxError[] {
 /**
  * Single-pass version of `checkReservedWordMisuse` +
  * `checkPrefixWhitespace` + `checkFunctionNameAsLvalue` +
- * `checkContinuationInBrackets` + `checkLineBreaksInBrackets`. Walks the tree
+ * `checkContinuationInBrackets` + `checkLineBreaksInBrackets` +
+ * `checkDuplicateFields`. Walks the tree
  * once with shared depth counters for `code_block` / `string_interpolation`
  * context, instead of three separate full-tree walks.
  *
- * Behaviour MUST match the union of the five public functions exactly;
+ * Behaviour MUST match the union of the six public functions exactly;
  * the test suite still calls those public functions individually.
  */
 function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
@@ -460,6 +463,18 @@ function runMergedLintPasses(tree: Parser.Tree): SyntaxError[] {
             inInterpolation: interpolationDepth > 0 || undefined,
           });
         }
+      }
+    }
+
+    // ── Pass 6: fields named twice in a record (QSP 5.9.6) ────────
+    if (t === 'bracket_tuple' && errorDepth === 0) {
+      for (const err of duplicateFields(n)) {
+        errors.push({
+          ...err,
+          inCodeBlock: codeBlockDepth > 0 || undefined,
+          ...storedContext(),
+          inInterpolation: interpolationDepth > 0 || undefined,
+        });
       }
     }
 

@@ -98,7 +98,7 @@ const SKIP_ARG0_FN = new Set<string>([
 ]);
 
 /** Calls where both arg0 AND arg1 are var-name identifiers. */
-const SKIP_ARG0_AND_ARG1 = new Set<string>(['copyarr']);
+const SKIP_ARG0_AND_ARG1 = new Set<string>(['copyarr', 'movearr']);
 
 /** Regex-pattern arg index by function name. */
 const REGEX_PATTERN_ARG: ReadonlyMap<string, number> = new Map([

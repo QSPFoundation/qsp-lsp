@@ -34,7 +34,7 @@ import {
 import { blockStatements, parentOf } from './blockTrees';
 import { lookupArgConstraints, lookupFunctionReturnType } from './builtins';
 import { parseVarStringArg } from './variableBindings';
-import { isTupleTypedRhs, tupleLiteralOf, subtreeReferencesVariable } from './variableUtils';
+import { isAssignmentTarget, isTupleTypedRhs, tupleLiteralOf, subtreeReferencesVariable } from './variableUtils';
 import { literalOf, share, targetPatternOf, type TargetPattern } from './targetPattern';
 
 /**
@@ -438,14 +438,14 @@ export function collectVariableBindings(
         rhsArr.push(c);
       }
       if (varListNode) {
-        // Collect var refs from the variable_list.  The grammar
-        // guarantees only variable_ref children, but we filter to
-        // stay robust against parse-error recoveries.
+        // Collect the targets from the variable_list, filtered to stay
+        // robust against parse-error recoveries. A field (`r.x = 5`) takes
+        // its place in the zip but binds no value to the record holding it.
         const vlc = varListNode.namedChildCount;
         const vars: Parser.SyntaxNode[] = [];
         for (let i = 0; i < vlc; i++) {
           const v = varListNode.namedChild(i);
-          if (v && (v.type === 'variable_ref' || v.type === 'ml_variable_ref')) vars.push(v);
+          if (v && isAssignmentTarget(v)) vars.push(v);
         }
         // ── Multi-LHS assignment semantics ────────────────────────
         //

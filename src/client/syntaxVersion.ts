@@ -17,8 +17,8 @@ const DETAILS: Readonly<Record<SyntaxVersion, string>> = {
   '5.7.0': 'The classic player (qsp-legacy): no LOCAL, LOOP, tuples, % or @; inside brackets a line breaks '
     + 'only after " _"; true is -1.',
   '5.9.5': 'The last release (November 2025). Constructs of 5.9.6 are errors.',
-  '5.9.6': 'The library in development: ?, INSVAR, ARRKEY, ALIAS, unary plus, COUNTOBJ with a name, '
-    + 'variables without a prefix hold any type, \\ ; ^ @ ? end a name.',
+  '5.9.6': 'The library in development: records ([x: 1], r.x), ?, INSVAR, ARRKEY, ALIAS, MOVEARR, unary plus, '
+    + 'COUNTOBJ with a name, variables without a prefix hold any type, \\ ; ^ @ ? . end a name.',
 };
 
 function currentVersion(): SyntaxVersion {

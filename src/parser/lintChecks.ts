@@ -412,6 +412,60 @@ export function checkLineBreaksInBrackets(tree: Parser.Tree): SyntaxError[] {
   return errors;
 }
 
+// ── Fields of a record ───────────────────────────────────────────────
+
+/**
+ * Fields named twice in a record literal (`[x: 1, $X: 2]`): QSP 5.9.6
+ * stops with "Duplicate field name". It compares names whatever their case
+ * and prefix; a name given as text counts as the text (`'x'` is `x`), and
+ * one built when the code runs (`'<<$k>>'`) isn't known here.
+ */
+export function duplicateFields(tuple: Parser.SyntaxNode): SyntaxError[] {
+  const errors: SyntaxError[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < tuple.namedChildCount; i++) {
+    const item = tuple.namedChild(i)!;
+    if (item.type !== 'tuple_field') continue;
+    const nameNode = item.childForFieldName('name');
+    const name = nameNode ? fieldNameText(nameNode) : undefined;
+    if (name === undefined || !nameNode) continue;
+    if (seen.has(name)) {
+      errors.push({
+        startRow: nameNode.startPosition.row,
+        startCol: nameNode.startPosition.column,
+        endRow: nameNode.endPosition.row,
+        endCol: nameNode.endPosition.column,
+        message: `Field '${nameNode.text}' is already in this record: QSP stops with 'Duplicate field name'`,
+        versions: ONLY_596,
+      });
+    }
+    seen.add(name);
+  }
+  return errors;
+}
+
+const ONLY_596: readonly SyntaxVersion[] = ['5.9.6'];
+
+// A `field_name`'s name in lower case; undefined when it is built as the code runs.
+function fieldNameText(node: Parser.SyntaxNode): string | undefined {
+  const inner = node.namedChild(0);
+  if (!inner) return undefined;
+  if (inner.type === 'identifier_text') return inner.text.toLowerCase();
+  const quoted = inner.namedChild(0);
+  if (!quoted || quoted.namedChildCount > 0) return undefined;
+  const quote = quoted.text[0];
+  return quoted.text.slice(1, -1).split(quote + quote).join(quote).toLowerCase();
+}
+
+/** Fields named twice in record literals (see `duplicateFields`). */
+export function checkDuplicateFields(tree: Parser.Tree): SyntaxError[] {
+  const errors: SyntaxError[] = [];
+  forEachDescendant(tree.rootNode, (n) => {
+    if (n.type === 'bracket_tuple') errors.push(...duplicateFields(n));
+  });
+  return errors;
+}
+
 /** Line continuations inside `(…)` or `[…]` (see `isContinuationInBrackets`). */
 export function checkContinuationInBrackets(tree: Parser.Tree): SyntaxError[] {
   const errors: SyntaxError[] = [];

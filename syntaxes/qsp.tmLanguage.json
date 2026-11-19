@@ -36,6 +36,7 @@
         { "include": "#string-double" },
         { "include": "#string-single" },
         { "include": "#code-block" },
+        { "include": "#field" },
         { "include": "#keyword-control" },
         { "include": "#keyword-statement" },
         { "include": "#keyword-function" },
@@ -268,8 +269,17 @@
         }
       ]
     },
+    "field": {
+      "comment": "A field of a record (QSP 5.9.6): r.x, r.$name. A dot ends a name there; older players' a.b reads as a field too.",
+      "match": "(\\.)\\s*([$#%])?([\\p{L}_][\\p{L}\\p{N}_]*)",
+      "captures": {
+        "1": { "name": "punctuation.accessor.qsp" },
+        "2": { "name": "storage.type.variable.qsp" },
+        "3": { "name": "variable.other.property.qsp" }
+      }
+    },
     "variable-typed": {
-      "match": "([$#%])([\\p{L}_][\\p{L}\\p{N}_.]*)",
+      "match": "([$#%])([\\p{L}_][\\p{L}\\p{N}_]*)",
       "captures": {
         "1": { "name": "storage.type.variable.qsp" },
         "2": { "name": "variable.other.readwrite.qsp" }
@@ -301,7 +311,7 @@
       "name": "punctuation.separator.statement.qsp"
     },
     "identifier": {
-      "match": "[\\p{L}_][\\p{L}\\p{N}_.]*",
+      "match": "[\\p{L}_][\\p{L}\\p{N}_]*",
       "name": "variable.other.readwrite.qsp"
     }
   }

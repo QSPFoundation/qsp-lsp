@@ -47,7 +47,7 @@ static bool ends_word(int32_t c) {
     case 0: case ' ': case '\t': case '\r': case '\n': case '\f': case '\v':
     case '&': case '\'': case '"': case '(': case ')': case '[': case ']':
     case '=': case '!': case '<': case '>': case '+': case '-': case '/':
-    case '*': case ':': case ',': case '{': case '}':
+    case '*': case ':': case ',': case '{': case '}': case '.':
       return true;
     default:
       return false;

@@ -26,6 +26,9 @@ export type SemanticParseFn = (text: string) => Parser.Tree | null;
 // Legend — the token types and modifiers we provide
 // ──────────────────────────────────────────────────────────────────────
 
+/** A field of a record: `r.x`, `[x: 1]`. Not a standard type, so package.json declares it. */
+const FIELD_TOKEN_TYPE = 'field' as SemanticTokenTypes;
+
 export const TOKEN_TYPES = [
   SemanticTokenTypes.namespace,     // 0  location names
   SemanticTokenTypes.variable,      // 1  variables
@@ -43,6 +46,7 @@ export const TOKEN_TYPES = [
   SemanticTokenTypes.regexp,        // 13 string interpolation delimiters
   SemanticTokenTypes.decorator,     // 14 location header # and ---
   SemanticTokenTypes.enumMember,    // 15 note text after end/---
+  FIELD_TOKEN_TYPE,                 // 16 fields of records (QSP 5.9.6), declared in package.json
 ];
 
 const MOD_DECL    = SemanticTokenModifiers.declaration;   // variable defs, labels, location headers
@@ -349,6 +353,15 @@ function emitSemanticTokens(
             push(child, interpType);
           }
         }
+        return;
+      }
+
+      // ── Fields of records ───────────────────────────────
+      // A name given as text (`r.'my key'`) stays a string.
+      case 'field_name': {
+        const name = node.namedChild(0);
+        if (name?.type === 'identifier_text') push(name, tokenType(FIELD_TOKEN_TYPE));
+        else if (name) visitNode(name);
         return;
       }
 
