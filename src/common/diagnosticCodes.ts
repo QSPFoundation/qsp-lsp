@@ -11,6 +11,7 @@ export const CHECK_CODES = [
   'duplicateLabels',
   'duplicateActions',
   'unreachableLabels',
+  'skippedCode',
   'unclosedLocations',
   'uninitializedVariables',
   'unresolvedLocationRefs',

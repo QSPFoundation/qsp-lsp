@@ -32,6 +32,7 @@ import {
   checkArgCount,
   checkDeprecated,
   noteSyntaxFeature,
+  noteSkippedCode,
   checkFuncCallPrefix,
 } from './symbolExtractors';
 import { collectVariableBindings } from './bindingCollector';
@@ -242,6 +243,7 @@ export function walkLocationBody(
       }
 
       case 'if_block': {
+        noteSkippedCode(node, locSymbols, docUri);
         const parentScope = scopeId;
         const bodyScope = newScope(parentScope);
         if (cursor.gotoFirstChild()) {

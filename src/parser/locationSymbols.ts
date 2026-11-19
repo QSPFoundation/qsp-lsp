@@ -14,6 +14,7 @@ import {
   type ArgCountWarning,
   type SyntaxFeatureUse,
   type DeprecationWarning,
+  type SkippedCode,
   type VariableBinding,
 } from './symbolTypes';
 import { lookupBuiltin } from './builtins';
@@ -77,6 +78,8 @@ export class LocationSymbols {
   public readonly syntaxFeatureUses: SyntaxFeatureUse[] = [];
   /** Warnings for deprecated/outdated builtin statements or functions. */
   public readonly deprecationWarnings: DeprecationWarning[] = [];
+  /** Lines and branches of a multi-line IF that QSP never runs. */
+  public readonly skippedCode: SkippedCode[] = [];
   /**
    * Syntax errors extracted from sub-parses of `<a href="exec:CODE">`
    * link bodies inside this location's renderable strings.  Positions
@@ -771,6 +774,7 @@ export class LocationSymbols {
       for (const aw of source.argCountWarnings) copy.argCountWarnings.push(aw);
       for (const fu of source.syntaxFeatureUses) copy.syntaxFeatureUses.push(fu);
       for (const dw of source.deprecationWarnings) copy.deprecationWarnings.push(dw);
+      for (const sc of source.skippedCode) copy.skippedCode.push(sc);
       for (const e of source.embeddedExecErrors) copy.embeddedExecErrors.push(e);
       for (const d of source.dynamicVarCalls) copy.dynamicVarCalls.push(d);
       for (const d of source.untrackedDynamicVarCalls) copy.untrackedDynamicVarCalls.push(d);
@@ -854,6 +858,9 @@ export class LocationSymbols {
     }
     for (const dw of source.deprecationWarnings) {
       copy.deprecationWarnings.push({ ...dw, loc: shift(dw.loc) });
+    }
+    for (const sc of source.skippedCode) {
+      copy.skippedCode.push({ ...sc, loc: shift(sc.loc) });
     }
     for (const e of source.embeddedExecErrors) {
       copy.embeddedExecErrors.push(shiftError(e, lineShift));

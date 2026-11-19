@@ -303,6 +303,7 @@ export function createQspServer(
       duplicateLabels: true,
       duplicateActions: true,
       unreachableLabels: true,
+      skippedCode: true,
       unclosedLocations: true,
       uninitializedVariables: true,
       unresolvedLocationRefs: true,

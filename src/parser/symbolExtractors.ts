@@ -591,6 +591,71 @@ function noteCommentAfterColon(node: Parser.SyntaxNode, uses: SyntaxFeatureUse[]
   uses.push({ loc: nodeLoc(comment, docUri), feature: 'commentAfterColon', name });
 }
 
+// ── Code QSP skips in a multi-line IF ─────────────────────────────────
+
+// Where a node's text ends: a block or a branch ends after its line break,
+// at column 0 of the next line.
+function textEnd(node: Parser.SyntaxNode): Parser.Point {
+  const end = node.endPosition;
+  if (end.column > 0 || end.row === node.startPosition.row) return end;
+  for (let i = node.childCount - 1; i >= 0; i--) {
+    const c = node.child(i)!;
+    const lineBreak = c.childCount === 0 && c.endPosition.column === 0 && c.endPosition.row > c.startPosition.row;
+    if (!lineBreak && c.endIndex > c.startIndex) return textEnd(c);
+  }
+  return node.startPosition;
+}
+
+const spanLoc = (from: Parser.SyntaxNode, to: Parser.SyntaxNode, uri: string): SymbolLocation => {
+  const end = textEnd(to);
+  return { uri, line: from.startPosition.row, column: from.startPosition.column, endLine: end.row, endColumn: end.column };
+};
+
+// A one-line `else if x: …` without a colon after ELSE: QSP reads an ELSE
+// whose body is an inline IF, not an ELSEIF.
+function isOneLineElseIf(clause: Parser.SyntaxNode): boolean {
+  const keyword = clause.childForFieldName('keyword');
+  if (!keyword || keyword.text.includes(':')) return false;
+  const body = keyword.nextNamedSibling;
+  return body?.type === 'if_inline' && body.startPosition.row === keyword.startPosition.row;
+}
+
+/**
+ * Record what of a multi-line IF QSP never runs (`LocationSymbols.skippedCode`):
+ * the lines after a one-line ELSEIF or ELSE up to the next branch (comments
+ * alone are fine), the branches after an ELSE, and a one-line `else if`
+ * that branches come after, since it reads like an ELSEIF.
+ */
+export function noteSkippedCode(ifBlock: Parser.SyntaxNode, locSymbols: LocationSymbols, docUri: string): void {
+  let elseClause: Parser.SyntaxNode | null = null;
+  let cutOff = false;
+  for (const clause of ifBlock.namedChildren) {
+    if (clause.type !== 'elseif_clause' && clause.type !== 'else_clause') continue;
+    if (elseClause) {
+      cutOff = true;
+      locSymbols.skippedCode.push({
+        loc: spanLoc(clause, clause, docUri), kind: 'branch', after: isOneLineElseIf(elseClause) ? 'elseIf' : 'else',
+      });
+      continue;
+    }
+    const code = clause.childrenForFieldName('skipped')
+      .filter(b => b.namedChildren.some(c => c.type !== 'comment_statement'));
+    if (code.length > 0) {
+      locSymbols.skippedCode.push({
+        loc: spanLoc(code[0]!, code[code.length - 1]!, docUri),
+        kind: 'lines',
+        after: clause.type === 'else_clause' ? 'else' : 'elseif',
+      });
+    }
+    if (clause.type === 'else_clause') elseClause = clause;
+  }
+  if (cutOff && elseClause && isOneLineElseIf(elseClause)) {
+    const keyword = elseClause.childForFieldName('keyword')!;
+    const ifKeyword = keyword.nextNamedSibling!.childForFieldName('keyword') ?? keyword;
+    locSymbols.skippedCode.push({ loc: spanLoc(keyword, ifKeyword, docUri), kind: 'elseIf', after: 'elseIf' });
+  }
+}
+
 /**
  * Record a deprecation warning when the call's name resolves to a
  * builtin marked `deprecated`. Mirrors `checkArgCount` in shape so

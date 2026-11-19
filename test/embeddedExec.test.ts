@@ -1213,6 +1213,7 @@ pl '<a href="exec:y = dyneval($b)">B</a>'
       duplicateLabels: false,
       duplicateActions: false,
       unreachableLabels: false,
+      skippedCode: false,
       unclosedLocations: false,
       uninitializedVariables: false,
       unresolvedLocationRefs: false,

@@ -554,3 +554,173 @@ end
                 (single_quoted_string)))))
         end: (end_keyword)))
     (location_end)))
+
+================
+Lines after a one-line branch are skipped
+================
+# loc
+if 0:
+	elseif x = 1: r = 1
+! a comment
+	s = 5
+	else: r = 9
+	r = 5
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (number_literal)
+        (elseif_clause
+          keyword: (elseif_keyword)
+          condition: (ext_binary
+            (variable_ref
+              name: (identifier_text))
+            (op_cmp)
+            (number_literal))
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal))
+          skipped: (single_line_block
+            (comment_statement
+              (comment_text)))
+          skipped: (single_line_block
+            (assignment_statement
+              variables: (variable_list
+                (variable_ref
+                  name: (identifier_text)))
+              operator: (assignment_operator)
+              value: (number_literal))))
+        (else_clause
+          keyword: (else_keyword)
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal))
+          skipped: (single_line_block
+            (assignment_statement
+              variables: (variable_list
+                (variable_ref
+                  name: (identifier_text)))
+              operator: (assignment_operator)
+              value: (number_literal))))
+        end: (end_keyword)))
+    (location_end)))
+
+================
+One-line else if is an else with an inline if
+================
+# loc
+if 0:
+	else if x = 1: r = 1
+	else if x = 2:
+		r = 2
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (number_literal)
+        (else_clause
+          keyword: (else_keyword)
+          (if_inline
+            keyword: (if_keyword)
+            condition: (ext_binary
+              (variable_ref
+                name: (identifier_text))
+              (op_cmp)
+              (number_literal))
+            then: (assignment_statement
+              variables: (variable_list
+                (variable_ref
+                  name: (identifier_text)))
+              operator: (assignment_operator)
+              value: (number_literal))))
+        (elseif_clause
+          keyword: (elseif_keyword)
+          keyword: (elseif_keyword)
+          condition: (ext_binary
+            (variable_ref
+              name: (identifier_text))
+            (op_cmp)
+            (number_literal))
+          (single_line_block
+            (assignment_statement
+              variables: (variable_list
+                (variable_ref
+                  name: (identifier_text)))
+              operator: (assignment_operator)
+              value: (number_literal))))
+        end: (end_keyword)))
+    (location_end)))
+
+================
+Branches after else
+================
+# loc
+if 0:
+	else
+		r = 9
+	elseif x = 2: r = 2
+	else: r = 3
+end
+--
+---
+
+(source_file
+  (location_block
+    (location_header
+      (location_name))
+    (multi_line_block
+      (if_block
+        keyword: (if_keyword)
+        condition: (number_literal)
+        (else_clause
+          keyword: (else_keyword)
+          (single_line_block
+            (assignment_statement
+              variables: (variable_list
+                (variable_ref
+                  name: (identifier_text)))
+              operator: (assignment_operator)
+              value: (number_literal))))
+        (elseif_clause
+          keyword: (elseif_keyword)
+          condition: (ext_binary
+            (variable_ref
+              name: (identifier_text))
+            (op_cmp)
+            (number_literal))
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal)))
+        (else_clause
+          keyword: (else_keyword)
+          (assignment_statement
+            variables: (variable_list
+              (variable_ref
+                name: (identifier_text)))
+            operator: (assignment_operator)
+            value: (number_literal)))
+        end: (end_keyword)))
+    (location_end)))

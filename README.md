@@ -277,6 +277,7 @@ All diagnostic checks are enabled by default. Set to `false` to disable a specif
 | `qsp.diagnostics.duplicateLabels` | `true` | Warn about duplicate labels within the same location |
 | `qsp.diagnostics.duplicateActions` | `true` | Info about duplicate act statements |
 | `qsp.diagnostics.unreachableLabels` | `true` | Warn about labels that are not at the start of a line (unreachable at runtime) |
+| `qsp.diagnostics.skippedCode` | `true` | Warn about code of a multi-line `IF` that QSP never runs: lines after a one-line `ELSEIF`/`ELSE`, branches after `ELSE`, a one-line `else if` with branches below it |
 | `qsp.diagnostics.unclosedLocations` | `true` | Error about locations not closed with `---` |
 | `qsp.diagnostics.uninitializedVariables` | `true` | Warn about variables used but never assigned |
 | `qsp.diagnostics.unresolvedLocationRefs` | `true` | Warn about refs to undefined locations |

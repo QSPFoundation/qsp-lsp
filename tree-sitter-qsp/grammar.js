@@ -414,7 +414,10 @@ module.exports = grammar({
       ),
     ),
 
-    // PEG: ifMultiLine = ifMarker ... ":" ws commentStatement? newline statementGroup* elseifClause* elseClause? ws endIfMarker (ws noteString)?
+    // PEG: ifMultiLine = ifMarker ... ":" ws commentStatement? newline statementGroup* (elseifClause | elseClause)* ws endIfMarker (ws noteString)?
+    //
+    // Branches come in any order, as in every QSP: one after an ELSE is
+    // never reached, and a diagnostic says so.
     if_block: $ => prec.right(seq(
       field('keyword', alias(ci('if'), $.if_keyword)),
       field('condition', $._ext_expression),
@@ -422,15 +425,14 @@ module.exports = grammar({
       optional($.comment_statement),
       $._newline,
       repeat($._statement_group),
-      repeat($.elseif_clause),
-      optional($.else_clause),
+      repeat(choice($.elseif_clause, $.else_clause)),
       field('end', alias(ci('end'), $.end_keyword)),
       optional(field('note', $.note_string)),
     )),
 
     // PEG: elseifClause = elseifMultiLine | elseifSingleLine (multi tried first)
-    // elseifSingleLine = elseif expr ":" singleLineGroup newline
-    // elseifMultiLine  = elseif expr ":" commentStatement? newline statementGroup*
+    // elseifSingleLine = elseIfNoSpaceMarker expr ":" singleLineGroup newline statementGroup*
+    // elseifMultiLine = elseif expr ":" commentStatement? newline statementGroup*
     //
     // The ":" after the condition is mandatory in both variants.
     // We don't fuse it with the keyword since there's an expression between them.
@@ -442,16 +444,19 @@ module.exports = grammar({
         ':', optional($.comment_statement), $._newline,
         repeat($._statement_group),
       ),
-      // Single-line: body on same line as ":"
+      // Single-line: body on same line as ":". QSP skips the lines after it up
+      // to the next branch or END (`skipped`). Only ELSEIF: on one line
+      // `else if x: …` is an ELSE whose body is an inline IF.
       seq(
-        field('keyword', alias(choice(ci('elseif'), seq(ci('else'), ci('if'))), $.elseif_keyword)),
+        field('keyword', alias(ci('elseif'), $.elseif_keyword)),
         field('condition', $._ext_expression),
         ':', $._single_line_group, $._newline,
+        repeat(field('skipped', $._statement_group)),
       ),
     )),
 
     // PEG: elseClause = elseMultiLine | elseSingleLine
-    // elseSingleLine = elseMarker (":" ws)? singleLineGroup newline
+    // elseSingleLine = elseMarker (":" ws)? singleLineGroup newline statementGroup*
     // elseMultiLine  = elseMarker (":" commentStatement?)? newline statementGroup*
     //
     // The colon after "else" is optional. To prevent ":" from being stolen
@@ -461,15 +466,16 @@ module.exports = grammar({
     //   2. else   \n stmts              — multi-line without colon
     //   3. else:  body \n               — single-line with colon (fused token)
     //   4. else   body \n               — single-line without colon
+    // After a single-line ELSE, QSP skips the lines up to the next branch or END.
     else_clause: $ => prec.right(choice(
       // Multi-line with colon: else: [!comment] \n stmts
       seq(field('keyword', alias(kwc('else'), $.else_keyword)), optional($.comment_statement), $._newline, repeat($._statement_group)),
       // Multi-line without colon: else [!comment] \n stmts
       seq(field('keyword', alias(ci('else'), $.else_keyword)), optional($.comment_statement), $._newline, repeat($._statement_group)),
-      // Single-line with colon: else: body \n
-      seq(field('keyword', alias(kwc('else'), $.else_keyword)), $._single_line_group, $._newline),
-      // Single-line without colon: else body \n
-      seq(field('keyword', alias(ci('else'), $.else_keyword)), $._single_line_group, $._newline),
+      // Single-line with colon: else: body \n [skipped lines]
+      seq(field('keyword', alias(kwc('else'), $.else_keyword)), $._single_line_group, $._newline, repeat(field('skipped', $._statement_group))),
+      // Single-line without colon: else body \n [skipped lines]
+      seq(field('keyword', alias(ci('else'), $.else_keyword)), $._single_line_group, $._newline, repeat(field('skipped', $._statement_group))),
     )),
 
     // ══════════════════════════════════════════════════════════════════════════

@@ -16,7 +16,7 @@ import {
   forVersion,
   lookupBuiltin,
 } from '../../parser';
-import type { SyntaxFeatureUse } from '../../parser/symbolTypes';
+import type { SkippedCode, SyntaxFeatureUse } from '../../parser/symbolTypes';
 import { SYNTAX_VERSION_LABELS, isAtLeast, type SyntaxVersion } from '../../common/syntaxVersion';
 import { DiagnosticCtx, mapPush } from './diagnosticHelpers';
 
@@ -54,6 +54,43 @@ export function checkUnreachableLabels(
       + ' at runtime.',
       { code: 'unreachableLabels' },
     );
+  }
+}
+
+const SKIPPED_AFTER: Readonly<Record<SkippedCode['after'], string>> = {
+  elseif: 'a one-line ELSEIF',
+  else: 'a one-line ELSE',
+  elseIf: 'a one-line ELSE IF',
+};
+
+/**
+ * Code of a multi-line IF that QSP accepts but never runs (in every
+ * version): lines after a one-line branch, branches after an ELSE, and the
+ * one-line `else if` (an ELSE with an inline IF in it, though it reads like
+ * an ELSEIF) that branches come after.
+ */
+export function checkSkippedCode(ctx: DiagnosticCtx, locSyms: LocationSymbols): void {
+  for (const sc of locSyms.skippedCode) {
+    const range = ctx.locRange(sc.loc);
+    switch (sc.kind) {
+      case 'lines':
+        ctx.push(DiagnosticSeverity.Warning, range,
+          `QSP never runs these lines: after ${SKIPPED_AFTER[sc.after]} it goes on at the next branch or END`,
+          { code: 'skippedCode', unnecessary: true });
+        break;
+      case 'branch':
+        ctx.push(DiagnosticSeverity.Warning, range,
+          sc.after === 'elseIf'
+            ? 'QSP never reaches this branch: the ELSE IF on one line above is an ELSE with an inline IF in it, not an ELSEIF'
+            : 'QSP never reaches this branch: it comes after ELSE',
+          { code: 'skippedCode', unnecessary: true });
+        break;
+      case 'elseIf':
+        ctx.push(DiagnosticSeverity.Warning, range,
+          'On one line ELSE IF is an ELSE with an inline IF in it, not an ELSEIF: QSP never reaches the branches below. Write ELSEIF',
+          { code: 'skippedCode' });
+        break;
+    }
   }
 }
 
@@ -481,6 +518,7 @@ export function checkLocationSymbols(
   if (ctx.settings.duplicateLabels)            checkDuplicateLabels(ctx, locSyms);
   if (ctx.settings.duplicateActions)           checkDuplicateActions(ctx, locSyms);
   if (ctx.settings.unreachableLabels)          checkUnreachableLabels(ctx, locSyms);
+  if (ctx.settings.skippedCode)                checkSkippedCode(ctx, locSyms);
   if (ctx.settings.unresolvedLocationRefs)     checkUnresolvedLocationRefs(ctx, locSyms, allLocationDefs, isProject);
   if (ctx.settings.unresolvedLabelRefs)        checkUnresolvedLabelRefs(ctx, locSyms);
   if (ctx.settings.unresolvedActionRefs)       checkUnresolvedActionRefs(ctx, locSyms, definedActions);

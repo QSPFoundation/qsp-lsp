@@ -58,6 +58,7 @@ export const ALL_DIAGS_OFF: DiagnosticSettings = {
   duplicateLocations: false,
   duplicateLabels: false,
   duplicateActions: false,
+  skippedCode: false,
   unclosedLocations: false,
   uninitializedVariables: false,
   unresolvedLocationRefs: false,

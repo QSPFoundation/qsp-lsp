@@ -415,6 +415,23 @@ export interface DeprecationWarning {
 }
 
 /**
+ * Code of a multi-line IF that QSP accepts but never runs (the same in
+ * 5.7, 5.9.5 and 5.9.6). After a one-line ELSEIF or ELSE it goes on at the
+ * next branch or END, and it never reaches a branch after an ELSE.
+ */
+export interface SkippedCode {
+  loc: SymbolLocation;
+  /**
+   * `lines` after a one-line branch; a `branch` after an ELSE; the
+   * one-line `elseIf` (`else if x: …`, an ELSE whose body is an inline IF)
+   * that the branches below it come after.
+   */
+  kind: 'lines' | 'branch' | 'elseIf';
+  /** What it comes after: a one-line ELSEIF, an ELSE, or a one-line `else if`. */
+  after: 'elseif' | 'else' | 'elseIf';
+}
+
+/**
  * One entry in the document-wide `globalBindings` index — pairs a
  * binding site with the location it lives in.
  */

@@ -104,18 +104,23 @@ QSP {
     ifSingleLine            = ifMarker &delimiterChar ws expression ws ":" ws singleLineGroup (ws elseIfMarker &delimiterChar ws expression ws ":" ws singleLineGroup)* (ws elseMarker &delimiterChar ws (":" ws)? singleLineGroup)?
     ifMultiLine             = ifMarker &delimiterChar ws expression ws ":" ws commentStatement? newline
                               statementGroup*
-                              elseifClause*
-                              elseClause?
+                              (elseifClause | elseClause)*
                               ws endIfMarker &delimiterChar (ws noteString)?
 
+    /* Here: as every player (5.7, 5.9.5, 5.9.6) runs it, branches come in any order, and one
+       after an ELSE is never reached; after a one-line ELSEIF or ELSE the lines up to the next
+       branch or END are skipped (they may hold nested blocks); and on one line "else if x: ..."
+       is an ELSE whose body is an inline IF, so only "elseif" starts a one-line ELSEIF. */
     elseifClause            = ws (elseifMultiLine | elseifSingleLine)
-    elseifSingleLine        = elseIfMarker &delimiterChar ws expression ws ":" ws singleLineGroup ws newline
+    elseifSingleLine        = elseIfNoSpaceMarker &delimiterChar ws expression ws ":" ws singleLineGroup ws newline
+                              statementGroup*
     elseifMultiLine         = elseIfMarker &delimiterChar ws expression ws ":" ws commentStatement? newline
                               statementGroup*
 
     elseClause              = ws (elseMultiLine | elseSingleLine)
     elseSingleLine          = elseMarker &delimiterChar ws (":" ws)? singleLineGroup ws newline
-    elseMultiLine           = elseMarker &delimiterChar ws (":" ws)? commentStatement? newline
+                              statementGroup*
+    elseMultiLine          = elseMarker &delimiterChar ws (":" ws)? commentStatement? newline
                               statementGroup*
 
     /* ====================

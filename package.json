@@ -773,6 +773,11 @@
           "default": true,
           "description": "Warn about labels that are not at the start of a line - they are unreachable."
         },
+        "qsp.diagnostics.skippedCode": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Warn about code of a multi-line `IF` that QSP accepts but never runs: lines after a one-line `ELSEIF` or `ELSE` (up to the next branch or `END`), branches after `ELSE`, and a one-line `else if x: …` with branches below it (an `ELSE` whose body is an inline `IF`, not an `ELSEIF`)."
+        },
         "qsp.diagnostics.unclosedLocations": {
           "type": "boolean",
           "default": true,

@@ -48,6 +48,7 @@ export interface DiagnosticSettings {
   duplicateLabels: boolean;
   duplicateActions: boolean;
   unreachableLabels: boolean;
+  skippedCode: boolean;
   unclosedLocations: boolean;
   uninitializedVariables: boolean;
   unresolvedLocationRefs: boolean;
