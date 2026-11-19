@@ -63,7 +63,7 @@ function readGameConfig(workspaceDir: string): GameConfig | undefined {
 
 async function projectSources(host: QspHost): Promise<Source[]> {
   const sources: Source[] = [];
-  for await (const abs of fsProvider.findFiles(host.workspaceDir, QSP_FILE_EXTENSIONS)) {
+  for await (const abs of fsProvider.findFiles(host.workspaceDir, QSP_FILE_EXTENSIONS, host.excludeMatcher())) {
     sources.push({ abs, relPath: path.relative(host.workspaceDir, abs).split(path.sep).join('/'), sortKey: host.uriOf(abs) });
   }
   return sources;

@@ -36,6 +36,7 @@ import { installedLibraries, withoutLibraries } from '../common/libraryConfig';
 import { findLocationConflicts, locationConflictMessage } from '../common/locationConflicts';
 import { joinSources, normalizeText } from '../common/projectFiles';
 import * as logger from './logger';
+import { findProjectFiles } from './projectExclude';
 
 // UTF-8 BOM — matches what txt2gam CLI emits and what the server's
 // decodeBuffer recognises at highest priority.
@@ -75,7 +76,7 @@ export async function readFileAsText(
  * first (it always starts at the first location).
  */
 export async function collectProjectUris(glob: string): Promise<vscode.Uri[]> {
-  const uris = await vscode.workspace.findFiles(glob);
+  const uris = await findProjectFiles(glob);
   uris.sort((a, b) => a.toString().localeCompare(b.toString()));
   return uris;
 }

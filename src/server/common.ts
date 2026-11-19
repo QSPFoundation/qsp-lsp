@@ -42,6 +42,7 @@ import { analyzeParsedLocation, collectFoldLines } from './locationAnalysis';
 import { AnalysisStatusReporter } from './analysisStatus';
 import { ANALYSIS_STATUS_MIN_BYTES, SETTLED_REQUEST } from '../common/analysisStatus';
 import { libraryFolderPrefixes } from '../common/libraryConfig';
+import { IGNORE_FILE_NAME } from '../common/projectExclude';
 import { parseSuppressions } from '../common/suppressions';
 import { DEFAULT_SYNTAX_VERSION, isSyntaxVersion } from '../common/syntaxVersion';
 import { PerfLog, formatChars, type ServerHost } from './perfLog';
@@ -287,7 +288,7 @@ export function createQspServer(
   // is owned by ./diagnostics so adding a flag in one place compiles
   // everywhere it's used.
   interface QspSettings {
-    project: { enabled: boolean };
+    project: { enabled: boolean; exclude: string[] };
     embeddedExec: { enabled: boolean };
     diagnostics: DiagnosticSettings;
     semanticHighlighting: { enabled: boolean };
@@ -296,7 +297,7 @@ export function createQspServer(
   }
 
   const defaultSettings: QspSettings = {
-    project: { enabled: true },
+    project: { enabled: true, exclude: [] },
     embeddedExec: { enabled: true },
     diagnostics: {
       duplicateLocations: true,
@@ -369,7 +370,10 @@ export function createQspServer(
     diagnostics.syntaxVersion = isSyntaxVersion(qspConfig?.syntaxVersion) ? qspConfig.syntaxVersion : DEFAULT_SYNTAX_VERSION;
     diagnostics.libraryFolders = libraryFolderPrefixes(workspaceFolderUris);
     return {
-      project: { enabled: pick(proj?.enabled, defaultSettings.project.enabled) },
+      project: {
+        enabled: pick(proj?.enabled, defaultSettings.project.enabled),
+        exclude: Array.isArray(proj?.exclude) ? proj.exclude.filter((p): p is string => typeof p === 'string') : [],
+      },
       embeddedExec: { enabled: pick(emb?.enabled, defaultSettings.embeddedExec.enabled) },
       diagnostics: diagnostics as unknown as DiagnosticSettings,
       semanticHighlighting: { enabled: pick(sem?.enabled, defaultSettings.semanticHighlighting.enabled) },
@@ -389,6 +393,7 @@ export function createQspServer(
     // (src/client/crashReports.ts). Start before anything is parsed: the
     // initial load is where large games crash.
     workspaceFolderUris = params.workspaceFolders?.map(f => f.uri) ?? [];
+    project.workspaceFolderUris = workspaceFolderUris;
     // Until the client's configuration arrives (parseSettingsFromConfig sets it too).
     settings = { ...settings, diagnostics: { ...settings.diagnostics, libraryFolders: libraryFolderPrefixes(workspaceFolderUris) } };
     // The client passes a per-workspace directory when qsp.cache.enabled is on.
@@ -502,7 +507,7 @@ export function createQspServer(
 
     // Register file watcher for project mode
     if (fsProvider) {
-      const globs = QSP_FILE_EXTENSIONS.map(ext => `**/*${ext}`);
+      const globs = [...QSP_FILE_EXTENSIONS.map(ext => `**/*${ext}`), `**/${IGNORE_FILE_NAME}`];
       safeConnectionCall(() => connection.client.register(DidChangeWatchedFilesNotification.type, {
         watchers: globs.map(globPattern => ({ globPattern })),
       }));
@@ -517,6 +522,7 @@ export function createQspServer(
       fileEncoding = filesConfig?.encoding ?? 'utf8';
       settings = parseSettingsFromConfig(qspConfig as Record<string, unknown> | undefined);
       project.embeddedExecEnabled = settings.embeddedExec.enabled;
+      project.excludeSetting = settings.project.exclude;
       perf.verbose = settings.debug.performanceLog;
       status.configure(settings.project.enabled ? { state: 'loading', files: 0 } : undefined);
       log.log(`[QSP] Server ready (encoding: ${fileEncoding}, project: ${settings.project.enabled}, embeddedExec: ${settings.embeddedExec.enabled})`);
@@ -540,6 +546,16 @@ export function createQspServer(
 
   connection.onDidChangeWatchedFiles((params) => {
     if (!settings.project.enabled) return;
+    // A changed .qspignore changes which files are in the project: load it
+    // again (the analysis cache keeps that quick). The batch's other
+    // changes are read by the load.
+    if (params.changes.some(c => project.isIgnoreFile(c.uri))) {
+      log.log(`[QSP] ${IGNORE_FILE_NAME} changed: loading the project again`);
+      running(reloadProject());
+      return;
+    }
+    const changes = params.changes.filter(c => !c.uri.toLowerCase().endsWith(`/${IGNORE_FILE_NAME}`));
+    if (changes.length === 0) return;
     // Apply the whole batch of changes and rebuild project aggregates
     // ONCE at the end, instead of once per changed file (a `git
     // checkout` touching hundreds of files would otherwise trigger
@@ -547,7 +563,7 @@ export function createQspServer(
     // handler, so nothing awaits its result; rejections are caught here
     // so they can't become unhandled rejections that crash the server.
     running(project.handleWatchedFileChanges(
-      params.changes, fsProvider, fileEncoding,
+      changes, fsProvider, fileEncoding,
       settings.diagnostics,
       () => collectCallTypesPerTarget(documentStates),
       (ownUri: string) => collectPeerDocs(documentStates, ownUri),
@@ -570,8 +586,10 @@ export function createQspServer(
       fileEncoding = filesConfig?.encoding ?? 'utf8';
       const prevProjectEnabled = settings.project.enabled;
       const prevEmbeddedExec = settings.embeddedExec.enabled;
+      const prevExclude = JSON.stringify(settings.project.exclude);
       settings = parseSettingsFromConfig(qspConfig as Record<string, unknown> | undefined);
       project.embeddedExecEnabled = settings.embeddedExec.enabled;
+      project.excludeSetting = settings.project.exclude;
       perf.verbose = settings.debug.performanceLog;
 
       if (settings.embeddedExec.enabled !== prevEmbeddedExec) {
@@ -595,6 +613,9 @@ export function createQspServer(
         for (const doc of documents.all()) {
           analyzeDocument(doc);
         }
+      } else if (settings.project.enabled && JSON.stringify(settings.project.exclude) !== prevExclude) {
+        log.log('[QSP] qsp.project.exclude changed: loading the project again');
+        await reloadProject();
       } else if (settings.project.enabled) {
         projectRebuildAndReanalyze();
       }
@@ -646,6 +667,17 @@ export function createQspServer(
       safeConnectionCall(() => progress?.done());
       if (settings.project.enabled) reportProjectSize();
       endProjectLoad();
+    }
+  }
+
+  // Which files are in the project changed: start over. Open files the
+  // project now leaves out are checked on their own.
+  async function reloadProject(): Promise<void> {
+    cancelProjectRediagnose();
+    project.teardown();
+    await initProject();
+    for (const doc of documents.all()) {
+      if (project.isExcluded(doc.uri)) analyzeDocument(doc);
     }
   }
 
@@ -748,7 +780,7 @@ export function createQspServer(
 
   documents.onDidOpen((event: { document: TextDocument }) => {
     // In project mode, add to project file set
-    if (settings.project.enabled) {
+    if (settings.project.enabled && !project.isExcluded(event.document.uri)) {
       project.projectFileUris.add(event.document.uri);
       if (project.projectAggregates) reportProjectSize();
     }

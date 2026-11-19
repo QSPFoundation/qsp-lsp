@@ -51,6 +51,7 @@ import { diagnosticsSteps } from './diagnostics';
 import { runInSlices, runNow, timed, type Steps } from './slices';
 import { analyzeFileText, joinFileAnalyses, splitLocations, SPLIT_MIN_CHARS, type CachedFileAnalysis } from './fileAnalysis';
 import { parseSuppressions } from '../common/suppressions';
+import { excludeMatcher, excludeRules, IGNORE_FILE_NAME, type ExcludeMatcher } from '../common/projectExclude';
 import { PerfLog, formatChars } from './perfLog';
 import { stripBom, QSP_FILE_EXTENSIONS, safeSendDiagnostics, safeConnectionCall, safeConsole, type AnalysisCache, type AnalysisWorkers, type FsProvider } from './serverUtils';
 
@@ -96,6 +97,12 @@ function reviveAnalysis(value: unknown): CachedFileAnalysis | undefined {
 export class ProjectModeService {
   /** Workspace root folders (populated on initialize). */
   workspaceFolders: string[] = [];
+  /** The same folders as URIs, in the same order: where the exclude rules apply. */
+  workspaceFolderUris: string[] = [];
+  /** The `qsp.project.exclude` setting; a folder's `.qspignore` replaces it there. */
+  excludeSetting: readonly unknown[] = [];
+  // One per workspace folder, as of the last project load.
+  private excluders: Array<{ prefix: string; matcher: ExcludeMatcher }> = [];
   /** Disk cache of per-file analysis results, when the client gave a directory for it. */
   analysisCache: AnalysisCache | undefined;
   /**
@@ -184,6 +191,60 @@ export class ProjectModeService {
    * blocks every other LSP request (hover, completion, …) for as long
    * as the whole scan takes. See the FsProvider doc comment for why.
    */
+  /**
+   * Read the rules of what each workspace folder leaves out of the project:
+   * its `.qspignore`, else the setting (the browser has only the setting).
+   */
+  async loadExcludeRules(fsProvider: FsProvider | undefined): Promise<void> {
+    const excluders: Array<{ prefix: string; matcher: ExcludeMatcher }> = [];
+    const settingUsed = this.excludeSetting.some(p => typeof p === 'string' && p.trim() !== '');
+    for (const folderUri of this.workspaceFolderUris) {
+      let text: string | undefined;
+      if (fsProvider) {
+        try {
+          text = await fsProvider.readFile(`${fsProvider.uriToPath(folderUri)}/${IGNORE_FILE_NAME}`);
+        } catch {
+          text = undefined;
+        }
+      }
+      const rules = excludeRules(text, this.excludeSetting);
+      if (rules.source === 'ignoreFile') {
+        this.log.log(`[QSP] ${IGNORE_FILE_NAME}: ${rules.patterns.length} pattern(s) leave files out of the project`
+          + (settingUsed ? '; qsp.project.exclude is not used in this folder' : ''));
+      } else if (rules.source === 'setting') {
+        this.log.log(`[QSP] qsp.project.exclude: ${rules.patterns.length} pattern(s) leave files out of the project`);
+      }
+      excluders.push({ prefix: `${folderUri.replace(/\/+$/, '')}/`.toLowerCase(), matcher: excludeMatcher(rules) });
+    }
+    this.excluders = excluders;
+  }
+
+  /**
+   * Whether the project leaves `uri` out: a file in a workspace folder that
+   * its rules exclude, or in a folder a project never keeps sources in.
+   * Such a file, when open, is checked on its own.
+   */
+  isExcluded(uri: string): boolean {
+    const lower = uri.toLowerCase();
+    for (const { prefix, matcher } of this.excluders) {
+      if (!lower.startsWith(prefix)) continue;
+      let rel = uri.slice(prefix.length);
+      try {
+        rel = decodeURIComponent(rel);
+      } catch {
+        // A malformed escape: match the text as it is.
+      }
+      return matcher.file(rel);
+    }
+    return false;
+  }
+
+  /** Whether `uri` is the `.qspignore` of a workspace folder (a nested one means nothing). */
+  isIgnoreFile(uri: string): boolean {
+    const lower = uri.toLowerCase();
+    return this.excluders.some(({ prefix }) => lower === `${prefix}${IGNORE_FILE_NAME}`);
+  }
+
   async init(
     // Undefined in the browser: only open documents make up the project there.
     fsProvider: FsProvider | undefined,
@@ -206,9 +267,11 @@ export class ProjectModeService {
     // few files so a single directory holding thousands of files can't
     // monopolize the event loop between those directory-level yields.
     let processedSinceYield = 0;
+    await this.loadExcludeRules(fsProvider);
+    if (load !== this.loads) return;
     if (fsProvider) {
-      for (const folder of this.workspaceFolders) {
-        for await (const filePath of fsProvider.findFiles(folder, QSP_FILE_EXTENSIONS)) {
+      for (const [i, folder] of this.workspaceFolders.entries()) {
+        for await (const filePath of fsProvider.findFiles(folder, QSP_FILE_EXTENSIONS, this.excluders[i]?.matcher)) {
           const uri = fsProvider.pathToUri(filePath);
           this.projectFileUris.add(uri);
           onFileFound?.(this.projectFileUris.size);
@@ -237,7 +300,7 @@ export class ProjectModeService {
 
     // Also add all currently open documents
     for (const doc of this.documents.all()) {
-      this.projectFileUris.add(doc.uri);
+      if (!this.isExcluded(doc.uri)) this.projectFileUris.add(doc.uri);
     }
 
     // What the project showed last time it was in this exact state, shown
@@ -823,9 +886,13 @@ export class ProjectModeService {
     fsProvider: FsProvider | undefined,
     fileEncoding: string,
   ): Promise<void> {
-    if (changeType === FileChangeType.Deleted) {
+    // The watcher sees every .qsps; one the project leaves out stays out,
+    // and leaves if it was in.
+    const excluded = changeType !== FileChangeType.Deleted && this.isExcluded(uri);
+    if (excluded && !this.projectFileUris.has(uri)) return;
+    if (changeType === FileChangeType.Deleted || excluded) {
       const label = uri.split('/').pop() ?? uri;
-      this.log.log(`[QSP] File deleted: ${label}`);
+      this.log.log(`[QSP] File ${excluded ? 'left out of the project' : 'deleted'}: ${label}`);
       // File deleted — remove from project
       this.projectFileUris.delete(uri);
       if (!this.documents.get(uri)) {

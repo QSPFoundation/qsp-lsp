@@ -11,6 +11,7 @@ import { ConnectionError, ConnectionErrors } from 'vscode-jsonrpc';
 import { shiftError, type LocationEntry, type SyntaxError, type SymbolLocation } from '../parser';
 import { locationNameCol } from './regexFallback';
 import type { DocumentState } from './featureTypes';
+import type { ExcludeMatcher } from '../common/projectExclude';
 
 /**
  * File-system provider for project mode.
@@ -27,9 +28,13 @@ import type { DocumentState } from './featureTypes';
 export interface FsProvider {
   /** Read a file as text, decoded according to the given encoding. */
   readFile(filePath: string, encoding?: string): Promise<string>;
-  /** Enumerate all files matching the given extensions in a directory
-   *  (recursive), skipping common non-project directories. */
-  findFiles(dir: string, extensions: string[]): AsyncIterable<string>;
+  /**
+   * Enumerate all files matching the given extensions in a directory
+   * (recursive), leaving out what `exclude` does (paths relative to `dir`);
+   * without it, the folders a project never keeps sources in
+   * (`isAlwaysSkippedDir`).
+   */
+  findFiles(dir: string, extensions: string[], exclude?: ExcludeMatcher): AsyncIterable<string>;
   /** Convert a file path to a URI string. */
   pathToUri(filePath: string): string;
   /** Convert a URI string to a file path. */

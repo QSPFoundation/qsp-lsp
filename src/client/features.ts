@@ -39,6 +39,7 @@ import {
 } from './exportCommands';
 import { registerSkeletonExport } from './skeletonExport';
 import { registerSyntaxVersion } from './syntaxVersion';
+import { findProjectFiles } from './projectExclude';
 
 let statusBarItem: vscode.StatusBarItem;
 let locBoundaryDecoration: vscode.TextEditorDecorationType;
@@ -167,7 +168,7 @@ async function goToLocationCommand(context: vscode.ExtensionContext): Promise<vo
   const items: LocItem[] = [];
 
   if (projectEnabled) {
-    const uris = await vscode.workspace.findFiles(qspGlob(context));
+    const uris = await findProjectFiles(qspGlob(context));
     const results = await Promise.all(
       uris.map(async (uri) => {
         const syms = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(

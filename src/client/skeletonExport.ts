@@ -15,6 +15,7 @@ import { readFileAsText } from './exportCommands';
 import { orderedProjectUris, readGameConfig } from './gameConfig';
 import { qspGlob } from './shared';
 import * as logger from './logger';
+import { findProjectFiles } from './projectExclude';
 
 interface SkeletonResult {
   files: { uri: string; text: string }[];
@@ -28,7 +29,7 @@ export function registerSkeletonExport(context: vscode.ExtensionContext, client:
 
 async function exportSkeleton(context: vscode.ExtensionContext, client: BaseLanguageClient): Promise<void> {
   const glob = qspGlob(context);
-  const all = await vscode.workspace.findFiles(glob);
+  const all = await findProjectFiles(glob);
   if (all.length === 0) {
     void vscode.window.showInformationMessage('QSP: no QSP files in the workspace to export.');
     return;

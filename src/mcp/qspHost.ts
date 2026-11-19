@@ -19,6 +19,7 @@ import { parse as parseJsonc } from 'jsonc-parser';
 import { createConnection, TextDocuments } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
+import { excludeMatcher, excludeRules, IGNORE_FILE_NAME, type ExcludeMatcher } from '../common/projectExclude';
 import {
   createMessageConnection,
   StreamMessageReader,
@@ -140,6 +141,7 @@ export class QspHost {
     client.sendNotification(InitializedNotification.type, {});
 
     // The server scans the workspace itself; remember what it will have read.
+    this.ignoreText = this.readIgnoreFile();
     for await (const file of this.scan()) this.known.set(file.path, file.stat);
     await this.waitForStatus(s => s.configured && (!s.project || s.project.state === 'ready') && s.busyUris.length === 0);
   }
@@ -185,6 +187,13 @@ export class QspHost {
     await this.closeAll();
     const seen = new Set<string>();
     const changes: FileEvent[] = [];
+    // A changed .qspignore makes the server load the project again; the
+    // scan below already follows it, so files it now leaves out read as deleted.
+    const ignoreText = this.readIgnoreFile();
+    if (this.ignoreText !== null && ignoreText !== this.ignoreText) {
+      changes.push({ uri: this.uriOf(path.join(this.workspaceDir, IGNORE_FILE_NAME)), type: FileChangeType.Changed });
+    }
+    this.ignoreText = ignoreText;
     for await (const { path: file, stat } of this.scan()) {
       seen.add(file);
       const before = this.known.get(file);
@@ -202,7 +211,8 @@ export class QspHost {
 
     // The whole batch is re-analyzed once, and every project file's
     // diagnostics are published again, the last of them after the rebuild.
-    const analyzed = changes.filter(e => e.type !== FileChangeType.Deleted).map(e => this.nextDiagnostics(e.uri));
+    const analyzed = changes.filter(e => e.type !== FileChangeType.Deleted && !e.uri.endsWith(`/${IGNORE_FILE_NAME}`))
+      .map(e => this.nextDiagnostics(e.uri));
     this.client.sendNotification(DidChangeWatchedFilesNotification.type, { changes });
     await Promise.all(analyzed);
     await this.settled();
@@ -287,10 +297,32 @@ export class QspHost {
     return this.diagnostics;
   }
 
+  /**
+   * What the project leaves out, as the language server reads it: the
+   * workspace's `.qspignore`, else `qsp.project.exclude`. Read each time, so
+   * an edit of either counts at the next call.
+   */
+  excludeMatcher(): ExcludeMatcher {
+    const text = this.readIgnoreFile();
+    const setting = (nestUnder(this.settings, 'qsp').project as { exclude?: unknown } | undefined)?.exclude;
+    return excludeMatcher(excludeRules(text, Array.isArray(setting) ? setting : undefined));
+  }
+
   // ── Internals ────────────────────────────────────────────────────
 
+  // The .qspignore's text as sync() last told the server; `null` before the first.
+  private ignoreText: string | undefined | null = null;
+
+  private readIgnoreFile(): string | undefined {
+    try {
+      return fs.readFileSync(path.join(this.workspaceDir, IGNORE_FILE_NAME), 'utf8');
+    } catch {
+      return undefined;
+    }
+  }
+
   private async *scan(): AsyncGenerator<{ path: string; stat: KnownFile }> {
-    for await (const file of fsProvider.findFiles(this.workspaceDir, QSP_FILE_EXTENSIONS)) {
+    for await (const file of fsProvider.findFiles(this.workspaceDir, QSP_FILE_EXTENSIONS, this.excludeMatcher())) {
       try {
         const st = await fs.promises.stat(file);
         yield { path: file, stat: { mtimeMs: st.mtimeMs, size: st.size } };

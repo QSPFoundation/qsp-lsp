@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import { URI } from 'vscode-uri';
 import type { WasmLoader, WasmDirProvider } from '../parser';
 import type { FsProvider } from './serverUtils';
+import { excludeMatcher, type ExcludeMatcher } from '../common/projectExclude';
 
 /**
  * WASM locations inside the extension's `out/` directory:
@@ -114,8 +115,6 @@ function swapAndDecode(buf: Buffer): string {
 // Directories that are never part of a QSP project and can be huge
 // (node_modules in particular can hold tens of thousands of files) —
 // skipped outright during the workspace scan below.
-const IGNORED_DIR_NAMES = new Set(['node_modules', '.git', 'out', 'vendor', '.venv']);
-
 /** Yield to the event loop so pending LSP requests get a turn. */
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -132,8 +131,10 @@ export const fsProvider: FsProvider = {
   // event loop after every directory means a scan of a large workspace
   // no longer runs as a single uninterrupted synchronous block — see the
   // FsProvider doc comment in serverUtils.ts for why that matters.
-  async *findFiles(dir: string, extensions: string[]): AsyncIterable<string> {
+  async *findFiles(dir: string, extensions: string[], exclude?: ExcludeMatcher): AsyncIterable<string> {
     const extSet = new Set(extensions);
+    const skip = exclude ?? excludeMatcher({ patterns: [], source: 'none' });
+    const rel = (p: string) => path.relative(dir, p).split(path.sep).join('/');
 
     async function* walk(dirPath: string): AsyncGenerator<string> {
       let entries: fs.Dirent[];
@@ -144,14 +145,12 @@ export const fsProvider: FsProvider = {
       }
       await yieldToEventLoop();
       for (const entry of entries) {
+        const entryPath = path.join(dirPath, entry.name);
         if (entry.isDirectory()) {
-          if (IGNORED_DIR_NAMES.has(entry.name) || entry.name.startsWith('.')) continue;
-          yield* walk(path.join(dirPath, entry.name));
+          if (!skip.dir(rel(entryPath))) yield* walk(entryPath);
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase();
-          if (extSet.has(ext)) {
-            yield path.join(dirPath, entry.name);
-          }
+          if (extSet.has(ext) && !skip.file(rel(entryPath))) yield entryPath;
         }
       }
     }

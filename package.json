@@ -717,6 +717,15 @@
           "default": true,
           "description": "Enable project mode: treat all .qsps/.qsrc files in the workspace as parts of one combined game file. Cross-file diagnostics, completions, and navigation will span all project files."
         },
+        "qsp.project.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "Files and folders left out of the project: not analysed with the rest, not built, not in **Go to Location**. One pattern per item, as in `.gitignore`: a name without `/` matches at any depth (`_export`, `*.bak.qsps`), a pattern with `/` is a path from the workspace folder (`src/old/*.qsps`, `**/drafts/**`). A `.qspignore` file at the root of the workspace folder, one pattern per line, replaces this setting there (the two are not combined). Folders starting with a dot, `node_modules`, `out` and `vendor` are always left out. A left-out file that is open is checked on its own."
+        },
         "qsp.syntaxVersion": {
           "type": "string",
           "enum": [

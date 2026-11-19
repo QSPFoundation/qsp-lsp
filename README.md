@@ -174,6 +174,11 @@ The server reads the files on disk: save files open in the editor before asking 
 - When `qsp.project.enabled` is true, all `.qsps`/`.qsrc` files in the workspace are treated as one combined game
 - Cross-file diagnostics: duplicate locations, unresolved references, variable dataflow
 - Cross-file completions, go-to-definition, and navigation
+- Files left out of the project (not analysed with the rest, not built): list them in a `.qspignore` file at the root of
+  the workspace folder, one pattern per line as in `.gitignore` (`_export/`, `*.bak.qsps`, `src/old/*.qsps`), or in the
+  `qsp.project.exclude` setting. A folder with a `.qspignore` follows it alone, so everyone who opens the repository
+  leaves out the same files. Folders starting with a dot, `node_modules`, `out` and `vendor` are always left out. A
+  left-out file that is open is checked on its own, so a built copy of the game's locations doesn't show them twice.
 
 ### Diagnostics
 - **Syntax errors** from tree-sitter parsing
@@ -253,6 +258,7 @@ The quick fix menu (**Ctrl+.** or the light bulb) on a diagnostic writes these c
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `qsp.project.enabled` | `true` | Enable project mode: treat all `.qsps`/`.qsrc` files as one combined game |
+| `qsp.project.exclude` | `[]` | Files and folders left out of the project, as in `.gitignore`; a `.qspignore` at the workspace folder's root replaces it |
 | `qsp.syntaxVersion` | `5.9.5` | The QSP library the game is written for: `5.7.0` (the classic player, [qsp-legacy](https://github.com/QSPFoundation/qsp-legacy)), `5.9.5` (the last release) or `5.9.6` (the library's development version). Constructs of a newer version are errors, and hovers, completion and argument counts follow the version. Also picked from the `QSP 5.9.5` status bar item and saved in the workspace settings |
 | `qsp.trace.server`    | `off`  | Traces LSP communication (`off`, `messages`, `verbose`) |
 | `qsp.semanticHighlighting.enabled` | `true` | Enable semantic token highlighting (requires tree-sitter) |

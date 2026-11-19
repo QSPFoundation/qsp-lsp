@@ -64,6 +64,7 @@ import {
 } from '../common/buildPlan';
 import type { LibrariesConfig } from '../common/libraryConfig';
 import * as logger from './logger';
+import { findProjectFiles } from './projectExclude';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -244,7 +245,7 @@ async function discoverFileList(
 ): Promise<{ files?: string[]; mainFile?: string }> {
   const root = workspaceRoot();
   if (!qspGlobPattern || !root) return {};
-  const uris = await vscode.workspace.findFiles(qspGlobPattern);
+  const uris = await findProjectFiles(qspGlobPattern);
   if (uris.length === 0) return {};
   uris.sort((a, b) => a.toString().localeCompare(b.toString()));
 
@@ -354,7 +355,7 @@ export async function collectOrderedUris(
   if (!cfg?.files || cfg.files.length === 0) {
     // Original behaviour: all QSP files alphabetically.
     logger.log('[Config] No explicit file list — collecting all QSP files alphabetically');
-    const uris = await vscode.workspace.findFiles(qspGlobPattern);
+    const uris = await findProjectFiles(qspGlobPattern);
     uris.sort((a, b) => a.toString().localeCompare(b.toString()));
     logger.log(`[Config] Collected ${uris.length} file(s) (alphabetical)`);
     return uris;
@@ -365,7 +366,7 @@ export async function collectOrderedUris(
   logger.log(`[Config] Resolving ${cfg.files.length} file glob(s)...`);
 
   for (const pattern of cfg.files) {
-    const matches = await vscode.workspace.findFiles(pattern);
+    const matches = await findProjectFiles(pattern);
     matches.sort((a, b) => a.toString().localeCompare(b.toString()));
     for (const uri of matches) {
       const key = uri.toString();
